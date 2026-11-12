@@ -18,8 +18,10 @@ use crate::motion;
 use crate::selection::Pages;
 use crate::sounds::EnglishVoice;
 use crate::theme::Tokens;
-use crate::ui_command::{Command, Commands, Download, Sent, UiCommand};
+use crate::ui_command::{Commands, Sent, UiCommand};
 use crate::widgets;
+use mareader_engine::command::Command;
+use mareader_engine::dict::Download;
 use mareader_engine::read_aloud::parts;
 
 mod ask;
@@ -74,7 +76,7 @@ pub struct Lit {
     pub span: Span,
 }
 
-pub use mareader_engine::read_aloud::ReadFrom;
+use mareader_engine::read_aloud::ReadFrom;
 
 /// Where the words read are: by place in the book, or on its pages.
 #[derive(Clone, Copy, Debug, PartialEq)]

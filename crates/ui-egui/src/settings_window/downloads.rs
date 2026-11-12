@@ -6,8 +6,9 @@ use mareader_speech::Stage;
 use crate::dict::megabytes;
 use crate::icons::Icon;
 use crate::theme::Tokens;
-use crate::ui_command::{Commands, Download, Sent};
+use crate::ui_command::{Commands, Sent};
 use crate::widgets;
+use mareader_engine::dict::Download;
 
 /// One download's buttons: labelled "{verb} {name}", each asking `ask`.
 pub(super) struct Buttons<'a, F: Fn(Download) -> Sent> {

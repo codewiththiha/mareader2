@@ -18,8 +18,9 @@ use crate::dial_deck::labels::{mode_icon, noise_label, strength_percent};
 use crate::gpu::{Anchor, Gpu, GrainCallback, PagesCallback, Quad, crawl_offset};
 use crate::icons::Icon;
 use crate::theme::Tokens;
-use crate::ui_command::{Command, Commands, Independence, Sent};
+use crate::ui_command::{Commands, Sent};
 use crate::widgets;
+use mareader_engine::command::{Command, Independence};
 
 pub const WIDTH: f32 = 300.0;
 /// A slider row's name and value boxes: fixed, so no value widens it.
@@ -80,7 +81,7 @@ pub struct MenuContext<'a> {
     pub text: Option<QuickText>,
 }
 
-pub use mareader_engine::appearance_menu::QuickText;
+use mareader_engine::appearance_menu::QuickText;
 
 /// Edits a copy and pushes one command when anything changed.
 pub fn show(ui: &mut Ui, cx: &MenuContext<'_>, out: &mut Commands) {

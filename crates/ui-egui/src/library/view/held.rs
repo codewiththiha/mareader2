@@ -1,5 +1,6 @@
 //! Books the AI is organizing: a pass of light and a caption, no badge.
 
+use mareader_engine::library::Finding;
 use std::collections::BTreeSet;
 use std::f32::consts::TAU;
 
@@ -7,9 +8,9 @@ use egui::{Color32, CornerRadius, FontId, Pos2, Rect, Response, Ui, pos2};
 use mareader_library::BookId;
 
 use super::{Cx, face, line};
-use crate::library::Pick;
 use crate::library::organizing::{Bound, Proposal};
 use crate::motion;
+use mareader_library::picks::Pick;
 
 /// A pass of light every so often, each card a beat after the last.
 const PERIOD: f64 = 2.6;

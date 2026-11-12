@@ -7,12 +7,14 @@ use egui::{
 use crate::icons::Icon;
 use crate::icons::anim::{self, Act};
 use crate::keymap;
-use crate::layout::ViewMode;
 use crate::platform::Platform;
 use crate::theme::Tokens;
-use crate::ui_command::{Command, Commands, Sent, UiCommand, WindowCommand};
+use crate::ui_command::{Commands, Sent, UiCommand, WindowCommand};
 use crate::widgets;
-use crate::zoom::{Fit, Step, ZoomCommand, ZoomState};
+use crate::zoom::ZoomState;
+use mareader_engine::command::Command;
+use mareader_engine::pane::ViewMode;
+use mareader_engine::pane::{Fit, Step, ZoomCommand};
 
 pub const VIEW_MENU: &str = "view-menu";
 const WIDTH: f32 = 272.0;

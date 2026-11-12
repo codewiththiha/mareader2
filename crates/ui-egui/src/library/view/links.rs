@@ -8,9 +8,12 @@ use super::{
     picking,
 };
 use crate::icons::Icon;
-use crate::library::{Action, Pick, menus};
+use crate::library::menus;
 use crate::theme::{self, Tokens};
-use crate::ui_command::{Command, Sent};
+use crate::ui_command::Sent;
+use mareader_engine::command::Command;
+use mareader_engine::library::Action;
+use mareader_library::picks::Pick;
 
 /// The line under a link's name.
 fn says(link: &Link) -> &'static str {

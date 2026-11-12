@@ -3,12 +3,13 @@
 use egui::{Id, Popup, PopupCloseBehavior, RectAlign, RichText, Ui};
 use mareader_library::{COLUMNS_MAX, COLUMNS_MIN, CoverFit, Home, Layout, SortKey, View};
 
-use super::{Action, ShelfAction};
 use crate::icons::Icon;
 use crate::platform::Platform;
 use crate::titlebar::LibraryBar;
-use crate::ui_command::{Command, Commands, Sent};
+use crate::ui_command::{Commands, Sent};
 use crate::widgets;
+use mareader_engine::command::Command;
+use mareader_engine::library::{Action, ShelfAction};
 
 pub const LIBRARY_VIEW_MENU: &str = "library-view-menu";
 /// The sort orders' fold, and its name.

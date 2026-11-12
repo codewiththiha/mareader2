@@ -9,7 +9,9 @@ use mareader_session::PageSize;
 pub const GAP: f32 = 12.0;
 pub const MARGIN: f32 = 16.0;
 
-pub use mareader_engine::pane::{Arrow, ViewMode};
+use mareader_engine::pane::ViewMode;
+#[cfg(test)]
+use mareader_engine::pane::Arrow;
 
 /// What a fit measures: what shows together, at zoom 1.
 pub fn fit_box(

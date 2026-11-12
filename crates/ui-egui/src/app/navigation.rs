@@ -38,8 +38,8 @@ impl MareaderApp {
     }
 
     /// The floating Dictionary: its state lives in the settings.
-    pub(super) fn dict_window(&mut self, w: crate::dict::Window) {
-        use crate::dict::Window as W;
+    pub(super) fn dict_window(&mut self, w: mareader_engine::dict::Window) {
+        use mareader_engine::dict::Window as W;
         if !matches!(w, W::Place(_)) {
             self.ui.read_aloud.yield_to_dictionary();
         }
@@ -72,7 +72,7 @@ impl MareaderApp {
         self.ui.dict.escape();
         let floats = self.settings().dictionary.opens == DictionaryOpens::Window;
         if self.route() == Route::Reader && floats {
-            self.dict_window(crate::dict::Window::Focus);
+            self.dict_window(mareader_engine::dict::Window::Focus);
         } else {
             self.go(Route::Dictionary);
         }

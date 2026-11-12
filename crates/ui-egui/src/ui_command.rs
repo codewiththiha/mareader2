@@ -4,9 +4,8 @@
 //! only moves what is on it. A view pushes `Sent`; the app hands an
 //! command to the engine and carries a `UiCommand` out itself, in egui.
 
-pub use mareader_engine::command::{Command, Independence};
-pub use mareader_engine::dict::Download;
-pub use mareader_engine::route::Route;
+use mareader_engine::command::Command;
+use mareader_engine::route::Route;
 
 use egui::{Context, ViewportCommand};
 
@@ -156,7 +155,7 @@ fn chrome_reads(ui: &UiCommand) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::layout::ViewMode;
+    use mareader_engine::pane::ViewMode;
 
     #[test]
     fn the_library_drops_what_acts_on_panes() {

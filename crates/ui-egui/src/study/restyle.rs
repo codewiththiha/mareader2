@@ -5,11 +5,12 @@ use mareader_appearance::Rgb;
 use mareader_library::{MarkId, Pen, Style};
 use mareader_settings::{HighlightSettings, Reserved};
 
-use super::Action;
 use super::bar::pen_icon;
 use crate::theme::{Tokens, color};
-use crate::ui_command::{Command, Commands, Sent};
+use crate::ui_command::{Commands, Sent};
 use crate::widgets;
+use mareader_engine::command::Command;
+use mareader_engine::study::Action;
 
 const SWATCH: f32 = 22.0;
 const PEN_ROW: f32 = 46.0;

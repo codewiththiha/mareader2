@@ -18,21 +18,23 @@ use mareader_settings::{PaperArea, TextSettings};
 use mareader_workspace::PaneId;
 
 use crate::gpu::{Gpu, Quad};
-use crate::layout::{Arrow, ViewMode};
 use crate::loading_mark;
 use crate::pages::{PageCache, PageTexture};
 use crate::pdf_view::{self, Demand, PdfView, Sinks, Urgency, ViewContext};
 use crate::selection::Sheet;
-use crate::study::{Asked, Gloss};
+use crate::study::Gloss;
 use crate::theme::Tokens;
 use crate::thumbnails::{self, ThumbState};
-use crate::toast::Toast;
 use crate::ui_command::{Commands, Sent, UiCommand};
-use crate::zoom::{ZoomCommand, ZoomState};
+use crate::zoom::ZoomState;
+use mareader_engine::pane::ZoomCommand;
+use mareader_engine::pane::{Arrow, ViewMode};
 use mareader_engine::paper::Papers;
 use mareader_engine::reading::Place;
 use mareader_engine::reading_place;
+use mareader_engine::study::words::Asked;
 use mareader_engine::texts::TextLayers;
+use mareader_engine::toast::Toast;
 use mareader_engine::watch::{Reloads, Watch};
 
 /// Uploads per frame, so a burst of pages never stalls a scroll.
@@ -53,7 +55,7 @@ fn give_back() {
         });
 }
 
-pub use mareader_engine::documents::{DocumentPlace, OpenRequest, Placement};
+use mareader_engine::documents::{DocumentPlace, OpenRequest};
 
 #[derive(Debug)]
 enum Content {
@@ -1717,6 +1719,6 @@ mod open_notes {
         assert!(locked.message.ends_with("save an unlocked copy."));
         let none = open_failed("a.pdf", &OpenError::Pdf(Pdf::NoPages));
         assert_eq!(none.message, "Couldn't open a.pdf: the PDF has no pages.");
-        assert_eq!(cut_short("a.pdf").tone, crate::toast::Tone::Warning);
+        assert_eq!(cut_short("a.pdf").tone, mareader_engine::toast::Tone::Warning);
     }
 }

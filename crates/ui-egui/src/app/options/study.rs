@@ -1,5 +1,6 @@
 use super::*;
-use crate::ui_command::{Command, UiCommand};
+use crate::ui_command::UiCommand;
+use mareader_engine::command::Command;
 
 pub(super) fn set(app: &mut MareaderApp, key: &str, value: &str) -> Option<Result<(), String>> {
     match key {
@@ -48,7 +49,7 @@ impl MareaderApp {
 
     // The floating Dictionary, searching for any word given.
     fn option_dict_window(&mut self, _key: &str, value: &str) -> Result<(), String> {
-        self.dict_window(crate::dict::Window::Toggle);
+        self.dict_window(mareader_engine::dict::Window::Toggle);
         if value != "show" {
             self.ui.dict.search(value);
         };
@@ -58,7 +59,7 @@ impl MareaderApp {
 
     // The floating Dictionary folded to its pill.
     fn option_dict_fold(&mut self, _key: &str, value: &str) -> Result<(), String> {
-        self.dict_window(crate::dict::Window::Minimize(value == "true"));
+        self.dict_window(mareader_engine::dict::Window::Minimize(value == "true"));
         Ok(())
     }
 

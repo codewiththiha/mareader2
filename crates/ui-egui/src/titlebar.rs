@@ -10,16 +10,18 @@ use crate::backdrop::Backdrop;
 use crate::gpu::{Gpu, Look, Reach};
 use crate::icons::Icon;
 use crate::keymap;
-use crate::layout::ViewMode;
 use crate::library::menu as library_menu;
-use crate::library::{Crumb, Field, crumbs, search};
+use crate::library::{Field, crumbs, search};
 use crate::motion;
 use crate::platform::Platform;
 use crate::theme::{self, TITLE_BAR_H, Tokens};
-use crate::ui_command::{Commands, Independence, Sent, UiCommand, WindowCommand};
+use crate::ui_command::{Commands, Sent, UiCommand, WindowCommand};
 use crate::view_menu::{self, MenuContext, Tool};
 use crate::widgets::{self, CaptionStyle};
 use crate::zoom::ZoomState;
+use mareader_engine::command::Independence;
+use mareader_engine::library::Crumb;
+use mareader_engine::pane::ViewMode;
 
 /// How long the bar stays after the pointer leaves the band.
 pub const HIDE_GRACE: f64 = 0.4;
@@ -96,7 +98,7 @@ pub struct ReaderBar {
     /// The ink dial, offered while the active pane shows a book.
     pub ink: Option<f32>,
     /// The popover's text dials, offered while the active pane shows a book.
-    pub text: Option<crate::appearance_menu::QuickText>,
+    pub text: Option<mareader_engine::appearance_menu::QuickText>,
     /// The floating Dictionary shows, so its button is pressed.
     pub dictionary: bool,
 }

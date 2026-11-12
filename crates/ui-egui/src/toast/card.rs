@@ -8,11 +8,12 @@ use egui::{
     Stroke, StrokeKind, Ui, Vec2, pos2,
 };
 
-use super::{Live, Tone};
+use super::Live;
 use crate::icons::Icon;
 use crate::theme::{self, Tokens};
 use crate::ui_command::{Commands, Sent, UiCommand};
 use crate::widgets;
+use mareader_engine::toast::Tone;
 
 const PAD_X: f32 = 14.0;
 /// Fixed card height so one-line and two-line toasts share a steady silhouette.

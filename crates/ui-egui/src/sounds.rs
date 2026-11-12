@@ -14,7 +14,7 @@ use mareader_settings::{Accent, Notation, PronunciationSettings};
 use mareader_speech::{Item, PRONUNCIATION, Shelf, Stage};
 
 use crate::theme::{self, Tokens};
-use crate::ui_command::Download;
+use mareader_engine::dict::Download;
 
 /// Lookups remembered; past this the list starts over.
 const KEPT: usize = 256;

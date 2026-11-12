@@ -15,8 +15,9 @@ use crate::icons::Icon;
 use crate::icons::anim::{self, Act};
 use crate::modal::Dialog;
 use crate::theme::{self, Tokens};
-use crate::ui_command::{Command, Commands, Sent, UiCommand};
+use crate::ui_command::{Commands, Sent, UiCommand};
 use crate::widgets;
+use mareader_engine::command::Command;
 
 #[cfg(not(target_arch = "wasm32"))]
 mod ai;
@@ -32,7 +33,7 @@ mod vocabulary;
 mod voice_model;
 pub use voice_model::accent;
 
-pub(crate) use mareader_engine::scope::{Applies, Scope, Shown};
+use mareader_engine::scope::{Applies, Scope};
 pub use read_aloud::Voices;
 
 /// Its size at most; below that, it takes [`SHARE`] of the window.
@@ -56,7 +57,7 @@ const HEADER_H: f32 = 56.0;
 /// Clear space under the page, below the scroll's fade.
 const FOOT_H: f32 = 12.0;
 
-pub use mareader_engine::settings::Tab;
+use mareader_engine::settings::Tab;
 
 #[derive(Clone, Debug, Default)]
 pub struct SettingsWindow {

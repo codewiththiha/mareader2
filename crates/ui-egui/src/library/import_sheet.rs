@@ -8,11 +8,12 @@ use egui::{
 };
 use mareader_library::{Format, Library, MIN_SIZE_MAX, Options};
 
-use super::{Action, LibraryState};
+use super::LibraryState;
 use crate::icons::Icon;
 use crate::modal::{buttons, primary, title};
 use crate::theme::Tokens;
 use crate::widgets;
+use mareader_engine::library::Action;
 
 /// Wider than the other sheets, as forms read better so.
 const WIDTH: f32 = 460.0;

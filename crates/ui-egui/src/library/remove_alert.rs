@@ -3,11 +3,11 @@
 use egui::{Context, Id, Key};
 use mareader_library::{BookId, Library, LinkId, Receipt, Removing, ShelfId};
 
-use super::{Action, BookAction};
 use crate::icons::Icon;
 use crate::modal::{self, Dialog};
 use crate::theme::Tokens;
 use mareader_engine::library::listed;
+use mareader_engine::library::{Action, BookAction};
 
 const KEY: &str = "library-remove";
 /// Fixed, so the box never jumps as its words change.

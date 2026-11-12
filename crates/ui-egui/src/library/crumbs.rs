@@ -9,11 +9,12 @@ use egui::{
 use mareader_library::{NAME_MAX, ShelfId};
 
 use super::living::OPEN_DWELL;
-use super::{Action, BookAction, Carry, Crumb, Named, ShelfAction};
 use crate::icons::Icon;
 use crate::theme::{self, Tokens};
-use crate::ui_command::{Command, Commands, Sent};
+use crate::ui_command::{Commands, Sent};
 use crate::widgets;
+use mareader_engine::command::Command;
+use mareader_engine::library::{Action, BookAction, Carry, Crumb, Named, ShelfAction};
 
 pub const CRUMB_MENU: &str = "library-crumb-menu";
 const ELIDED_MENU: &str = "library-crumb-elided";
@@ -316,7 +317,7 @@ fn current_menu(ui: &mut Ui, current: &Crumb, out: &mut Commands) {
             let copy = widgets::menu_row(ui, Icon::Copy, "Duplicate", None, false);
             let tip = "A second shelf of your own, holding the same books";
             if copy.on_hover_text(tip).clicked() {
-                let picks = vec![super::Pick::Shelf(id)];
+                let picks = vec![mareader_library::picks::Pick::Shelf(id)];
                 out.push(Sent::Engine(Command::Library(Action::Book(
                     BookAction::Duplicate(picks),
                 ))));

@@ -10,12 +10,13 @@ use mareader_settings::{GlossDensity, HighlightSettings};
 use mareader_study::{Failure, WordInfo};
 use mareader_workspace::PaneId;
 
-use super::Action;
 use crate::bubble::{Bubble, Side};
 use crate::icons::Icon;
 use crate::theme::Tokens;
-use crate::ui_command::{Command, Commands, Sent};
+use crate::ui_command::{Commands, Sent};
 use crate::{motion, widgets};
+use mareader_engine::command::Command;
+use mareader_engine::study::Action;
 
 const WIDTH: f32 = 320.0;
 

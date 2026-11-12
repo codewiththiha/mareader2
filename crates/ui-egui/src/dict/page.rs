@@ -12,12 +12,13 @@ use mareader_settings::DictionarySettings;
 
 use super::{Voice, entry, look};
 use crate::icons::Icon;
-use crate::settings_window::Tab;
 use crate::shaped;
 use crate::theme::{self, Tokens};
-use crate::toast::Toast;
-use crate::ui_command::{Command, Commands, Sent, UiCommand};
+use crate::ui_command::{Commands, Sent, UiCommand};
 use crate::widgets;
+use mareader_engine::command::Command;
+use mareader_engine::settings::Tab;
+use mareader_engine::toast::Toast;
 
 /// The search field's name, for screen readers and tests.
 pub const LABEL: &str = "Search the dictionaries";

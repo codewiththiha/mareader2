@@ -13,11 +13,12 @@ use crate::dict::Dict;
 use crate::files::Files;
 use crate::icons::Icon;
 use crate::modal::Dialog;
-use crate::settings_window::Tab;
 use crate::theme::{self, Tokens};
-use crate::ui_command::{Command, Commands, Sent, UiCommand};
+use crate::ui_command::{Commands, Sent, UiCommand};
 use crate::vocab::Vocab;
 use crate::widgets;
+use mareader_engine::command::Command;
+use mareader_engine::settings::Tab;
 
 const MAX_SIZE: Vec2 = vec2(1000.0, 700.0);
 const OPTIONS_W: f32 = 300.0;

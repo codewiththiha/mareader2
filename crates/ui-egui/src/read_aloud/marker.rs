@@ -7,9 +7,9 @@ use mareader_pdf::PageText;
 use mareader_session::{Anchor, TextLayer};
 use mareader_speech::Spot;
 
-use super::ReadFrom;
 use crate::selection::{self, Pages, Sheet};
 use crate::theme::Tokens;
+use mareader_engine::read_aloud::ReadFrom;
 
 /// Seconds the pin rests before reading starts.
 pub const REST: f64 = 1.2;

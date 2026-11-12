@@ -12,8 +12,9 @@ use mareader_workspace::PaneId;
 use crate::documents::Reading;
 use crate::motion;
 use crate::theme::{self, Tokens};
-use crate::ui_command::{Command, Commands, Sent};
+use crate::ui_command::{Commands, Sent};
 use crate::widgets;
+use mareader_engine::command::Command;
 
 const ROW_H: f32 = 28.0;
 /// Indent per level; levels past `MAX_DEPTH` share the last one.

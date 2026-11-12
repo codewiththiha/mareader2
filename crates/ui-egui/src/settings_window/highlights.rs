@@ -4,12 +4,14 @@ use egui::{Align2, Color32, FontId, Sense, Stroke, Ui, Vec2, vec2};
 use mareader_appearance::Rgb;
 use mareader_settings::{BarItem, HighlightSettings, Pen, PickColor, Reserved};
 
-use super::{Tab, choice_row, divider, group, note, row, section};
+use super::{choice_row, divider, group, note, row, section};
 use crate::icons::Icon;
 use crate::study::marks::pen_area;
 use crate::theme::{self, Tokens};
-use crate::ui_command::{Command, Commands, Sent};
+use crate::ui_command::{Commands, Sent};
 use crate::widgets;
+use mareader_engine::command::Command;
+use mareader_engine::settings::Tab;
 
 const DOT: f32 = 22.0;
 

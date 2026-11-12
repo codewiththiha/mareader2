@@ -13,11 +13,12 @@ use std::sync::Arc;
 
 use crate::documents::Reading;
 use crate::icons::Icon;
-use crate::study::Action;
 use crate::theme::{self, Tokens, color};
-use crate::ui_command::{Command, Commands, Sent, UiCommand};
+use crate::ui_command::{Commands, Sent, UiCommand};
 use crate::widgets;
+use mareader_engine::command::Command;
 use mareader_engine::export::{self, Entry, Format, Sheet};
+use mareader_engine::study::Action;
 
 use mareader_engine::notes_panel::query;
 
@@ -272,7 +273,7 @@ fn share(ui: &mut Ui, reading: &Reading, shown: &[&Row], _t: &Tokens, out: &mut 
         let sheet = Sheet {
             title: &reading.name,
             entries: &entries,
-            now_ms: crate::library::wall_ms(),
+            now_ms: mareader_engine::library::wall_ms(),
         };
         export::render(&sheet, format)
     };
@@ -306,7 +307,7 @@ fn share(ui: &mut Ui, reading: &Reading, shown: &[&Row], _t: &Tokens, out: &mut 
     if widgets::icon_button(ui, Icon::Copy, "Copy all as Markdown", false).clicked() {
         ui.ctx().copy_text(render(Format::Markdown));
         let copied = format!("Copied {tally}");
-        out.push(Sent::Ui(UiCommand::Notify(crate::toast::Toast::info(
+        out.push(Sent::Ui(UiCommand::Notify(mareader_engine::toast::Toast::info(
             copied,
         ))));
     }

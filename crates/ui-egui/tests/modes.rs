@@ -2,9 +2,10 @@
 
 use egui::{Key, Modifiers};
 use egui_kittest::Harness;
+use mareader_engine::command::Command;
+use mareader_engine::pane::ViewMode;
 use mareader_ui_egui::MareaderApp;
-use mareader_ui_egui::layout::ViewMode;
-use mareader_ui_egui::ui_command::{Command, Sent, UiCommand};
+use mareader_ui_egui::ui_command::{Sent, UiCommand};
 
 type H = Harness<'static, MareaderApp>;
 
@@ -84,7 +85,7 @@ fn a_spread_pairs_pages_and_turns_by_two() {
     let fit = h.state().documents().zoom_state(h.state().active_pane());
     assert_eq!(
         fit.and_then(|z| z.fit),
-        Some(mareader_ui_egui::zoom::Fit::Width)
+        Some(mareader_engine::pane::Fit::Width)
     );
     press(&mut h, Key::ArrowRight);
     assert_eq!(visible(&h), 2..4);
@@ -121,7 +122,7 @@ fn a_plain_wheel_runs_the_horizontal_strip_sideways() {
     set(&mut h, ViewMode::Horizontal);
     // Fit page: nothing overflows down, so the wheel goes along.
     h.state_mut().queue(Sent::Engine(Command::Zoom(
-        mareader_ui_egui::zoom::ZoomCommand::Fit(mareader_ui_egui::zoom::Fit::Page),
+        mareader_engine::pane::ZoomCommand::Fit(mareader_engine::pane::Fit::Page),
     )));
     h.run();
     assert_eq!(visible(&h).start, 0);

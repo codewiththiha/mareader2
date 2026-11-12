@@ -9,10 +9,13 @@ use super::downloads::{Buttons, muted, progress};
 use super::{
     choice_row, divider, fold_open, fold_row, folded, group, note, row, section, switch_row,
 };
-use crate::dict::{Action, Dict, count, megabytes};
+use crate::dict::{Dict, count, megabytes};
 use crate::icons::Icon;
-use crate::ui_command::{Command, Commands, Download, Sent};
+use crate::ui_command::{Commands, Sent};
 use crate::widgets;
+use mareader_engine::command::Command;
+use mareader_engine::dict::Action;
+use mareader_engine::dict::Download;
 
 /// The fold of packs not on this device, beside some that are.
 pub const MORE_LANGUAGES: &str = "More languages";

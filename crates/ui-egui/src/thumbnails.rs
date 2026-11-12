@@ -19,7 +19,8 @@ use crate::motion;
 use crate::pages::Lookup;
 use crate::pdf_view::{Sinks, Urgency, paint_page};
 use crate::theme::Tokens;
-use crate::ui_command::{Command, Commands, Sent};
+use crate::ui_command::{Commands, Sent};
+use mareader_engine::command::Command;
 pub use picks::Offer;
 use picks::Picks;
 

@@ -2,13 +2,14 @@ use egui::Context;
 
 use super::*;
 
-use crate::page_ai::{Action, task_for};
+use crate::page_ai::task_for;
 use crate::ui_command::UiCommand;
+use mareader_engine::page_ai::Action;
 use mareader_settings::{PageStart, PageTask};
 
 impl MareaderApp {
     /// What the page AI's menus asked for.
-    pub(super) fn page_ai_act(&mut self, ctx: &Context, action: crate::page_ai::Action) {
+    pub(super) fn page_ai_act(&mut self, ctx: &Context, action: mareader_engine::page_ai::Action) {
         let now = ctx.input(|i| i.time);
         let mut out = Commands::new();
         let task = match &action {

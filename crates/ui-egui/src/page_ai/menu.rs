@@ -11,12 +11,14 @@ use mareader_workspace::PaneId;
 
 use crate::documents::Documents;
 use crate::icons::Icon;
-use crate::settings_window::Tab;
 use crate::theme::Tokens;
-use crate::ui_command::{Command, Commands, Sent};
+use crate::ui_command::{Commands, Sent};
 use crate::widgets;
+use mareader_engine::command::Command;
+use mareader_engine::settings::Tab;
 
-use super::{Action, BubbleMenu, How, Menu, PageAi, Slot, Step, label};
+use super::{BubbleMenu, Menu, PageAi, Step, label};
+use mareader_engine::page_ai::{Action, How, Slot};
 
 /// The language search field, for screen readers and tests.
 pub const FIND: &str = "Find a language";

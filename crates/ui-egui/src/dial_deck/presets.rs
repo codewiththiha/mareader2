@@ -15,8 +15,9 @@ use crate::appearance_menu::MenuContext;
 use crate::gpu::{Anchor, Gpu, GrainCallback, PagesCallback, Quad, crawl_offset};
 use crate::icons::Icon;
 use crate::theme::{self, Tokens};
-use crate::ui_command::{Command, Commands, Sent};
+use crate::ui_command::{Commands, Sent};
 use crate::widgets;
+use mareader_engine::command::Command;
 
 const DRAFT_ID: &str = "dial-deck-preset-draft";
 const CARD_ZOOM: f32 = 0.34;

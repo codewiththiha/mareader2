@@ -1,5 +1,6 @@
 use super::*;
-use crate::ui_command::{Command, UiCommand};
+use crate::ui_command::UiCommand;
+use mareader_engine::command::Command;
 
 pub(super) fn set(app: &mut MareaderApp, key: &str, value: &str) -> Option<Result<(), String>> {
     match key {
@@ -47,8 +48,8 @@ impl MareaderApp {
     fn option_select(&mut self, _key: &str, value: &str) -> Result<(), String> {
         let n: usize = value.parse().map_err(|_| "select: a count of books")?;
         let recent = self.ui.library.model().recent().into_iter().take(n);
-        let picks = recent.map(|b| ui_library::Pick::Book(b.id)).collect();
-        let pick = ui_library::Action::Pick(ui_library::PickAction::Only(picks));
+        let picks = recent.map(|b| mareader_library::picks::Pick::Book(b.id)).collect();
+        let pick = mareader_engine::library::Action::Pick(mareader_library::picks::PickAction::Only(picks));
         self.queue(Sent::Engine(Command::Library(pick)));
 
         Ok(())
@@ -70,12 +71,12 @@ impl MareaderApp {
             }
         };
         let links = Vec::new();
-        let ask = ui_library::BookAction::AskRemove {
+        let ask = mareader_engine::library::BookAction::AskRemove {
             books,
             shelves,
             links,
         };
-        self.queue(Sent::Engine(Command::Library(ui_library::Action::Book(
+        self.queue(Sent::Engine(Command::Library(mareader_engine::library::Action::Book(
             ask,
         ))));
 
@@ -84,7 +85,7 @@ impl MareaderApp {
 
     // The import sheet for a folder, as Add ▸ Folder… asks.
     fn option_import(&mut self, _key: &str, value: &str) -> Result<(), String> {
-        let ask = ui_library::Action::AskFolder(std::path::PathBuf::from(value));
+        let ask = mareader_engine::library::Action::AskFolder(std::path::PathBuf::from(value));
         self.queue(Sent::Engine(Command::Library(ask)));
 
         Ok(())
@@ -99,7 +100,7 @@ impl MareaderApp {
             min_size: 0,
             ..mareader_library::Options::default()
         };
-        let import = ui_library::Action::ImportFolder { root, opts };
+        let import = mareader_engine::library::Action::ImportFolder { root, opts };
         self.queue(Sent::Engine(Command::Library(import)));
 
         Ok(())
@@ -185,8 +186,8 @@ impl MareaderApp {
 
     // Typed into the library's search field.
     fn option_search(&mut self, _key: &str, value: &str) -> Result<(), String> {
-        let text = ui_library::SearchAction::Text(value.to_owned());
-        self.queue(Sent::Engine(Command::Library(ui_library::Action::Search(
+        let text = mareader_engine::library::SearchAction::Text(value.to_owned());
+        self.queue(Sent::Engine(Command::Library(mareader_engine::library::Action::Search(
             text,
         ))));
 

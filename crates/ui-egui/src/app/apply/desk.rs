@@ -1,5 +1,6 @@
 //! The engine's desk, answered by the controllers this crate still holds.
 
+use mareader_engine::documents::OpenRequest;
 use std::path::PathBuf;
 
 use egui::Context;
@@ -278,7 +279,7 @@ impl Desk for Front<'_> {
         self.app.open_book(self.ctx, book, pane, placement);
     }
 
-    fn library(&mut self, action: ui_library::Action) {
+    fn library(&mut self, action: mareader_engine::library::Action) {
         self.app.library_action(self.ctx, action);
     }
 }

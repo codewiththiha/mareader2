@@ -2,12 +2,14 @@
 
 use egui::{Context, Key, KeyboardShortcut, ModifierNames, Modifiers};
 
-use crate::documents::Placement;
-use crate::layout::{Arrow, ViewMode};
 use crate::platform::Platform;
-use crate::ui_command::{Allows, Route};
-use crate::ui_command::{Command, Commands, Sent, UiCommand, WindowCommand};
-use crate::zoom::{Fit, Step, ZoomCommand};
+use crate::ui_command::Allows;
+use crate::ui_command::{Commands, Sent, UiCommand, WindowCommand};
+use mareader_engine::command::Command;
+use mareader_engine::documents::Placement;
+use mareader_engine::pane::{Arrow, ViewMode};
+use mareader_engine::pane::{Fit, Step, ZoomCommand};
+use mareader_engine::route::Route;
 
 pub struct Binding {
     pub label: &'static str,

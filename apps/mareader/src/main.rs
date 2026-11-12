@@ -5,8 +5,10 @@
 use std::path::PathBuf;
 use std::time::Duration;
 
-use mareader_ui_egui::ui_command::{Command, Sent};
-use mareader_ui_egui::{MareaderApp, OpenRequest};
+use mareader_engine::command::Command;
+use mareader_engine::documents::OpenRequest;
+use mareader_ui_egui::MareaderApp;
+use mareader_ui_egui::ui_command::Sent;
 
 use inbox::Inbox;
 use single_instance::Claim;

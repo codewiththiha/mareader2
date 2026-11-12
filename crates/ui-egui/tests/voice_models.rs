@@ -2,10 +2,11 @@
 
 use egui_kittest::Harness;
 use egui_kittest::kittest::{NodeT as _, Queryable as _};
+use mareader_engine::command::Command;
+use mareader_engine::settings::Tab;
 use mareader_speech::{Build, Gender, Knob, Model, ModelFile, ModelVoice};
 use mareader_ui_egui::MareaderApp;
-use mareader_ui_egui::settings_window::Tab;
-use mareader_ui_egui::ui_command::{Command, Sent};
+use mareader_ui_egui::ui_command::Sent;
 
 use crate::common::press;
 

@@ -100,7 +100,7 @@ impl MareaderApp {
             rect,
         };
         let model = self.ui.library.model_mut();
-        self.ui.study.explain(ctx, model, at, ui_library::wall_ms());
+        self.ui.study.explain(ctx, model, at, mareader_engine::library::wall_ms());
         self.ask_role();
     }
 
@@ -172,7 +172,7 @@ impl MareaderApp {
             color,
         };
         let model = self.ui.library.model_mut();
-        self.ui.study.highlight(model, at, ui_library::wall_ms());
+        self.ui.study.highlight(model, at, mareader_engine::library::wall_ms());
     }
 
     /// Note: highlights the selection in the bar's first pen, then
@@ -202,7 +202,7 @@ impl MareaderApp {
         let rect = rect.unwrap_or(Rect::NOTHING);
         self.ui
             .study
-            .write_note(model, pane, at, rect, ui_library::wall_ms());
+            .write_note(model, pane, at, rect, mareader_engine::library::wall_ms());
     }
 
     /// Bookmarks the pane's page, or takes back the bookmark on it.
@@ -228,7 +228,7 @@ impl MareaderApp {
         let model = self.ui.library.model_mut();
         self.ui
             .study
-            .toggle_bookmark(model, at, ui_library::wall_ms(), &mut out);
+            .toggle_bookmark(model, at, mareader_engine::library::wall_ms(), &mut out);
         self.ui.queued.extend(out);
     }
 
@@ -257,7 +257,7 @@ impl MareaderApp {
             rect,
         };
         let model = self.ui.library.model_mut();
-        self.ui.study.explain(ctx, model, at, ui_library::wall_ms());
+        self.ui.study.explain(ctx, model, at, mareader_engine::library::wall_ms());
         self.ask_role();
     }
 }

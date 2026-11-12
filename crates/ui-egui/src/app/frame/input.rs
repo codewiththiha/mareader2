@@ -1,5 +1,6 @@
 use super::*;
-use crate::ui_command::{Command, UiCommand};
+use crate::ui_command::UiCommand;
+use mareader_engine::command::Command;
 
 impl MareaderApp {
     pub(super) fn prepare(
@@ -102,8 +103,8 @@ impl MareaderApp {
         let floats = self.settings().dictionary.opens == DictionaryOpens::Window;
         if route == Route::Reader && floats && win.open && !win.minimized && !self.ui.dict.typing()
         {
-            let focus = Sent::Engine(Command::Dict(crate::dict::Action::Window(
-                crate::dict::Window::Focus,
+            let focus = Sent::Engine(Command::Dict(mareader_engine::dict::Action::Window(
+                mareader_engine::dict::Window::Focus,
             )));
             for c in commands.iter_mut().skip(read) {
                 if matches!(c, Sent::Ui(UiCommand::ShowDictionary)) {
@@ -151,8 +152,8 @@ impl MareaderApp {
         let window = self.settings().dictionary.window.open && route == Route::Reader;
         if free && window && self.ui.dict.typing() {
             if !self.ui.dict.page_escape() {
-                commands.push(Sent::Engine(Command::Dict(crate::dict::Action::Window(
-                    crate::dict::Window::Close,
+                commands.push(Sent::Engine(Command::Dict(mareader_engine::dict::Action::Window(
+                    mareader_engine::dict::Window::Close,
                 ))));
             }
             free = false;

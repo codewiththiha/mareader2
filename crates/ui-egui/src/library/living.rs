@@ -6,7 +6,7 @@ use egui::{Pos2, Vec2, vec2};
 
 use mareader_library::{BookId, ShelfId};
 
-use super::Pick;
+use mareader_library::picks::Pick;
 
 /// How stiff the springs are: cards settle in about a fifth of a second.
 const OMEGA: f32 = 30.0;

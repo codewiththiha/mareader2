@@ -14,7 +14,7 @@ pub const PRESETS: [f32; 15] = [
 /// Zooms closer than this are the same zoom.
 const SAME: f32 = 0.005;
 
-pub use mareader_engine::pane::{Fit, Step, ZoomCommand};
+use mareader_engine::pane::{Fit, Step, ZoomCommand};
 
 /// A pane's zoom, as the menu shows it.
 #[derive(Clone, Copy, Debug, PartialEq)]

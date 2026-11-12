@@ -5,11 +5,12 @@ use std::path::Path;
 use egui::{Event, Key, Modifiers, PointerButton, Pos2, Rect};
 use egui_kittest::Harness;
 use egui_kittest::kittest::Queryable as _;
+use mareader_engine::command::Command;
+use mareader_engine::library::Action;
 use mareader_engine::library::{Pick, PickAction};
 use mareader_ui_egui::MareaderApp;
 use mareader_ui_egui::focus;
-use mareader_ui_egui::library::Action;
-use mareader_ui_egui::ui_command::{Command, Sent, UiCommand};
+use mareader_ui_egui::ui_command::{Sent, UiCommand};
 
 type H = Harness<'static, MareaderApp>;
 

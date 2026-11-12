@@ -5,10 +5,11 @@ use egui::accesskit::Role;
 use egui_kittest::Harness;
 use egui_kittest::kittest::Queryable as _;
 use mareader_appearance::{BaseMode, NoiseMode, TextureMode};
+use mareader_engine::command::Command;
+use mareader_engine::settings::Tab;
 use mareader_settings::AppearanceMenuStyle;
 use mareader_ui_egui::MareaderApp;
-use mareader_ui_egui::settings_window::Tab;
-use mareader_ui_egui::ui_command::{Command, Sent, UiCommand};
+use mareader_ui_egui::ui_command::{Sent, UiCommand};
 
 fn reader(options: &[(&str, &str)]) -> Harness<'static, MareaderApp> {
     let mut app = MareaderApp::default();

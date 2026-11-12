@@ -10,8 +10,8 @@ use mareader_session::Document;
 use mareader_settings::{WordList, WordOutput};
 
 use crate::dict::Dict;
-use crate::toast::Toast;
 use crate::vocab::Vocab;
+use mareader_engine::toast::Toast;
 
 pub mod preview;
 pub mod window;

@@ -1,12 +1,13 @@
 use super::*;
 
-use crate::ui_command::{Command, UiCommand};
-use ui_library::Action as A;
-use ui_library::SearchAction as S;
+use crate::ui_command::UiCommand;
+use mareader_engine::command::Command;
+use mareader_engine::library::Action as A;
+use mareader_engine::library::SearchAction as S;
 
 impl MareaderApp {
     /// Library work; its dialogs need the app's files.
-    pub(super) fn library_action(&mut self, ctx: &Context, action: ui_library::Action) {
+    pub(super) fn library_action(&mut self, ctx: &Context, action: mareader_engine::library::Action) {
         if library_handles_1(&action) {
             self.library_special_1(ctx, action);
             return;
@@ -26,7 +27,7 @@ impl MareaderApp {
         }
     }
 
-    fn library_special_1(&mut self, ctx: &Context, action: ui_library::Action) {
+    fn library_special_1(&mut self, ctx: &Context, action: mareader_engine::library::Action) {
         match action {
             A::Search(S::Focus) => {
                 self.ui.titlebar.reveal();
@@ -49,7 +50,7 @@ impl MareaderApp {
                 let seek = move |folder| Sent::Engine(Command::Library(A::Seek { book, folder }));
                 self.ui.files.pick_folder(ctx, "Search a folder", seek);
             }
-            A::Book(ui_library::BookAction::PickImport) => {
+            A::Book(mareader_engine::library::BookAction::PickImport) => {
                 let to = self.ui.library.at();
                 self.pick_import(ctx, None, to);
             }
@@ -58,7 +59,7 @@ impl MareaderApp {
                 self.pick_import(ctx, Some(dir), to);
             }
             A::PickInto(to) => self.pick_import(ctx, None, to),
-            A::Book(ui_library::BookAction::Reveal(book)) => {
+            A::Book(mareader_engine::library::BookAction::Reveal(book)) => {
                 let path = self.ui.library.model().book(book).and_then(|b| b.path());
                 let shown = path.is_some_and(mareader_engine::reveal::reveal);
                 if !shown {
@@ -70,9 +71,9 @@ impl MareaderApp {
         }
     }
 
-    fn library_special_2(&mut self, ctx: &Context, action: ui_library::Action) {
+    fn library_special_2(&mut self, ctx: &Context, action: mareader_engine::library::Action) {
         match action {
-            A::Shelf(ui_library::ShelfAction::Reveal(shelf)) => {
+            A::Shelf(mareader_engine::library::ShelfAction::Reveal(shelf)) => {
                 let dir = self.ui.library.model().shelf_dir(shelf);
                 let shown = dir.as_deref().is_some_and(mareader_engine::reveal::reveal);
                 if !shown {
@@ -121,7 +122,7 @@ impl MareaderApp {
         }
     }
 
-    fn library_special_3(&mut self, ctx: &Context, action: ui_library::Action) {
+    fn library_special_3(&mut self, ctx: &Context, action: mareader_engine::library::Action) {
         match action {
             A::ApplyOrganized | A::DiscardOrganized => {
                 // Applied, the run is done; a discarded plan can come back.
@@ -249,30 +250,30 @@ impl MareaderApp {
         to: Option<mareader_library::ShelfId>,
     ) {
         let import = move |paths| {
-            let action = ui_library::BookAction::Import { paths, to };
-            Sent::Engine(Command::Library(ui_library::Action::Book(action)))
+            let action = mareader_engine::library::BookAction::Import { paths, to };
+            Sent::Engine(Command::Library(mareader_engine::library::Action::Book(action)))
         };
         self.ui.files.pick_books(ctx, from, import);
     }
 }
 
-fn library_handles_1(action: &ui_library::Action) -> bool {
+fn library_handles_1(action: &mareader_engine::library::Action) -> bool {
     matches!(
         action,
         A::Search(S::Focus | S::Choose(_) | S::ChooseLit)
             | A::ShowAdd
             | A::PickFolder
             | A::PickSearchFolder(..)
-            | A::Book(ui_library::BookAction::PickImport | ui_library::BookAction::Reveal(_))
+            | A::Book(mareader_engine::library::BookAction::PickImport | mareader_engine::library::BookAction::Reveal(_))
             | A::PickFrom(..)
             | A::PickInto(..)
     )
 }
 
-fn library_handles_2(action: &ui_library::Action) -> bool {
+fn library_handles_2(action: &mareader_engine::library::Action) -> bool {
     matches!(
         action,
-        A::Shelf(ui_library::ShelfAction::Reveal(_))
+        A::Shelf(mareader_engine::library::ShelfAction::Reveal(_))
             | A::PickFile(..)
             | A::Organize(..)
             | A::OrganizeAnew(..)
@@ -283,6 +284,6 @@ fn library_handles_2(action: &ui_library::Action) -> bool {
     )
 }
 
-fn library_handles_3(action: &ui_library::Action) -> bool {
+fn library_handles_3(action: &mareader_engine::library::Action) -> bool {
     matches!(action, A::ApplyOrganized | A::DiscardOrganized)
 }

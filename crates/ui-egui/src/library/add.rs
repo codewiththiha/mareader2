@@ -6,10 +6,11 @@ use egui::{
 };
 use mareader_library::{FolderId, Library, Recovered, ShelfId, dir_of_rung, human_age, human_size};
 
-use super::{Action, BookAction, ShelfAction};
 use crate::icons::Icon;
 use crate::theme::{self, Tokens};
-use crate::ui_command::{Command, Commands, Sent};
+use crate::ui_command::{Commands, Sent};
+use mareader_engine::command::Command;
+use mareader_engine::library::{Action, BookAction, ShelfAction};
 
 pub const ADD_MENU: &str = "library-add";
 const WIDTH: f32 = 300.0;
@@ -140,7 +141,7 @@ fn restore(ui: &mut Ui, model: &Library, folder: FolderId, t: &Tokens, out: &mut
     }
     ui.separator();
     ui.label(RichText::new("Restore").size(11.5).color(t.muted));
-    let now = super::wall_ms();
+    let now = mareader_engine::library::wall_ms();
     for item in back {
         match item {
             Recovered::Removed(stone) => {

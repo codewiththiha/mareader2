@@ -119,7 +119,7 @@ impl MareaderApp {
             }
             _ => {
                 self.go(Route::Library);
-                let focus = ui_library::Action::Search(ui_library::SearchAction::Focus);
+                let focus = mareader_engine::library::Action::Search(mareader_engine::library::SearchAction::Focus);
                 self.apply(ctx, Sent::Engine(Command::Library(focus)));
             }
         }
@@ -130,7 +130,7 @@ impl MareaderApp {
             Route::Dictionary => self.go(self.dict_back()),
             // Over the page, unless Settings ask for the page.
             Route::Reader if self.settings().dictionary.opens == DictionaryOpens::Window => {
-                self.dict_window(crate::dict::Window::Toggle);
+                self.dict_window(mareader_engine::dict::Window::Toggle);
             }
             _ => self.go(Route::Dictionary),
         }

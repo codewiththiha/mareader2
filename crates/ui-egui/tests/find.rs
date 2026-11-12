@@ -3,8 +3,9 @@
 use egui::Key;
 use egui_kittest::Harness;
 use egui_kittest::kittest::Queryable as _;
+use mareader_engine::command::Command;
 use mareader_ui_egui::MareaderApp;
-use mareader_ui_egui::ui_command::{Command, Sent};
+use mareader_ui_egui::ui_command::Sent;
 
 use crate::common::{click_at as press, reader};
 

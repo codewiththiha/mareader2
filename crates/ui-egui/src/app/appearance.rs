@@ -289,7 +289,7 @@ impl MareaderApp {
             ink: (self.ui.documents.reflowable(self.active()))
                 .then_some(self.settings().text.ink_contrast),
             text: (self.ui.documents.reflowable(self.active()))
-                .then(|| crate::appearance_menu::QuickText::of(&self.settings().text)),
+                .then(|| mareader_engine::appearance_menu::QuickText::of(&self.settings().text)),
             dictionary: {
                 let w = &self.settings().dictionary.window;
                 w.open && !w.minimized

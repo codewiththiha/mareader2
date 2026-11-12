@@ -6,7 +6,7 @@ use std::sync::mpsc::{Receiver, TryRecvError, channel};
 use egui::Context;
 use mareader_session::Document;
 
-use crate::toast::Toast;
+use mareader_engine::toast::Toast;
 
 /// Pages this few, or a book's, are read in the frame.
 const INLINE: usize = 4;

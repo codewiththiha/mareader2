@@ -2,11 +2,12 @@
 
 use egui::Key;
 use egui_kittest::Harness;
+use mareader_engine::command::Command;
+use mareader_engine::pane::ViewMode;
+use mareader_engine::pane::{Step, ZoomCommand};
 use mareader_ui_egui::MareaderApp;
-use mareader_ui_egui::layout::ViewMode;
 use mareader_ui_egui::pdf_view::{line_step, screen_step};
-use mareader_ui_egui::ui_command::{Command, Sent};
-use mareader_ui_egui::zoom::{Step, ZoomCommand};
+use mareader_ui_egui::ui_command::Sent;
 
 const HEIGHT: f32 = 700.0;
 

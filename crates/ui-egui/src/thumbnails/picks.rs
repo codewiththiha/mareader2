@@ -12,11 +12,12 @@ use mareader_workspace::PaneId;
 use crate::documents::Reading;
 use crate::icons::Icon;
 use crate::icons::anim::{self, Act};
-use crate::page_ai::Action;
-use crate::settings_window::Tab;
 use crate::theme::{self, Tokens};
-use crate::ui_command::{Command, Commands, Sent};
+use crate::ui_command::{Commands, Sent};
 use crate::widgets::{self, menu_row};
+use mareader_engine::command::Command;
+use mareader_engine::page_ai::Action;
+use mareader_engine::settings::Tab;
 
 /// What the page AI and vocabulary tools offer picked pages this frame.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]

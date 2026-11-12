@@ -4,9 +4,10 @@ use egui_kittest::Harness;
 use egui_kittest::kittest::Queryable as _;
 use image::RgbaImage;
 use mareader_appearance::FilmGrain;
+use mareader_engine::command::Command;
 use mareader_ui_egui::MareaderApp;
 use mareader_ui_egui::theme::TITLE_BAR_H;
-use mareader_ui_egui::ui_command::{Command, UiCommand};
+use mareader_ui_egui::ui_command::UiCommand;
 
 use crate::common::scroll;
 
@@ -571,7 +572,7 @@ fn page_spread(h: &mut Harness<'static, MareaderApp>) -> Result<Vec<(i32, i32)>,
 #[test]
 fn texture_for_each_patterns_every_open_pane() -> Out {
     use mareader_appearance::TextureMode;
-    use mareader_ui_egui::settings_window::Tab;
+    use mareader_engine::settings::Tab;
     use mareader_ui_egui::ui_command::Sent;
     let options = [
         ("pdf", "sample"),

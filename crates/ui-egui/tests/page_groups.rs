@@ -3,11 +3,12 @@
 use egui::{Event, Modifiers, PointerButton, Pos2};
 use egui_kittest::Harness;
 use egui_kittest::kittest::Queryable as _;
+use mareader_engine::command::Command;
+use mareader_engine::page_ai::Action;
 use mareader_library::{AiTask, PageSpan};
 use mareader_settings::PageTask;
 use mareader_ui_egui::MareaderApp;
-use mareader_ui_egui::page_ai::Action;
-use mareader_ui_egui::ui_command::{Command, Sent};
+use mareader_ui_egui::ui_command::Sent;
 
 type H = Harness<'static, MareaderApp>;
 

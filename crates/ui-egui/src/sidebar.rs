@@ -12,8 +12,9 @@ use crate::icons::anim::{self, Act};
 use crate::motion;
 use crate::platform::Platform;
 use crate::theme::{self, TITLE_BAR_H, Tokens};
-use crate::ui_command::{Command, Commands, Sent, UiCommand, WindowCommand};
+use crate::ui_command::{Commands, Sent, UiCommand, WindowCommand};
 use crate::widgets;
+use mareader_engine::command::Command;
 
 pub const WIDTH: f32 = 288.0;
 /// The rail's slide, docked or floating, in seconds.

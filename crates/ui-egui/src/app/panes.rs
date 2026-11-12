@@ -1,4 +1,5 @@
 use super::*;
+use mareader_engine::documents::OpenRequest;
 
 impl MareaderApp {
     /// Every pane as the rail's Library panel lists it.
@@ -72,7 +73,7 @@ impl MareaderApp {
         {
             self.apply(
                 ctx,
-                Sent::Engine(Command::Library(ui_library::Action::FindAgain(id))),
+                Sent::Engine(Command::Library(mareader_engine::library::Action::FindAgain(id))),
             );
             return;
         }
@@ -160,8 +161,8 @@ impl MareaderApp {
             // Folders ask how they're kept; files are copied in.
             if !paths.is_empty() {
                 let to = self.ui.library.file_target.or(self.ui.library.at());
-                let import = ui_library::BookAction::Import { paths, to };
-                out.push(Sent::Engine(Command::Library(ui_library::Action::Book(
+                let import = mareader_engine::library::BookAction::Import { paths, to };
+                out.push(Sent::Engine(Command::Library(mareader_engine::library::Action::Book(
                     import,
                 ))));
             }

@@ -29,11 +29,12 @@ use mareader_study::{Explainer, Failure, Unavailable, WordInfo};
 use mareader_workspace::PaneId;
 
 pub use bar::{BarPress, show as show_bar};
-pub use mareader_engine::study::words::Asked;
+use mareader_engine::study::words::Asked;
 
 use crate::theme::Tokens;
-use crate::toast::Toast;
-use crate::ui_command::{Command, Commands, Sent, UiCommand};
+use crate::ui_command::{Commands, Sent, UiCommand};
+use mareader_engine::command::Command;
+use mareader_engine::toast::Toast;
 
 /// How long Undo stays offered after a removal.
 ///
@@ -49,7 +50,7 @@ pub enum Gloss {
     /// Read aloud was pressed: the selection alone is read.
     ReadAloud,
     /// The read-aloud pin rested, or was clicked: read from it.
-    ReadFrom(crate::read_aloud::ReadFrom),
+    ReadFrom(mareader_engine::read_aloud::ReadFrom),
     /// The selection reached the clipboard.
     Copied,
     /// A mark was clicked: its card, beside it.
@@ -114,8 +115,7 @@ pub enum Gloss {
     Pill(crate::page_ai::PillPress),
 }
 
-pub use mareader_engine::study::Action;
-pub use mareader_engine::toast::UNDO_FOR;
+use mareader_engine::study::Action;
 
 /// Which answer a card shows: a mark's, or one kept by nothing.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -804,7 +804,7 @@ impl Study {
 
     /// Takes the card's and menu's asks; marks change in the libraries.
     pub fn act(&mut self, ctx: &Context, main: &mut Library, action: Action, out: &mut Commands) {
-        let wall = crate::library::wall_ms();
+        let wall = mareader_engine::library::wall_ms();
         match action {
             Action::Remove(ids) => self.act_remove(main, ids, wall, out),
             Action::Restore(ids) => {
@@ -966,7 +966,7 @@ impl Study {
             }
             return;
         }
-        let wall = crate::library::wall_ms();
+        let wall = mareader_engine::library::wall_ms();
         if !main.set_note(id, Some(text.to_owned()), wall) {
             self.loose.set_note(id, Some(text.to_owned()), wall);
         }
@@ -982,7 +982,7 @@ impl Study {
     /// Deletes `id`'s note, with Undo bringing its text back.
     fn forget_note(&mut self, main: &mut Library, id: MarkId, out: &mut Commands) {
         let was = self.mark(main, id).and_then(|m| m.note.value.clone());
-        let wall = crate::library::wall_ms();
+        let wall = mareader_engine::library::wall_ms();
         if !main.set_note(id, None, wall) {
             self.loose.set_note(id, None, wall);
         }
@@ -996,7 +996,7 @@ impl Study {
 
     /// Removes marks quietly, as a cancelled note's highlight.
     fn drop_marks(&mut self, main: &mut Library, ids: &[MarkId]) {
-        let wall = crate::library::wall_ms();
+        let wall = mareader_engine::library::wall_ms();
         main.set_marks_alive(ids, false, wall);
         self.loose.set_marks_alive(ids, false, wall);
     }
@@ -1038,7 +1038,7 @@ impl Study {
 
     /// Files finished answers: in the session, and with their marks.
     fn save(&mut self, main: &mut Library) {
-        let wall = crate::library::wall_ms();
+        let wall = mareader_engine::library::wall_ms();
         for (key, said) in std::mem::take(&mut self.done) {
             if let Key::Mark(id) = key {
                 let gloss = Some(said.gloss());

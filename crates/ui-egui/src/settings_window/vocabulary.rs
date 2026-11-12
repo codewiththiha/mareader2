@@ -15,8 +15,10 @@ use crate::dict::{count, megabytes};
 use crate::icons::Icon;
 use crate::sounds::{EnglishVoice, Sounds, Spoken};
 use crate::theme::Tokens;
-use crate::ui_command::{Command, Commands, Download, Sent};
+use crate::ui_command::{Commands, Sent};
 use crate::vocab::Vocab;
+use mareader_engine::command::Command;
+use mareader_engine::dict::Download;
 
 pub fn tab(
     ui: &mut Ui,

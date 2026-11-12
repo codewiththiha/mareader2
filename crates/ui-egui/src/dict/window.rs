@@ -8,11 +8,13 @@ use mareader_dict::Dictionaries;
 use mareader_settings::{DictionarySettings, WINDOW_MIN};
 
 use super::page::Page;
-use super::{Action, Voice, Window, bounds};
+use super::{Voice, bounds};
 use crate::icons::Icon;
 use crate::theme::Tokens;
-use crate::ui_command::{Command, Commands, Sent, UiCommand};
+use crate::ui_command::{Commands, Sent, UiCommand};
 use crate::widgets;
+use mareader_engine::command::Command;
+use mareader_engine::dict::{Action, Window};
 
 /// The controls' names, for screen readers and tests.
 pub const MINIMIZE: &str = "Minimize the dictionary";

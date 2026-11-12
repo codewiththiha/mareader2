@@ -21,11 +21,11 @@ use mareader_workspace::PaneId;
 
 use crate::documents::{AiView, Documents};
 use crate::gpu::Gpu;
-use crate::toast::Toast;
 use crate::ui_command::{Commands, Sent, UiCommand};
 pub use follow::Around;
 use mareader_engine::page_ai::extract::{self, Source};
 use mareader_engine::stable_hash::hash;
+use mareader_engine::toast::Toast;
 pub use paint::{Overlay, Pill, PillPress};
 
 /// Seconds a result takes to fade in over its page.
@@ -42,7 +42,7 @@ const RESET: f64 = 0.4;
 /// Results kept laid out for a book's pages before they are made again.
 const MAX_MADE: usize = 64;
 
-pub use mareader_engine::page_ai::{Action, How, Slot};
+use mareader_engine::page_ai::{How, Slot};
 
 /// A page to work on, as the app gathers it.
 pub struct Asked<'a> {
@@ -154,7 +154,7 @@ struct Menu {
     /// Picked pages, asked as groups; none for the page's own menu.
     pages: Vec<usize>,
     /// Where reading aloud would start, if the book can be read.
-    aloud: Option<crate::read_aloud::ReadFrom>,
+    aloud: Option<mareader_engine::read_aloud::ReadFrom>,
     /// Where on its page it was opened; none for picked pages.
     pin: Option<Pin>,
     /// When it first showed, for its entrance.
@@ -661,7 +661,7 @@ impl PageAi {
             result: serde_json::to_string(&result).unwrap_or_default(),
             by: run.by.clone(),
         };
-        let wall = crate::library::wall_ms();
+        let wall = mareader_engine::library::wall_ms();
         let (lib, book) = self.shelf(main, run.book, &run.name);
         let Some(saved) = lib.add_ai_page(book, new, wall) else {
             return;
@@ -1358,7 +1358,7 @@ impl PageAi {
     pub fn delete(&mut self, main: &mut Library, slot: Slot) {
         match slot {
             Slot::Saved(id) => {
-                let wall = crate::library::wall_ms();
+                let wall = mareader_engine::library::wall_ms();
                 if main.set_ai_pages_alive(&[id], false, wall) == 0 {
                     self.loose.0.set_ai_pages_alive(&[id], false, wall);
                 }
@@ -1461,7 +1461,7 @@ impl PageAi {
         pane: PaneId,
         page: usize,
         at: Pos2,
-        aloud: Option<crate::read_aloud::ReadFrom>,
+        aloud: Option<mareader_engine::read_aloud::ReadFrom>,
     ) {
         self.bubble_menu = None;
         self.filter.clear();
@@ -1540,7 +1540,7 @@ impl PageAi {
             result: serde_json::to_string(&result).unwrap_or_default(),
             by: "Canned · test".to_owned(),
         };
-        let wall = crate::library::wall_ms();
+        let wall = mareader_engine::library::wall_ms();
         let (lib, book) = self.shelf(main, asked.book, asked.name);
         let Some(id) = lib.add_ai_page(book, new, wall) else {
             return false;

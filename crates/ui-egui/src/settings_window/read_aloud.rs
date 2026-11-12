@@ -6,14 +6,16 @@ use mareader_speech::{Build, Item, Model, Shelf, Stage, Voice};
 
 use super::downloads::muted;
 use super::voice_model::buttons;
-use super::{ROW_H, Tab, divider, fold_row, group, note, pick_row, row, section, switch_row};
+use super::{ROW_H, divider, fold_row, group, note, pick_row, row, section, switch_row};
 use crate::icons::Icon;
 use crate::keymap;
 use crate::platform::Platform;
 use crate::read_aloud::Booth;
 use crate::theme::Tokens;
-use crate::ui_command::{Command, Commands, Sent};
+use crate::ui_command::{Commands, Sent};
 use crate::widgets;
+use mareader_engine::command::Command;
+use mareader_engine::settings::Tab;
 
 /// What the tab shows besides settings: voices, models, the keys.
 pub struct Voices<'a> {

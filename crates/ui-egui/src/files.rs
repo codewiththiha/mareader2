@@ -8,9 +8,10 @@ use egui::{Context, DroppedFileHandle};
 use mareader_engine::export::Format;
 use mareader_workspace::PaneId;
 
-use crate::documents::{OpenRequest, Placement};
-use crate::toast::Toast;
-use crate::ui_command::{Command, Commands, Sent, UiCommand};
+use crate::ui_command::{Commands, Sent, UiCommand};
+use mareader_engine::command::Command;
+use mareader_engine::documents::{OpenRequest, Placement};
+use mareader_engine::toast::Toast;
 
 /// What the open dialog admits.
 /// Markdown and plain text open converted to books.
@@ -129,7 +130,7 @@ impl Files {
                 true => "Folders and relinks need the desktop app.",
                 false => "The file dialog couldn't open.",
             };
-            let toast = crate::toast::Toast::error(why);
+            let toast = mareader_engine::toast::Toast::error(why);
             self.deliver(ctx, Sent::Ui(UiCommand::Notify(toast)));
         }
     }
@@ -281,7 +282,7 @@ mod dialog {
 #[cfg(target_arch = "wasm32")]
 mod dialog {
     use super::*;
-    use crate::toast::Toast;
+    use mareader_engine::toast::Toast;
 
     pub(super) fn run(done: impl FnOnce(Option<OpenRequest>) + 'static) -> bool {
         wasm_bindgen_futures::spawn_local(async move {

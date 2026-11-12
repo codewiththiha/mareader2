@@ -1,9 +1,10 @@
 use super::*;
+use mareader_engine::documents::OpenRequest;
 
 impl MareaderApp {
     /// The voice booth opens with a voice tab and closes after it.
     pub(super) fn voices_shown(&mut self, ctx: &egui::Context) {
-        use crate::settings_window::Tab;
+        use mareader_engine::settings::Tab;
         let s = self.settings().read_aloud.clone();
         let (booth, shelf) = (&mut self.ui.read_aloud.booth, &self.ui.read_aloud.shelf);
         let engine = match self.ui.settings_window.tab() {

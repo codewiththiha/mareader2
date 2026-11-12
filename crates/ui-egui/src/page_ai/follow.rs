@@ -15,7 +15,8 @@ use crate::documents::Documents;
 use crate::ui_command::Commands;
 
 use super::paint::{Pill, Ring};
-use super::{Asked, PageAi, Showing, Slot, Who, page_task, source_of};
+use super::{Asked, PageAi, Showing, Who, page_task, source_of};
+use mareader_engine::page_ai::Slot;
 
 /// Seconds the page keeps still before the run acts on it.
 const STILL: f64 = 1.2;

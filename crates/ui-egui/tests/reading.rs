@@ -4,10 +4,12 @@ use eframe::{App as _, Storage as _};
 use egui::accesskit::Role;
 use egui_kittest::Harness;
 use egui_kittest::kittest::Queryable as _;
+use mareader_engine::command::Command;
+use mareader_engine::documents::OpenRequest;
+use mareader_engine::documents::Placement;
+use mareader_ui_egui::MareaderApp;
 use mareader_ui_egui::app::LAST_DOCUMENT_KEY;
-use mareader_ui_egui::documents::Placement;
-use mareader_ui_egui::ui_command::{Command, Sent, UiCommand};
-use mareader_ui_egui::{MareaderApp, OpenRequest};
+use mareader_ui_egui::ui_command::{Sent, UiCommand};
 
 use crate::common::reader_200 as reader;
 
@@ -130,7 +132,7 @@ fn a_cut_short_file_opens_with_a_warning() {
     h.run();
     let toast = h.state().toast().cloned();
     let tone = toast.as_ref().map(|t| t.tone);
-    assert_eq!(tone, Some(mareader_ui_egui::toast::Tone::Warning));
+    assert_eq!(tone, Some(mareader_engine::toast::Tone::Warning));
     let said = toast.map(|t| t.message).unwrap_or_default();
     assert_eq!(said, "Partial looks cut short; some pages may be missing.");
     assert_ne!(h.state().title(), "Mareader", "it opened");
@@ -166,7 +168,7 @@ fn a_broken_epub_says_why() {
 fn bigger_type_sets_an_open_book_again_at_the_page_read() {
     let mut h = reader(&[("epub", "sample:6")]);
     let pane = h.state().active_pane();
-    let view = mareader_ui_egui::layout::ViewMode::Single;
+    let view = mareader_engine::pane::ViewMode::Single;
     h.state_mut().queue(Sent::Engine(Command::View(view)));
     // A single page takes the pane's size: the book is set again first.
     h.run();
@@ -199,7 +201,8 @@ fn bigger_type_sets_an_open_book_again_at_the_page_read() {
 
 #[test]
 fn a_book_s_vertical_strip_streams_one_column_edge_to_edge() {
-    use mareader_ui_egui::zoom::{Step, ZoomCommand};
+    use mareader_engine::pane::Step;
+    use mareader_engine::pane::ZoomCommand;
     let options = [
         ("epub", "sample:6"),
         ("book_layout", "true"),
@@ -207,7 +210,7 @@ fn a_book_s_vertical_strip_streams_one_column_edge_to_edge() {
     ];
     let mut h = reader(&options);
     let pane = h.state().active_pane();
-    let vertical = Some(mareader_ui_egui::layout::ViewMode::Vertical);
+    let vertical = Some(mareader_engine::pane::ViewMode::Vertical);
     assert_eq!(h.state().documents().mode(pane), vertical);
     for _ in 0..8 {
         h.state_mut()
@@ -394,7 +397,8 @@ fn reading_page_twenty() -> Harness<'static, MareaderApp> {
 
 #[test]
 fn zoom_keys_step_the_ladder_and_keep_the_page_in_view() {
-    use mareader_ui_egui::zoom::{Fit, MAX};
+    use mareader_ui_egui::zoom::{MAX};
+    use mareader_engine::pane::Fit;
     let mut h = reading_page_twenty();
     let before = zoom(&h);
     assert_eq!(before.fit, Some(Fit::Width));
@@ -406,7 +410,7 @@ fn zoom_keys_step_the_ladder_and_keep_the_page_in_view() {
     assert_eq!(after.fit, None);
     assert_eq!(
         Some(after.zoom),
-        mareader_ui_egui::zoom::next(before.zoom, mareader_ui_egui::zoom::Step::In)
+        mareader_ui_egui::zoom::next(before.zoom, mareader_engine::pane::Step::In)
     );
     assert_eq!(current(&h), page, "the page under the centre stays");
     // Bare minus steps back down; Cmd+0 returns to fit width.
@@ -442,7 +446,7 @@ fn a_pinch_zooms_about_the_pointer() {
 
 #[test]
 fn the_menu_fits_the_page() {
-    use mareader_ui_egui::zoom::Fit;
+    use mareader_engine::pane::Fit;
     let mut h = reader(&[("pdf", "sample:5")]);
     h.state_mut().queue(Sent::Ui(UiCommand::ShowViewMenu));
     h.run();
@@ -626,7 +630,7 @@ fn a_book_keeps_its_own_design_over_the_setting() -> Result<(), String> {
     h.state_mut().set_option("settings", "fonts").ok();
     h.run_steps(3);
     assert!(h.query_by_label("This book").is_some());
-    let choose = mareader_ui_egui::library::Action::Design(book, Some(Design::Off));
+    let choose = mareader_engine::library::Action::Design(book, Some(Design::Off));
     h.state_mut().queue(Sent::Engine(Command::Library(choose)));
     h.run();
     let own = h.state().library().book(book).and_then(|b| b.design.value);
@@ -640,7 +644,7 @@ fn a_book_keeps_its_own_design_over_the_setting() -> Result<(), String> {
         mareader_settings::BookDesign::On
     );
     assert_eq!(design(&h), Some(Set::Off));
-    let follow = mareader_ui_egui::library::Action::Design(book, None);
+    let follow = mareader_engine::library::Action::Design(book, None);
     h.state_mut().queue(Sent::Engine(Command::Library(follow)));
     h.run();
     assert_eq!(design(&h), Some(Set::On));
@@ -797,7 +801,7 @@ fn a_books_page_and_column_rows_follow_its_view() {
     h.run_steps(3);
     // The vertical stream keeps a column of its own.
     assert!(shows(&h, "Column width") && !shows(&h, "Longest line"));
-    let single = mareader_ui_egui::layout::ViewMode::Single;
+    let single = mareader_engine::pane::ViewMode::Single;
     h.state_mut().queue(Sent::Engine(Command::View(single)));
     h.run();
     assert!(shows(&h, "Longest line") && !shows(&h, "Column width"));
@@ -853,7 +857,7 @@ fn layout_rows_follow_the_focused_document() {
     }
     assert!(shows(&h, "Page margin"));
     // Its single pages have gaps and shadows again.
-    let single = mareader_ui_egui::layout::ViewMode::Single;
+    let single = mareader_engine::pane::ViewMode::Single;
     h.state_mut().queue(Sent::Engine(Command::View(single)));
     h.run();
     assert!(shows(&h, "No gap") && shows(&h, "Page shadow"));

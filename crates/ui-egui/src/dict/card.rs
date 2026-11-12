@@ -8,14 +8,16 @@ use egui::{
 use mareader_cefr::Role;
 use mareader_dict::{Entry, Reply, language};
 
-use super::{Action, entry};
+use super::entry;
 use crate::bubble::{Bubble, Side};
 use crate::icons::Icon;
-use crate::settings_window::Tab;
 use crate::shaped;
 use crate::theme::{self, Tokens};
-use crate::ui_command::{Command, Commands, Sent};
+use crate::ui_command::{Commands, Sent};
 use crate::widgets;
+use mareader_engine::command::Command;
+use mareader_engine::dict::Action;
+use mareader_engine::settings::Tab;
 
 const WIDTH: f32 = 320.0;
 /// The word asked stays whole on up to this many lines, then ends in "…".

@@ -11,13 +11,15 @@ use egui::{
 use mareader_appearance::{Appearance, BaseMode, NoiseMode, Preset, TextureMode};
 use mareader_settings::TextSettings;
 
-use crate::appearance_menu::{MenuContext, QuickText};
+use crate::appearance_menu::MenuContext;
 use crate::icons::Icon;
 use crate::icons::anim::{self, Act};
 use crate::theme::{self, Tokens};
-use crate::ui_command::{Command, Commands, Independence, Sent};
+use crate::ui_command::{Commands, Sent};
 use crate::widgets;
 use labels::{mode_icon, noise_label, strength_percent};
+use mareader_engine::appearance_menu::QuickText;
+use mareader_engine::command::{Command, Independence};
 
 pub use dials::{HUES, KnobSpec, STRENGTH_ON_HUE, WHEEL_SIZE, color_wheel, rotary_knob};
 pub use presets::forget_draft;

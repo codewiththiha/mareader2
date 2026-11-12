@@ -71,7 +71,6 @@ pub mod word_list;
 pub mod zoom;
 
 pub use app::MareaderApp;
-pub use documents::OpenRequest;
 
 #[cfg(test)]
 mod testing {
@@ -90,7 +89,7 @@ mod testing {
             doc: doc()?,
             document: std::sync::Arc::new(document),
             current,
-            mode: crate::layout::ViewMode::Vertical,
+            mode: mareader_engine::pane::ViewMode::Vertical,
             progress: 0.0,
             name: "sample.pdf".into(),
             page: None,

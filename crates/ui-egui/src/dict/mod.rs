@@ -19,7 +19,7 @@ use crate::ui_command::Commands;
 /// Room around a rested card's word and itself the pointer may cross.
 const LEAVE: f32 = 8.0;
 
-pub use mareader_engine::dict::{Action, Window};
+use mareader_engine::dict::Action;
 
 /// A rect as the engine's window bounds: x, y, width, height.
 fn bounds(rect: Rect) -> [f32; 4] {

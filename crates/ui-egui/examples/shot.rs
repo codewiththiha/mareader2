@@ -5,12 +5,14 @@ use std::time::{Duration, Instant};
 use egui_kittest::Harness;
 use egui_kittest::kittest::Queryable;
 use mareader_cefr::{Part, State};
+use mareader_engine::command::Command;
+use mareader_engine::dict::Download;
+use mareader_engine::pane::{Arrow, ViewMode};
+use mareader_engine::pane::{Fit, Step, ZoomCommand};
 use mareader_settings::Provider;
 use mareader_ui_egui::MareaderApp;
 use mareader_ui_egui::ai::Job;
-use mareader_ui_egui::layout::{Arrow, ViewMode};
-use mareader_ui_egui::ui_command::{Command, Download, Sent, UiCommand};
-use mareader_ui_egui::zoom::{Fit, Step, ZoomCommand};
+use mareader_ui_egui::ui_command::{Sent, UiCommand};
 
 fn main() -> Result<(), String> {
     let mut args = std::env::args().skip(1);
@@ -512,7 +514,7 @@ fn main() -> Result<(), String> {
             on: true,
             ask: true,
         };
-        let from = mareader_ui_egui::read_aloud::ReadFrom {
+        let from = mareader_engine::read_aloud::ReadFrom {
             anchor: None,
             at: Some(mareader_speech::Spot {
                 page: at.saturating_sub(1),
@@ -576,7 +578,7 @@ fn read_from_text(
     app: &MareaderApp,
     page: usize,
     phrase: &str,
-) -> Result<mareader_ui_egui::read_aloud::ReadFrom, String> {
+) -> Result<mareader_engine::read_aloud::ReadFrom, String> {
     let pane = app.active_pane();
     let reading = app
         .documents()
@@ -606,7 +608,7 @@ fn read_from_text(
         .position(|window| window.iter().map(|(c, _)| *c).eq(phrase.iter().copied()))
         .ok_or(format!("read_at: phrase not found on page {}", page + 1))?;
     let char = chars[start].1;
-    Ok(mareader_ui_egui::read_aloud::ReadFrom {
+    Ok(mareader_engine::read_aloud::ReadFrom {
         anchor: None,
         at: Some(mareader_speech::Spot { page, char }),
         until: None,

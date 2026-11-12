@@ -11,12 +11,13 @@ use mareader_session::Document;
 use mareader_settings::{AiSettings, PageTask, Provider};
 use mareader_workspace::PaneId;
 
-use crate::toast::Toast;
 use crate::ui_command::{Commands, Sent, UiCommand};
+use mareader_engine::toast::Toast;
 
 use super::follow::{Around, capacity, doing};
 use super::paint::{Pill, Ring};
-use super::{Asked, PageAi, Slot, Who, group_span, page_task};
+use super::{Asked, PageAi, Who, group_span, page_task};
+use mareader_engine::page_ai::Slot;
 
 /// A group's text, if any, the group, and the span it covers.
 type Read = (Option<Source>, Group, PageSpan);

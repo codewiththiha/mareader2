@@ -3,8 +3,8 @@
 use egui::accesskit::Role;
 use egui_kittest::Harness;
 use egui_kittest::kittest::{NodeT as _, Queryable as _};
+use mareader_engine::command::Command;
 use mareader_ui_egui::MareaderApp;
-use mareader_ui_egui::ui_command::Command;
 use mareader_ui_egui::ui_command::UiCommand;
 
 fn harness(app: MareaderApp) -> Harness<'static, MareaderApp> {
@@ -389,7 +389,7 @@ fn the_glass_switch_starts_on_and_turns_it_off() {
 
 #[test]
 fn the_motion_tab_hides_each_switch_with_the_master() {
-    use mareader_ui_egui::settings_window::Tab;
+    use mareader_engine::settings::Tab;
     let mut h = with(&[("settings", "animations")]);
     let each = "Icon animations";
     assert!(h.query_by_role_and_label(Role::CheckBox, each).is_some());
@@ -422,7 +422,7 @@ fn the_icon_animation_switch_stills_only_icons() {
 
 #[test]
 fn every_settings_tab_is_named_in_its_sidebar() {
-    use mareader_ui_egui::settings_window::Tab;
+    use mareader_engine::settings::Tab;
     let mut h = with(&[("settings", "layout")]);
     for tab in Tab::ALL {
         let label = tab.label();
@@ -892,7 +892,7 @@ fn repaired_settings_say_so() {
     );
     let app = MareaderApp::from_storage(Some(&disk));
     let tone = app.toast().map(|t| t.tone);
-    assert_eq!(tone, Some(mareader_ui_egui::toast::Tone::Error));
+    assert_eq!(tone, Some(mareader_engine::toast::Tone::Error));
 }
 
 fn lights(h: &Harness<'static, MareaderApp>) -> mareader_ui_egui::platform::NativeLights {

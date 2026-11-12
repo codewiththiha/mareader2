@@ -2,11 +2,13 @@
 
 use egui_kittest::Harness;
 use egui_kittest::kittest::Queryable as _;
+use mareader_engine::command::Command;
+use mareader_engine::read_aloud::ReadFrom;
 use mareader_speech::Spot;
 use mareader_ui_egui::MareaderApp;
 use mareader_ui_egui::park::PEEK;
-use mareader_ui_egui::read_aloud::{ReadFrom, Span};
-use mareader_ui_egui::ui_command::{Command, Sent, UiCommand};
+use mareader_ui_egui::read_aloud::Span;
+use mareader_ui_egui::ui_command::{Sent, UiCommand};
 
 use crate::common::press;
 
@@ -237,7 +239,7 @@ fn the_player_shows_time_left_and_seeks_to_a_page() {
 /// The reader with settings open on the Read aloud tab.
 fn voice_settings(pages: usize) -> Harness<'static, MareaderApp> {
     let mut h = reader(pages);
-    let tab = mareader_ui_egui::settings_window::Tab::ReadAloud;
+    let tab = mareader_engine::settings::Tab::ReadAloud;
     h.state_mut()
         .queue(Sent::Engine(Command::OpenSettings(tab)));
     h.run_steps(4);
@@ -722,7 +724,7 @@ fn a_scroll_hidden_highlight_makes_the_dictionary_yield_to_the_player() {
 
 #[test]
 fn the_card_shows_over_the_library_and_leads_back_to_the_words() {
-    use mareader_ui_egui::ui_command::Route;
+    use mareader_engine::route::Route;
     let mut h = reader(3);
     start(&mut h, ReadFrom::default());
     let first = lit(&h);
@@ -743,7 +745,7 @@ fn the_card_shows_over_the_library_and_leads_back_to_the_words() {
 
 /// Another book, opened over the one in the active pane.
 fn replace_book(h: &mut Harness<'static, MareaderApp>) {
-    use mareader_ui_egui::documents::OpenRequest;
+    use mareader_engine::documents::OpenRequest;
     let pdf = mareader_pdf::sample::pdf(2, "Another Book");
     let request = OpenRequest {
         pane: Some(h.state().active_pane()),
@@ -755,7 +757,7 @@ fn replace_book(h: &mut Harness<'static, MareaderApp>) {
 
 /// A sample read from a file, so it can be opened again.
 fn reader_from_file(dir: &std::path::Path) -> (Harness<'static, MareaderApp>, std::path::PathBuf) {
-    use mareader_ui_egui::documents::OpenRequest;
+    use mareader_engine::documents::OpenRequest;
     let path = dir.join("Kept.pdf");
     std::fs::write(&path, mareader_pdf::sample::pdf(40, "Kept")).expect("a sample file");
     let mut h = reader(1);
@@ -861,7 +863,7 @@ fn bar_only_stays_a_bar_until_asked_and_full_keeps_it_open() {
 
 /// A sample EPUB read from a file, so it can be opened again.
 fn epub_from_file(dir: &std::path::Path) -> (Harness<'static, MareaderApp>, std::path::PathBuf) {
-    use mareader_ui_egui::documents::OpenRequest;
+    use mareader_engine::documents::OpenRequest;
     let path = dir.join("Kept.epub");
     let bytes = mareader_epub::sample::epub(8, "Kept");
     std::fs::write(&path, bytes).expect("a sample file");
@@ -1420,7 +1422,7 @@ fn player_at_wide_width_minimizes_for_toast_and_restores() {
 fn player_rises_above_the_selection_bar_and_comes_back_down() {
     use egui_kittest::kittest::Queryable as _;
     use mareader_engine::library::{Pick, PickAction};
-    use mareader_ui_egui::library::Action;
+    use mareader_engine::library::Action;
 
     let mut app = MareaderApp::default();
     app.set_option("workers", "0").ok();
@@ -1706,7 +1708,7 @@ fn the_last_used_float_keeps_priority_and_shrinks_the_dictionary() {
 
 #[test]
 fn a_remembered_skip_belongs_to_one_book_and_can_be_undone() {
-    use mareader_ui_egui::documents::OpenRequest;
+    use mareader_engine::documents::OpenRequest;
     let dir = tempfile::tempdir().expect("temporary library");
     let (mut h, kept_path) = epub_from_file(dir.path());
     h.state_mut().settings_mut().read_aloud.skips.tables = mareader_settings::Skip {

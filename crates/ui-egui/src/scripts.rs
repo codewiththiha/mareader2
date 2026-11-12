@@ -189,7 +189,7 @@ mod running {
 
     use super::{Ask, Field, Paged, alert_text};
     use crate::documents::Documents;
-    use crate::toast::Toast;
+    use mareader_engine::toast::Toast;
 
     /// Script errors a pane keeps.
     const MAX_ERRORS: usize = 8;
@@ -321,7 +321,7 @@ mod browser {
     use egui::Context;
 
     use crate::documents::Documents;
-    use crate::toast::Toast;
+    use mareader_engine::toast::Toast;
 
     /// No scripts run in the browser build; their pages show as written.
     #[derive(Default)]

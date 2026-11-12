@@ -3,10 +3,10 @@
 use egui::{RichText, Ui};
 use mareader_library::{BookId, Departure, Library, Move, Origin, ShelfId, free_name};
 
-use super::{Action, ShelfAction};
 use crate::modal::{buttons, primary, title};
 use crate::theme::{self, Tokens};
 use mareader_engine::library::counted;
+use mareader_engine::library::{Action, ShelfAction};
 use mareader_engine::library::{CopyAnswer, CopyWork};
 
 const UNTOUCHED: &str = "The folder on disk is untouched.";

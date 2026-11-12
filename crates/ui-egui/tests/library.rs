@@ -6,14 +6,15 @@ use std::time::{Duration, SystemTime};
 use egui::accesskit::Role;
 use egui_kittest::Harness;
 use egui_kittest::kittest::{NodeT as _, Queryable as _};
+use mareader_engine::command::Command;
+use mareader_engine::library::{Action, BookAction, Named, SearchAction, Sheet, ShelfAction};
 use mareader_engine::library::{Pick, PickAction};
 use mareader_library::{
     BookId, CoverFit, Format, Home, Layout, Library, LinkId, LinkTo, Move, Origin, ShelfId, SortKey,
 };
 use mareader_settings::Bar;
 use mareader_ui_egui::MareaderApp;
-use mareader_ui_egui::library::{Action, BookAction, Named, SearchAction, Sheet, ShelfAction};
-use mareader_ui_egui::ui_command::{Command, Sent, UiCommand};
+use mareader_ui_egui::ui_command::{Sent, UiCommand};
 
 use crate::common::{act, carry, go_to, reader, release};
 
@@ -319,7 +320,7 @@ fn the_library_shows_no_rail_and_only_its_own_bar_tools() {
 
 #[test]
 fn the_library_settings_list_only_what_it_uses() {
-    use mareader_ui_egui::settings_window::Tab;
+    use mareader_engine::settings::Tab;
     let listed =
         |h: &Harness<'static, MareaderApp>, tab: &str| h.query_all_by_label(tab).count() > 0;
     let mut h = reader(&[("pdf", "sample:5")]);
@@ -1153,7 +1154,7 @@ fn removing_a_folder_book_hides_it_until_restored_from_its_menu() {
         "a rescan leaves it out"
     );
     // The Undo toast sits over the menu's last rows until it goes.
-    h.run_steps(((mareader_ui_egui::study::UNDO_FOR + 1.0) * 60.0) as usize);
+    h.run_steps(((mareader_engine::toast::UNDO_FOR + 1.0) * 60.0) as usize);
     assert_eq!(toast(&h), "");
     // The folder's own shelf lists it under Restore.
     let shelf = library(&h).children(None)[0].id;
@@ -1557,7 +1558,7 @@ fn the_plus_card_ends_the_page_but_not_a_search() {
     assert!(h.query_by_label("Add files in place…").is_none());
     h.key_press(egui::Key::Escape);
     h.run();
-    let text = mareader_ui_egui::library::SearchAction::Text("b".into());
+    let text = mareader_engine::library::SearchAction::Text("b".into());
     act(&mut h, Action::Search(text));
     assert!(h.query_by_label("Add books").is_none());
 }

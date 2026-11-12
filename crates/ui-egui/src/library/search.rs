@@ -13,11 +13,14 @@ use mareader_library::{
     View, plural,
 };
 
-use super::{Action, LibraryState, Pick, PickAction, Scope};
+use super::LibraryState;
 use crate::icons::Icon;
 use crate::motion;
 use crate::theme::{self, Tokens};
-use crate::ui_command::{Command, Commands, Sent};
+use crate::ui_command::{Commands, Sent};
+use mareader_engine::command::Command;
+use mareader_engine::library::{Action, Scope};
+use mareader_library::picks::{Pick, PickAction};
 
 /// The field's id: the app asks it whether it holds the keys.
 pub const FIELD: &str = "library-search";
@@ -33,7 +36,7 @@ const RING_END: f64 = 4.6;
 const PULSE: f64 = 1.6;
 const HALO: f32 = 16.0;
 
-pub use mareader_engine::library::SearchAction;
+use mareader_engine::library::SearchAction;
 
 #[derive(Default)]
 pub(super) struct Search {

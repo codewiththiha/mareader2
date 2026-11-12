@@ -6,16 +6,17 @@ use egui::accesskit::Role;
 use egui_kittest::Harness;
 use egui_kittest::kittest::Queryable as _;
 use mareader_dict::{PACKS, State, build, db_file};
+use mareader_engine::command::Command;
+use mareader_engine::route::Route;
+use mareader_engine::settings::Tab;
 use mareader_settings::{Bar, DictionaryOpens};
 use mareader_ui_egui::MareaderApp;
 use mareader_ui_egui::dict::card::PURSUE;
 use mareader_ui_egui::dict::page::LABEL;
 use mareader_ui_egui::dict::window::{CLOSE, EXPAND, MINIMIZE, RESTORE};
 use mareader_ui_egui::park::PEEK;
-use mareader_ui_egui::settings_window::Tab;
 use mareader_ui_egui::settings_window::{ALL_LANGUAGES, MORE_LANGUAGES};
-use mareader_ui_egui::ui_command::Route;
-use mareader_ui_egui::ui_command::{Command, Sent, UiCommand};
+use mareader_ui_egui::ui_command::{Sent, UiCommand};
 
 use crate::common::click_at;
 

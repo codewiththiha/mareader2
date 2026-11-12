@@ -12,8 +12,10 @@ use super::{
 use crate::dict::megabytes;
 use crate::icons::Icon;
 use crate::read_aloud::Booth;
-use crate::ui_command::{Command, Commands, Download, Sent};
+use crate::ui_command::{Commands, Sent};
 use crate::widgets;
+use mareader_engine::command::Command;
+use mareader_engine::dict::Download;
 
 pub fn tab(
     ui: &mut Ui,

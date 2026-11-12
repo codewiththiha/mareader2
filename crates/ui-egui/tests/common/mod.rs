@@ -4,11 +4,12 @@ use std::sync::Arc;
 
 use egui_kittest::Harness;
 use egui_kittest::kittest::Queryable as _;
+use mareader_engine::command::Command;
+use mareader_engine::library::Action;
 use mareader_pdf::TextLayer;
 use mareader_ui_egui::MareaderApp;
-use mareader_ui_egui::library::Action;
 use mareader_ui_egui::selection::Sheet;
-use mareader_ui_egui::ui_command::{Command, Sent};
+use mareader_ui_egui::ui_command::Sent;
 
 fn harness(
     options: &[(&str, &str)],

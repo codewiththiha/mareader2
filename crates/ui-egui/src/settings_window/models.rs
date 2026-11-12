@@ -10,8 +10,9 @@ use mareader_study::Failure;
 use super::{divider, group, note, row, section};
 use crate::icons::Icon;
 use crate::theme::Tokens;
-use crate::ui_command::{Command, Commands, Sent};
+use crate::ui_command::{Commands, Sent};
 use crate::widgets;
+use mareader_engine::command::Command;
 
 const FIELD_W: f32 = 260.0;
 const PICK_W: f32 = 240.0;

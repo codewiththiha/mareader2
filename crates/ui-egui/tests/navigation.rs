@@ -4,9 +4,10 @@ use egui::accesskit::{Role, Toggled};
 use egui::{Key, Modifiers};
 use egui_kittest::Harness;
 use egui_kittest::kittest::{NodeT, Queryable};
+use mareader_engine::command::Command;
+use mareader_engine::pane::ViewMode;
 use mareader_ui_egui::MareaderApp;
-use mareader_ui_egui::layout::ViewMode;
-use mareader_ui_egui::ui_command::{Command, Sent};
+use mareader_ui_egui::ui_command::Sent;
 
 type H = Harness<'static, MareaderApp>;
 

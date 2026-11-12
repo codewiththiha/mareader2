@@ -3,12 +3,13 @@
 use egui::{Event, Modifiers, PointerButton, Pos2};
 use egui_kittest::Harness;
 use egui_kittest::kittest::Queryable as _;
+use mareader_engine::command::Command;
 use mareader_pdf::TextLayer;
 use mareader_settings::PageStart;
 use mareader_ui_egui::MareaderApp;
 use mareader_ui_egui::page_ai::menu::FIND;
 use mareader_ui_egui::selection::Sheet;
-use mareader_ui_egui::ui_command::{Command, Sent, UiCommand};
+use mareader_ui_egui::ui_command::{Sent, UiCommand};
 
 use crate::common::{ai_reader as reader, find, page};
 
@@ -270,7 +271,7 @@ fn staying_on_a_done_page_asks_the_next_pages() -> Out {
 
 #[test]
 fn a_pdf_takes_type_settings_while_an_ai_page_shows() {
-    use mareader_ui_egui::settings_window::Tab;
+    use mareader_engine::settings::Tab;
     let open = |h: &mut H| {
         h.set_size(egui::vec2(1000.0, 1200.0));
         h.state_mut()

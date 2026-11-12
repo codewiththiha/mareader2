@@ -4,11 +4,12 @@ use std::path::Path;
 
 use egui_kittest::Harness;
 use egui_kittest::kittest::Queryable as _;
+use mareader_engine::command::Command;
+use mareader_engine::settings::Tab;
 use mareader_settings::{Accent, Notation};
 use mareader_speech::{MODELS, PRONUNCIATION};
 use mareader_ui_egui::MareaderApp;
-use mareader_ui_egui::settings_window::Tab;
-use mareader_ui_egui::ui_command::{Command, Sent};
+use mareader_ui_egui::ui_command::Sent;
 
 type H = Harness<'static, MareaderApp>;
 

@@ -8,11 +8,12 @@ use mareader_library::BookId;
 use mareader_settings::PaneLook;
 use mareader_workspace::{Bounds, PaneId, PaneTree, SplitAxis};
 
-use crate::documents::Placement;
 use crate::icons::Icon;
 use crate::theme::{self, Tokens};
-use crate::ui_command::{Command, Commands, Sent, UiCommand};
+use crate::ui_command::{Commands, Sent, UiCommand};
 use crate::widgets;
+use mareader_engine::command::Command;
+use mareader_engine::documents::Placement;
 
 pub struct PaneView {
     pub active: PaneId,

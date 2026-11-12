@@ -1,5 +1,6 @@
 use super::*;
-use crate::ui_command::{Command, UiCommand};
+use crate::ui_command::UiCommand;
+use mareader_engine::command::Command;
 
 impl MareaderApp {
     pub(super) fn glosses(&mut self, ctx: &Context, out: &mut Commands) {
@@ -44,11 +45,11 @@ impl MareaderApp {
                     (true, _) => out.push(Sent::Engine(Command::Bookmark(Some(pane)))),
                     // Picking starts, then a later `pick` takes all in.
                     (false, Some(id)) if text.is_empty() && !self.ui.study.picking() => {
-                        let start = crate::study::Action::SelectSeveral(pane, id);
+                        let start = mareader_engine::study::Action::SelectSeveral(pane, id);
                         out.push(Sent::Engine(Command::Study(start)));
                     }
                     (false, Some(_)) if text.is_empty() => {
-                        out.push(Sent::Engine(Command::Study(crate::study::Action::PickAll)));
+                        out.push(Sent::Engine(Command::Study(mareader_engine::study::Action::PickAll)));
                         if pick {
                             egui::Popup::open_id(ctx, egui::Id::new(crate::study::PICK_STYLE));
                         }
@@ -68,7 +69,7 @@ impl MareaderApp {
                 if let Some((text, save)) = note {
                     out.push(Sent::Engine(Command::Note(pane)));
                     out.push(Sent::Engine(Command::Study(
-                        crate::study::Action::TypeNote(text, save),
+                        mareader_engine::study::Action::TypeNote(text, save),
                     )));
                 }
                 // The next waits a frame, as each selection replaces the last.

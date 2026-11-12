@@ -1,9 +1,10 @@
 //! What the page and its sheets ask of the library, and who does it.
 
-use super::{LibraryState, Pick, PickAction};
+use super::LibraryState;
 use crate::ui_command::Commands;
+use mareader_library::picks::{Pick, PickAction};
 
-pub use mareader_engine::library::{Action, Named, Scope, Sheet};
+use mareader_engine::library::{Action, Named, Sheet};
 
 impl LibraryState {
     pub fn sheet(&self) -> Option<&Sheet> {
@@ -59,7 +60,7 @@ impl LibraryState {
             }
             Action::Rename(named, name) => self.rename(named, &name),
             Action::Design(book, design) => {
-                self.model.set_design(book, design, super::wall_ms());
+                self.model.set_design(book, design, mareader_engine::library::wall_ms());
             }
             Action::Shelf(action) => self.engine(out, |s, a| s.shelf_act(action, a)),
             Action::Pick(action) => self.picks.apply(action),
@@ -101,7 +102,7 @@ impl LibraryState {
             self.close_sheet();
         }
         self.renaming = None;
-        let now = super::wall_ms();
+        let now = mareader_engine::library::wall_ms();
         match named {
             Named::Book(id) => {
                 self.model.rename_book(id, name, now);

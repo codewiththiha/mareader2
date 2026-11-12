@@ -15,7 +15,7 @@ use mareader_session::{Band, DocId, Document, PageKey, PageSize, Part, Scale, Ti
 use mareader_settings::{ColumnAlign, HighlightSettings, LayoutSettings, StartupFit, TextSettings};
 
 use crate::gpu::{Anchor, PagePass, PagesCallback, Quad};
-use crate::layout::{self, Arrow, GAP, Inputs, Layout, MARGIN, ViewMode};
+use crate::layout::{self, GAP, Inputs, Layout, MARGIN};
 use crate::page_ai;
 use crate::pages::{Lookup, PageCache, PageTexture};
 use crate::reach::{self, Press, Stop};
@@ -24,9 +24,11 @@ use crate::selection::{self, Pages, Sheet};
 use crate::study::{self, BarPress, Gloss};
 use crate::theme::Tokens;
 use crate::vocab;
-use crate::zoom::{Fit, PaneZoom, ZoomCommand};
+use crate::zoom::PaneZoom;
 use crate::{keymap, motion};
 use mareader_appearance::{PageTone, Rgb};
+use mareader_engine::pane::{Arrow, ViewMode};
+use mareader_engine::pane::{Fit, ZoomCommand};
 
 /// Pages drawn ahead of the viewport, each way, in turns.
 const PREFETCH: usize = 1;

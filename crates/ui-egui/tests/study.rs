@@ -4,13 +4,14 @@ use egui::accesskit::Role;
 use egui::{Event, Modifiers, PointerButton, Pos2, Rect};
 use egui_kittest::Harness;
 use egui_kittest::kittest::{NodeT as _, Queryable as _};
+use mareader_engine::command::Command;
 use mareader_engine::study::words;
 use mareader_library::{Pen, Spot};
 use mareader_pdf::TextLayer;
 use mareader_session::Anchor;
 use mareader_ui_egui::MareaderApp;
 use mareader_ui_egui::selection::Sheet;
-use mareader_ui_egui::ui_command::{Command, Sent};
+use mareader_ui_egui::ui_command::Sent;
 
 use crate::common::{ai_reader as reader, find, page};
 
@@ -379,7 +380,7 @@ fn the_options_highlight_a_book_across_its_blocks() -> Out {
 fn the_highlights_tab_sets_colours_the_menu_and_keeps_the_ai_look() {
     use mareader_appearance::Rgb;
     use mareader_settings::BarItem;
-    use mareader_ui_egui::settings_window::Tab;
+    use mareader_engine::settings::Tab;
     let mut h = reader(&[("pdf", "sample")]);
     h.set_size(egui::vec2(1000.0, 1200.0));
     h.state_mut()
@@ -430,7 +431,7 @@ fn the_highlights_tab_sets_colours_the_menu_and_keeps_the_ai_look() {
 
 #[test]
 fn marks_kept_off_the_pens_show_only_while_in_use() {
-    use mareader_ui_egui::settings_window::Tab;
+    use mareader_engine::settings::Tab;
     let mut h = reader(&[("pdf", "sample"), ("explain", "none")]);
     h.set_size(egui::vec2(1000.0, 1200.0));
     h.state_mut()
@@ -445,7 +446,7 @@ fn marks_kept_off_the_pens_show_only_while_in_use() {
 #[test]
 fn the_ai_tab_picks_who_explains() {
     use mareader_settings::Provider;
-    use mareader_ui_egui::settings_window::Tab;
+    use mareader_engine::settings::Tab;
     let mut h = reader(&[("pdf", "sample")]);
     h.state_mut()
         .queue(Sent::Engine(Command::OpenSettings(Tab::Ai)));

@@ -11,7 +11,7 @@ use mareader_study::Explainer;
 use crate::library::organizing::{Ask, Proposal, Spot};
 use crate::library::organizing::{Heard, Paused};
 #[cfg(not(target_arch = "wasm32"))]
-use crate::toast::Toast;
+use mareader_engine::toast::Toast;
 
 #[cfg(not(target_arch = "wasm32"))]
 pub use mareader_assist::{Board, Job};

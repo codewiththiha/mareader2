@@ -8,11 +8,13 @@ use mareader_settings::{
 };
 
 use super::highlights::{palette, preview};
-use super::{ROW_H, Tab, choices, divider, group, note, row, section};
+use super::{ROW_H, choices, divider, group, note, row, section};
 use crate::icons::Icon;
 use crate::theme::Tokens;
-use crate::ui_command::{Command, Commands, Sent};
+use crate::ui_command::{Commands, Sent};
 use crate::widgets;
+use mareader_engine::command::Command;
+use mareader_engine::settings::Tab;
 
 const PICK_W: f32 = 240.0;
 const DICTIONARY: &str = "AI Dictionary";

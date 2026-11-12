@@ -14,8 +14,9 @@ use crate::icons::Icon;
 use crate::motion;
 use crate::theme::{self, Tokens};
 use crate::titlebar::{FADE, HIDE_GRACE};
-use crate::ui_command::{Command, Commands, Sent};
+use crate::ui_command::{Commands, Sent};
 use crate::widgets;
+use mareader_engine::command::Command;
 
 pub const BAR_H: f32 = 40.0;
 /// The strip along a pane's bottom edge that brings the bar up.
@@ -359,7 +360,7 @@ mod tests {
             doc,
             document: std::sync::Arc::clone(&entry.doc),
             current,
-            mode: crate::layout::ViewMode::Vertical,
+            mode: mareader_engine::pane::ViewMode::Vertical,
             progress: 0.0,
             name: "Progress".into(),
             page: None,

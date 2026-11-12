@@ -100,7 +100,7 @@ pub struct Copies {
     pub failed: Vec<(PathBuf, String)>,
 }
 
-pub use mareader_engine::library::Relink;
+use mareader_engine::library::Relink;
 
 /// A file a pane opened, waiting to be measured.
 #[derive(Clone, Debug)]
@@ -269,7 +269,7 @@ fn run(job: Job, store: &mut Option<Store>, post: &mut dyn FnMut(News)) {
             folder,
             sought,
         } => {
-            let found = disk::find_again(&folder, &sought, Limits::new(super::wall_ms()));
+            let found = disk::find_again(&folder, &sought, Limits::new(mareader_engine::library::wall_ms()));
             Some(News::Sought {
                 book,
                 folder,

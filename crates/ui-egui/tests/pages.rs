@@ -2,10 +2,11 @@
 
 use egui_kittest::Harness;
 use egui_kittest::kittest::Queryable as _;
+use mareader_engine::command::Command;
+use mareader_engine::pane::Fit;
 use mareader_settings::StartupFit;
 use mareader_ui_egui::MareaderApp;
-use mareader_ui_egui::ui_command::{Command, Sent};
-use mareader_ui_egui::zoom::Fit;
+use mareader_ui_egui::ui_command::Sent;
 
 use crate::common::reader_200 as reader;
 
@@ -255,7 +256,7 @@ fn span(h: &H) -> (f32, f32) {
 fn a_turn_to_a_spread_of_other_sizes_fits_on_landing() {
     let mut h = reader(&[("pdf", "sample:20")]);
     h.state_mut().queue(Sent::Engine(Command::View(
-        mareader_ui_egui::layout::ViewMode::Spread,
+        mareader_engine::pane::ViewMode::Spread,
     )));
     h.run();
     let pane = h.state().active_pane();

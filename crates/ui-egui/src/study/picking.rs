@@ -5,9 +5,11 @@ use mareader_library::{MarkId, Style};
 use mareader_settings::HighlightSettings;
 use mareader_workspace::PaneId;
 
-use super::{Action, restyle};
+use super::restyle;
 use crate::theme::Tokens;
-use crate::ui_command::{Command, Commands, Sent};
+use crate::ui_command::{Commands, Sent};
+use mareader_engine::command::Command;
+use mareader_engine::study::Action;
 
 /// The Style… popover's id, for shots to open it.
 pub const STYLE_ID: &str = "study-picking-style";

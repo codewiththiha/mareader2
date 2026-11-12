@@ -8,12 +8,13 @@ use egui::{
 use mareader_appearance::Rgb;
 use mareader_library::MarkId;
 
-use super::Action;
 use crate::bubble::{Bubble, Side};
 use crate::icons::Icon;
 use crate::theme::{Tokens, color};
-use crate::ui_command::{Command, Commands, Sent};
+use crate::ui_command::{Commands, Sent};
 use crate::widgets;
+use mareader_engine::command::Command;
+use mareader_engine::study::Action;
 
 const WIDTH: f32 = 340.0;
 

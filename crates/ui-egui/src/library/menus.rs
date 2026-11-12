@@ -4,13 +4,16 @@ use egui::{
     Button, Color32, Id, Popup, PopupCloseBehavior, Rect, RectAlign, RichText, Sense, Stroke,
     StrokeKind, Ui, pos2, vec2,
 };
+use mareader_engine::library::Carry;
 use mareader_library::{Book, BookId, Library, Link, LinkTo, Move, Shelf, ShelfId, natural};
 
-use super::{Action, BookAction, Named, Pick, PickAction, Picks, ShelfAction};
 use crate::icons::Icon;
 use crate::theme::{self, Tokens};
-use crate::ui_command::{Command, Commands, Sent};
+use crate::ui_command::{Commands, Sent};
 use crate::widgets;
+use mareader_engine::command::Command;
+use mareader_engine::library::{Action, BookAction, Named, ShelfAction};
+use mareader_library::picks::{Pick, PickAction, Picks};
 
 const ADD_TO_SHELF: &str = "library-add-to-shelf";
 

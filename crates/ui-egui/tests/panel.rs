@@ -5,12 +5,13 @@ use std::path::{Path, PathBuf};
 use egui::Key;
 use egui_kittest::Harness;
 use egui_kittest::kittest::{NodeT as _, Queryable as _};
+use mareader_engine::command::Command;
+use mareader_engine::library::{Action, BookAction};
 use mareader_library::{BookId, Library};
 use mareader_settings::LibraryClick;
 use mareader_ui_egui::MareaderApp;
-use mareader_ui_egui::library::{Action, BookAction};
 use mareader_ui_egui::sidebar::WIDTH;
-use mareader_ui_egui::ui_command::{Command, Sent};
+use mareader_ui_egui::ui_command::Sent;
 use mareader_workspace::PaneId;
 
 use crate::common::reader;
@@ -373,7 +374,7 @@ fn at_four_panes_the_tree_still_moves_books_but_splits_no_more() {
     assert_eq!(h.state().panes().len(), 4, "no fifth pane");
     assert_eq!(reads(&h, first), Some(id));
     // A new shelf is named in place; the tree files the twin on it.
-    let new = Action::Shelf(mareader_ui_egui::library::ShelfAction::NewIn(None));
+    let new = Action::Shelf(mareader_engine::library::ShelfAction::NewIn(None));
     h.state_mut().queue(Sent::Engine(Command::Library(new)));
     h.run_steps(4);
     h.event(egui::Event::Text("Poems".into()));

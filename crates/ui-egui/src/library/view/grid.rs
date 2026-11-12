@@ -9,15 +9,17 @@ use mareader_library::BookId;
 
 use super::super::add::Here;
 use super::super::living::{Aim, Rested, Slot};
-use super::super::{Action, Pick};
 use super::{
     A4, CARD_TEXT, Cx, GAP, Item, add, centred, cover, line, margin, paper, plate, prefetch,
 };
 use super::{grid_card, links, shelf_card};
 use crate::motion;
 use crate::theme;
-use crate::ui_command::{Command, Sent};
+use crate::ui_command::Sent;
+use mareader_engine::command::Command;
+use mareader_engine::library::Action;
 use mareader_engine::library::{Carry, ShelfAction};
+use mareader_library::picks::Pick;
 
 /// The cards in rows; a carried card opens a hole the rest move around.
 pub(super) fn show(ui: &mut Ui, items: &[Item<'_>], columns: u8, cx: &mut Cx<'_>) {

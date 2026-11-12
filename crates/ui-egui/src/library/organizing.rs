@@ -1,14 +1,17 @@
 //! Loose books an AI files on shelves: what it's asked, and its plan.
 
+use mareader_engine::library::wall_ms;
 use std::collections::BTreeSet;
 
 use mareader_library::{Book, BookId, Library, Origin, ShelfId};
 
+use super::LibraryState;
 use super::runs::{Beat, Phase, RunId};
-use super::{LibraryState, Pick};
-use crate::toast::Toast;
-use crate::ui_command::{Command, Commands, Sent, UiCommand};
+use crate::ui_command::{Commands, Sent, UiCommand};
+use mareader_engine::command::Command;
 use mareader_engine::library::counted;
+use mareader_engine::toast::Toast;
+use mareader_library::picks::Pick;
 
 /// A book the model may file.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -105,7 +108,7 @@ impl Proposal {
     }
 }
 
-pub use mareader_engine::library::Applied;
+use mareader_engine::library::Applied;
 /// News from the model, as the library takes it.
 #[derive(Clone, Debug, PartialEq)]
 pub enum Heard {
@@ -255,12 +258,12 @@ impl LibraryState {
 
     /// Asks whether a new run over `picked` replaces the paused one.
     pub fn ask_replace(&mut self, picked: Option<Vec<BookId>>) {
-        self.sheet = Some(super::Sheet::Replace(picked));
+        self.sheet = Some(mareader_engine::library::Sheet::Replace(picked));
     }
 
     /// Drops the sheet asking to replace the paused run, if it's up.
     pub fn close_replace(&mut self) {
-        if matches!(self.sheet, Some(super::Sheet::Replace(_))) {
+        if matches!(self.sheet, Some(mareader_engine::library::Sheet::Replace(_))) {
             self.close_sheet();
         }
     }
@@ -278,8 +281,8 @@ impl LibraryState {
             .filter(|p| !matches!(p, Pick::Book(b) if held.contains(b)))
             .collect();
         let action = match keep.is_empty() {
-            true => super::PickAction::Clear,
-            false => super::PickAction::Only(keep),
+            true => mareader_library::picks::PickAction::Clear,
+            false => mareader_library::picks::PickAction::Only(keep),
         };
         self.picks.apply(action);
     }
@@ -326,7 +329,7 @@ impl LibraryState {
             Heard::Failed(toast) => {
                 self.organizer_end();
                 // What was done is kept; the toast offers to carry on.
-                let resume = Command::Library(super::Action::ResumeOrganizing);
+                let resume = Command::Library(mareader_engine::library::Action::ResumeOrganizing);
                 let toast = match &self.organizer.paused {
                     Some(p) if !p.ready => toast.action("Resume", resume),
                     _ => toast,
@@ -352,7 +355,7 @@ impl LibraryState {
             return;
         };
         self.organizer_end();
-        let done = apply(&mut self.model, &plan, super::wall_ms());
+        let done = apply(&mut self.model, &plan, mareader_engine::library::wall_ms());
         let books = done.filed.len();
         let shelves: BTreeSet<ShelfId> = done.filed.iter().map(|(_, s)| *s).collect();
         let mut said = format!(
@@ -370,7 +373,7 @@ impl LibraryState {
         }
         let toast = match books {
             0 => Toast::info(said),
-            _ => Toast::info(said).undo(Command::Library(super::Action::UndoOrganized(Box::new(
+            _ => Toast::info(said).undo(Command::Library(mareader_engine::library::Action::UndoOrganized(Box::new(
                 done,
             )))),
         };
@@ -379,7 +382,7 @@ impl LibraryState {
 
     /// A shelf move without the books a run holds; a toast says why.
     pub(super) fn undo_organized(&mut self, done: &Applied) {
-        undo(&mut self.model, done, super::wall_ms());
+        undo(&mut self.model, done, mareader_engine::library::wall_ms());
     }
 }
 
