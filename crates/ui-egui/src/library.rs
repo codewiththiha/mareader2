@@ -25,14 +25,13 @@ pub mod sheets;
 pub mod shelving;
 pub mod view;
 
-use std::collections::{BTreeMap, BTreeSet};
-use std::hash::{BuildHasher, RandomState};
+use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 
 use egui::Context;
 use mareader_library::{
-    BookId, Copied, DeviceId, Format, Found, Library, Opened, Position, ShelfId, SpinePosition,
-    disk::Folder, display_title,
+    BookId, Copied, Format, Found, Library, Opened, Position, ShelfId, SpinePosition, disk::Folder,
+    display_title,
 };
 use mareader_session::{Anchor, Document, Source, SpinePlace};
 use mareader_workspace::PaneId;
@@ -46,6 +45,7 @@ pub use books::BookAction;
 pub use covers::Covers;
 pub use find::{Finding, Step};
 use io::{Io, Job, News, Probe};
+pub use mareader_engine::library::{Status, wall_ms};
 pub use mareader_library::picks::{self, Pick, PickAction, Picks};
 pub use menu::LIBRARY_VIEW_MENU;
 pub use menus::{Organizer, organize_rows};
@@ -55,44 +55,13 @@ pub use shelving::{Carry, Crumb, ShelfAction};
 /// Seconds between writes while reading.
 pub const SAVE_DELAY: f64 = 0.5;
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum Status {
-    /// Its files are being read; opens wait for their positions.
-    Loading,
-    Ready,
-    /// A newer app's files, or none readable: kept in memory only.
-    ReadOnly,
-}
-
+#[derive(Default)]
 pub struct LibraryState {
-    model: Library,
-    /// None: in memory only, as in tests and shots.
-    folder: Option<Folder>,
-    status: Status,
+    /// What outlives a frame: the model, the page's place, the sheet.
+    state: mareader_engine::library::State,
     io: Io,
-    inline: bool,
-    /// The file each pane showed when last looked at, and as which book.
-    seen: BTreeMap<PaneId, (PathBuf, Option<BookId>)>,
-    /// Opens held until the library has loaded.
-    waiting: Vec<OpenRequest>,
-    /// When the last write left, in egui seconds.
-    wrote: f64,
     covers: Covers,
     folders: folders::Folders,
-    /// The library page is up in place of the panes.
-    pub showing: bool,
-    pub scope: Scope,
-    /// The shelf open on the page; none is the top level.
-    at: Option<ShelfId>,
-    /// The shelf whose name the breadcrumb is editing in place.
-    renaming: Option<ShelfId>,
-    /// A shelf the rail's tree just made, for it to name.
-    made: Option<ShelfId>,
-    picks: Picks,
-    /// Shelf rows the list shows unfolded; going elsewhere folds them.
-    unfolded: BTreeSet<ShelfId>,
-    /// The shelf under files dragged in from outside, if any.
-    pub(crate) file_target: Option<ShelfId>,
     search: search::Search,
     /// Imports and folder walks still going.
     pub runs: runs::Runs,
@@ -101,32 +70,19 @@ pub struct LibraryState {
     organizer: organizing::Organizer,
 }
 
-impl Default for LibraryState {
-    fn default() -> Self {
-        Self {
-            model: Library::new(new_device()),
-            folder: None,
-            status: Status::Ready,
-            io: Io::default(),
-            inline: false,
-            seen: BTreeMap::new(),
-            waiting: Vec::new(),
-            wrote: f64::NEG_INFINITY,
-            covers: Covers::default(),
-            folders: folders::Folders::default(),
-            showing: false,
-            scope: Scope::All,
-            at: None,
-            renaming: None,
-            made: None,
-            picks: Picks::default(),
-            unfolded: BTreeSet::new(),
-            file_target: None,
-            search: search::Search::default(),
-            runs: runs::Runs::default(),
-            motion: living::Motion::default(),
-            organizer: organizing::Organizer::default(),
-        }
+/// Field reads fall through to the engine's state, as they did when it
+/// was all here.
+impl std::ops::Deref for LibraryState {
+    type Target = mareader_engine::library::State;
+
+    fn deref(&self) -> &Self::Target {
+        &self.state
+    }
+}
+
+impl std::ops::DerefMut for LibraryState {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.state
     }
 }
 
@@ -137,7 +93,7 @@ impl LibraryState {
 
     /// Paints `book`'s cover in `rect`; false when it isn't shelved.
     pub fn paint_cover(&mut self, ui: &egui::Ui, rect: egui::Rect, book: BookId) -> bool {
-        let Some(found) = self.model.book(book) else {
+        let Some(found) = self.state.model.book(book) else {
             return false;
         };
         let t = crate::theme::Tokens::get(ui.ctx());
@@ -167,12 +123,12 @@ impl LibraryState {
 
     /// The books, and their covers to draw them with.
     pub fn parts(&mut self) -> (&Library, &mut Covers) {
-        (&self.model, &mut self.covers)
+        (&self.state.model, &mut self.covers)
     }
 
     /// What the page draws with, its grid's moving parts included.
     fn page_parts(&mut self) -> (&Library, &mut Covers, &mut living::Motion) {
-        (&self.model, &mut self.covers, &mut self.motion)
+        (&self.state.model, &mut self.covers, &mut self.motion)
     }
 
     /// The books and shelves picked on the page.
@@ -540,19 +496,3 @@ const SEEDS: [(&str, Option<&str>); 10] = [
     ("Collected Essays, Volume 2", Some("M. Aurel")),
     ("Practical Rust", Some("Sam Okafor")),
 ];
-
-/// Random per library: the first save keeps it in the store.
-fn new_device() -> DeviceId {
-    DeviceId(RandomState::new().hash_one(wall_ms()))
-}
-
-/// Milliseconds since 1970; the browser preview has no clock here.
-pub fn wall_ms() -> u64 {
-    #[cfg(not(target_arch = "wasm32"))]
-    {
-        let since = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH);
-        since.map_or(0, |d| u64::try_from(d.as_millis()).unwrap_or(u64::MAX))
-    }
-    #[cfg(target_arch = "wasm32")]
-    0
-}

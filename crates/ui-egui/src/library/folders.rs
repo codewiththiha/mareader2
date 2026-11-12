@@ -82,7 +82,6 @@ pub(super) struct Folders {
     settle_at: Option<f64>,
     focused: bool,
     offline: BTreeSet<FolderId>,
-    pub(super) sheet: Option<Sheet>,
     /// Folders dropped while a sheet was up, asked about in turn.
     later: VecDeque<PathBuf>,
     /// The import sheet's last answers, the next one's start.
@@ -125,15 +124,15 @@ impl LibraryState {
     /// The import sheet for `root`, or after the sheet that's up.
     pub(super) fn ask_folder(&mut self, root: PathBuf) {
         // "Change…" on the import sheet swaps its folder.
-        match self.folders.sheet {
-            Some(Sheet::Import(_)) | None => self.folders.sheet = Some(Sheet::Import(root)),
+        match self.sheet {
+            Some(Sheet::Import(_)) | None => self.sheet = Some(Sheet::Import(root)),
             Some(_) => self.folders.later.push_back(root),
         }
     }
 
     /// Closes the sheet; a folder dropped meanwhile asks next.
     pub(super) fn close_sheet(&mut self) {
-        self.folders.sheet = self.folders.later.pop_front().map(Sheet::Import);
+        self.sheet = self.folders.later.pop_front().map(Sheet::Import);
     }
 
     /// The import sheet's answer: through the gate, then a walk.
@@ -382,8 +381,8 @@ impl LibraryState {
             (false, Some(shelf)) if nothing => Some((shelf, false)),
             _ => None,
         };
-        match note.filter(|_| self.folders.sheet.is_none()) {
-            Some((shelf, returned)) => self.folders.sheet = Some(Sheet::Note { shelf, returned }),
+        match note.filter(|_| self.sheet.is_none()) {
+            Some((shelf, returned)) => self.sheet = Some(Sheet::Note { shelf, returned }),
             None => {
                 let note = landed_note(&name, &landed, going.found, waiting);
                 out.push(Sent::Ui(UiCommand::Notify(Toast::info(note))));
@@ -682,7 +681,7 @@ impl LibraryState {
 
     /// A moved book shown on the open folder shelf too.
     pub(super) fn show_moved(&mut self, folder: FolderId, book: BookId, now: f64) {
-        self.folders.sheet = None;
+        self.sheet = None;
         let rung = |s: ShelfId| self.model.shelf(s).and_then(|s| s.kind.value.rung());
         let here = self
             .at

@@ -17,7 +17,7 @@ impl LibraryState {
         match action {
             Action::FindAgain(book) => {
                 let step = Step::Ask;
-                self.folders.sheet = Some(Sheet::Find(Finding { book, step }));
+                self.sheet = Some(Sheet::Find(Finding { book, step }));
             }
             Action::Relink { book, path } => {
                 let path = std::fs::canonicalize(&path).unwrap_or(path);
@@ -53,7 +53,7 @@ impl LibraryState {
     }
 
     fn step_of(&self, book: BookId) -> Option<&Step> {
-        match &self.folders.sheet {
+        match &self.sheet {
             Some(Sheet::Find(f)) if f.book == book => Some(&f.step),
             _ => None,
         }
@@ -61,7 +61,7 @@ impl LibraryState {
 
     /// Moves the find-again sheet on, if it's still for `book`.
     fn finding(&mut self, book: BookId, step: Step) {
-        if let Some(Sheet::Find(f)) = &mut self.folders.sheet
+        if let Some(Sheet::Find(f)) = &mut self.sheet
             && f.book == book
         {
             f.step = step;
@@ -143,12 +143,12 @@ impl LibraryState {
     fn relinked(&mut self, book: BookId, done: Result<(), RelinkError>, out: &mut Commands) {
         let note = match done {
             Ok(()) => {
-                self.folders.sheet = None;
+                self.sheet = None;
                 out.push(Sent::Engine(Command::OpenBook(book)));
                 return;
             }
             Err(RelinkError::Removed) => {
-                self.folders.sheet = None;
+                self.sheet = None;
                 return;
             }
             Err(RelinkError::OtherBook(title)) => {

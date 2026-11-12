@@ -23,7 +23,7 @@ impl LibraryState {
                     shelves,
                     links,
                 };
-                self.folders.sheet = Some(asked);
+                self.sheet = Some(asked);
             }
             BookAction::Remove {
                 books,
@@ -69,7 +69,7 @@ impl LibraryState {
         if !alone || gone == 0 {
             return;
         }
-        self.folders.sheet = None;
+        self.sheet = None;
         self.picks.apply(super::PickAction::Clear);
         let note = match gone {
             1 => format!("Removed the link “{first}”."),
@@ -81,7 +81,11 @@ impl LibraryState {
     /// A new shelf where the reader is, the picks added to it.
     fn shelve_together(&mut self, picks: &[Pick], out: &mut Commands) {
         let name = super::shelving::NEW_SHELF;
-        let Ok(id) = self.model.create_shelf(name, self.at, wall_ms()) else {
+        let Ok(id) = self
+            .state
+            .model
+            .create_shelf(name, self.state.at, wall_ms())
+        else {
             return;
         };
         let mv = Move {

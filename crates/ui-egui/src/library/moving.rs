@@ -39,7 +39,7 @@ impl LibraryState {
         forget: bool,
         out: &mut Commands,
     ) {
-        self.folders.sheet = None;
+        self.sheet = None;
         let going = self.model.removing(books, shelves, cascade);
         if going.copies.is_empty() {
             self.remove(&going.books, &going.shelves, forget, out);
@@ -54,12 +54,12 @@ impl LibraryState {
     }
 
     fn ask_copy(&mut self, work: CopyWork) {
-        self.folders.sheet = Some(Sheet::Copy(Box::new(work)));
+        self.sheet = Some(Sheet::Copy(Box::new(work)));
     }
 
     /// The copy ask answered: copies first, or the way without them.
     pub(super) fn answer_copy(&mut self, answer: CopyAnswer, out: &mut Commands) {
-        let Some(Sheet::Copy(work)) = self.folders.sheet.take() else {
+        let Some(Sheet::Copy(work)) = self.sheet.take() else {
             return;
         };
         if answer == CopyAnswer::Without {

@@ -8,7 +8,9 @@ use mareader_library::{
 };
 
 mod counted;
+mod state;
 pub use counted::counted;
+pub use state::{State, Status, wall_ms};
 
 /// Books, shelves and links picked on the page: the library's own item.
 pub use mareader_library::{Pick, PickAction, Picks};

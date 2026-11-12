@@ -52,8 +52,8 @@ impl LibraryState {
     /// A shelf removed, here or by a sync, gives way to its nearest parent.
     pub fn settle(&mut self) {
         self.settle_picks();
-        let model = &self.model;
-        self.unfolded.retain(|&id| model.shelf(id).is_some());
+        let model = &self.state.model;
+        self.state.unfolded.retain(|&id| model.shelf(id).is_some());
         let Some(at) = self.at else {
             return;
         };
@@ -84,8 +84,8 @@ impl LibraryState {
         if self.picks.is_empty() {
             return;
         }
-        let model = &self.model;
-        self.picks.retain(|p| match p {
+        let model = &self.state.model;
+        self.state.picks.retain(|p| match p {
             super::Pick::Book(id) => model.book(id).is_some(),
             super::Pick::Shelf(id) => model.shelf(id).is_some(),
             super::Pick::Link(id) => model.link(id).is_some(),
@@ -174,10 +174,10 @@ impl LibraryState {
                 self.picks.apply(super::PickAction::Clear);
             }
             ShelfAction::New => {
-                if let Ok(id) = self.model.create_shelf(NEW_SHELF, self.at, now) {
+                if let Ok(id) = self.state.model.create_shelf(NEW_SHELF, self.state.at, now) {
                     self.search.clear();
-                    self.at = Some(id);
-                    self.scope = Scope::All;
+                    self.state.at = Some(id);
+                    self.state.scope = Scope::All;
                 }
             }
             ShelfAction::NewIn(parent) => {

@@ -7,13 +7,13 @@ pub use mareader_engine::library::{Action, Named, Scope, Sheet};
 
 impl LibraryState {
     pub fn sheet(&self) -> Option<&Sheet> {
-        self.folders.sheet.as_ref()
+        self.sheet.as_ref()
     }
 
     /// A sheet or a question is over the page, holding the keys.
     pub fn sheet_up(&self) -> bool {
         let review = self.organizer.review().is_some();
-        self.folders.sheet.is_some() || !self.folders.asks.is_empty() || review
+        self.sheet.is_some() || !self.folders.asks.is_empty() || review
     }
 
     /// Does what the page asked; dialogs are the app's.
@@ -26,7 +26,7 @@ impl LibraryState {
             Action::CancelAsks => self.folders.asks.clear(),
             Action::Restore { folder, content } => self.restore(folder, content, out),
             Action::AskMoved { folder, book } => {
-                self.folders.sheet = Some(Sheet::Moved { folder, book });
+                self.sheet = Some(Sheet::Moved { folder, book });
             }
             Action::ShowMoved { folder, book } => self.show_moved(folder, book, now),
             Action::Reveal(pick) => {
@@ -43,7 +43,7 @@ impl LibraryState {
             | Action::Seek { .. } => self.find_act(action, out),
             Action::CloseSheet => {
                 // A note lights its shelf however it's closed.
-                let lit = match &self.folders.sheet {
+                let lit = match &self.sheet {
                     Some(Sheet::Note { shelf, .. }) => Some(*shelf),
                     _ => None,
                 };
@@ -54,7 +54,7 @@ impl LibraryState {
             }
             Action::AskRename(named) => {
                 if self.name_of(named).is_some() {
-                    self.folders.sheet = Some(Sheet::Rename(named));
+                    self.sheet = Some(Sheet::Rename(named));
                 }
             }
             Action::Rename(named, name) => self.rename(named, &name),
@@ -97,7 +97,7 @@ impl LibraryState {
 
     /// Gives it the typed name; a blank one keeps the old.
     fn rename(&mut self, named: Named, name: &str) {
-        if matches!(self.folders.sheet, Some(Sheet::Rename(_))) {
+        if matches!(self.sheet, Some(Sheet::Rename(_))) {
             self.close_sheet();
         }
         self.renaming = None;

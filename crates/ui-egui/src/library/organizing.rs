@@ -261,12 +261,12 @@ impl LibraryState {
 
     /// Asks whether a new run over `picked` replaces the paused one.
     pub fn ask_replace(&mut self, picked: Option<Vec<BookId>>) {
-        self.folders.sheet = Some(super::Sheet::Replace(picked));
+        self.sheet = Some(super::Sheet::Replace(picked));
     }
 
     /// Drops the sheet asking to replace the paused run, if it's up.
     pub fn close_replace(&mut self) {
-        if matches!(self.folders.sheet, Some(super::Sheet::Replace(_))) {
+        if matches!(self.sheet, Some(super::Sheet::Replace(_))) {
             self.close_sheet();
         }
     }
