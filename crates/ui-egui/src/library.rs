@@ -42,7 +42,7 @@ pub use mareader_engine::library::BookAction;
 pub use mareader_engine::library::{Carry, Crumb, ShelfAction};
 pub use mareader_engine::library::{Finding, Step};
 pub use mareader_engine::library::{Out, State, Status, wall_ms};
-pub use mareader_library::picks::{self, Pick, PickAction, Picks};
+pub(crate) use mareader_library::picks::{Pick, PickAction, Picks};
 pub use menu::LIBRARY_VIEW_MENU;
 pub use menus::{Organizer, organize_rows};
 pub use search::{Field, Listing, SearchAction};

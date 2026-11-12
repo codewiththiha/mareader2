@@ -11,8 +11,9 @@ use mareader_library::{
 };
 use mareader_settings::Bar;
 use mareader_ui_egui::MareaderApp;
+use mareader_engine::library::{Pick, PickAction};
 use mareader_ui_egui::library::{
-    Action, BookAction, Named, Pick, PickAction, SearchAction, Sheet, ShelfAction,
+    Action, BookAction, Named, SearchAction, Sheet, ShelfAction,
 };
 use mareader_ui_egui::ui_command::{Command, Sent, UiCommand};
 

@@ -32,7 +32,7 @@ mod vocabulary;
 mod voice_model;
 pub use voice_model::accent;
 
-pub use mareader_engine::scope::{Applies, Scope, Shown};
+pub(crate) use mareader_engine::scope::{Applies, Scope, Shown};
 pub use read_aloud::Voices;
 
 /// Its size at most; below that, it takes [`SHARE`] of the window.

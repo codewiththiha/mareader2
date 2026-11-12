@@ -16,7 +16,7 @@ use crate::vocab::Vocab;
 pub mod preview;
 pub mod window;
 
-pub use mareader_engine::word_marks::{Page, Sheet, Word};
+use mareader_engine::word_marks::{Page, Sheet, Word};
 
 /// Pages this few, or a book's, are read in the frame.
 const INLINE: usize = 4;
