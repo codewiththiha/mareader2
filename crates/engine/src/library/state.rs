@@ -35,7 +35,7 @@ pub struct State {
     pub seen: BTreeMap<PaneId, (PathBuf, Option<BookId>)>,
     /// Opens held until the library has loaded.
     pub waiting: Vec<OpenRequest>,
-    /// When the last write left, in egui seconds.
+    /// When the last write left, in seconds since the app started.
     pub wrote: f64,
     /// The library page is up in place of the panes.
     pub showing: bool,
