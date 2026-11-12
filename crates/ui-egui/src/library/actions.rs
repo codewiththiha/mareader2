@@ -13,7 +13,7 @@ impl LibraryState {
     /// A sheet or a question is over the page, holding the keys.
     pub fn sheet_up(&self) -> bool {
         let review = self.organizer.review().is_some();
-        self.sheet.is_some() || !self.folders.asks.is_empty() || review
+        self.sheet.is_some() || !self.state.asks.is_empty() || review
     }
 
     /// Does what the page asked; dialogs are the app's.
@@ -23,7 +23,7 @@ impl LibraryState {
             Action::ImportFolder { root, opts } => self.import_folder(root, opts, now, out),
             Action::Rescan => self.rescan(now),
             Action::Answer(answer, all) => self.answer(answer, all, now, out),
-            Action::CancelAsks => self.folders.asks.clear(),
+            Action::CancelAsks => self.state.asks.clear(),
             Action::Restore { folder, content } => self.restore(folder, content, out),
             Action::AskMoved { folder, book } => {
                 self.sheet = Some(Sheet::Moved { folder, book });

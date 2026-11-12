@@ -342,6 +342,8 @@ impl LibraryState {
         let paused = self.organizer.paused.take();
         self.runs.finish(self.organizer.paused_card.take());
         self.organizer = Organizer::default();
+        // A run that ends frees its books, or they never move again.
+        self.state.held.clear();
         self.set_paused(paused);
     }
 
@@ -686,7 +688,7 @@ mod tests {
         assert!(state.organizer().review().is_some());
         assert!(state.held.contains(&first));
         state.act(super::super::Action::ApplyOrganized, 0.0, &mut out);
-        assert!(!!state.held.is_empty());
+        assert!(state.held.is_empty());
         assert_eq!(state.model.shelves_of(first).len(), 1);
         let undo = out.iter().find_map(|c| match c {
             Sent::Ui(UiCommand::Notify(t)) => t.undo.clone(),

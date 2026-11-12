@@ -17,14 +17,14 @@ use mareader_engine::library::{Kind, Question};
 impl LibraryState {
     /// The front question answered; `all` answers its kind behind it.
     pub(super) fn answer(&mut self, answer: Placement, all: bool, now: f64, out: &mut Commands) {
-        let Some(first) = self.folders.asks.pop_front() else {
+        let Some(first) = self.state.asks.pop_front() else {
             return;
         };
         let kind = first.kind();
         let mut batch = vec![first];
         if all && matches!(kind, Kind::Held | Kind::Merge) {
-            while self.folders.asks.front().is_some_and(|q| q.kind() == kind) {
-                batch.extend(self.folders.asks.pop_front());
+            while self.state.asks.front().is_some_and(|q| q.kind() == kind) {
+                batch.extend(self.state.asks.pop_front());
             }
         }
         for question in batch {

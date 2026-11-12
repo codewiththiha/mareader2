@@ -86,7 +86,6 @@ pub(super) struct Folders {
     later: VecDeque<PathBuf>,
     /// The import sheet's last answers, the next one's start.
     pub(super) opts: Option<Options>,
-    pub(super) asks: VecDeque<Question>,
 }
 
 impl LibraryState {
@@ -102,7 +101,7 @@ impl LibraryState {
 
     /// Questions waiting, the next first; shown when no sheet is up.
     pub fn questions(&self) -> impl Iterator<Item = &Question> {
-        self.folders.asks.iter()
+        self.state.asks.iter()
     }
 
     /// The import sheet's start: the last answers, else the defaults.
@@ -158,7 +157,7 @@ impl LibraryState {
         }
         match self.model.gate(&root, &opts) {
             Gate::Walk { root, plan } => self.walk(root, opts, plan, now),
-            Gate::Clash(clash) => self.folders.asks.push_back(Question::Clash { clash, opts }),
+            Gate::Clash(clash) => self.state.asks.push_back(Question::Clash { clash, opts }),
         }
     }
 
@@ -322,7 +321,7 @@ impl LibraryState {
             if let Some(planned) = planned.filter(|p| !p.is_empty()) {
                 let asks = planned.asks.clone();
                 self.model.land_walk(planned, &HashMap::new(), wall_ms());
-                self.folders
+                self.state
                     .asks
                     .extend(asks.into_iter().map(Question::Merge));
             }
@@ -369,7 +368,7 @@ impl LibraryState {
         let landed = self.model.land_walk(planned, copies, wall_ms());
         self.runs.finish(going.run);
         let waiting = asks.len();
-        self.folders
+        self.state
             .asks
             .extend(asks.into_iter().map(Question::Merge));
         let name =
@@ -547,7 +546,7 @@ impl LibraryState {
         let screened = self.model.screen_files(done.found, to);
         let asked = screened.asks.len();
         let asks = screened.asks.into_iter().map(Question::File);
-        self.folders.asks.extend(asks);
+        self.state.asks.extend(asks);
         if !notes.is_empty() {
             out.push(Sent::Ui(UiCommand::Notify(Toast::error(notes.join(" ")))));
         }
