@@ -7,8 +7,7 @@ use egui::{
     WidgetType, pos2, vec2,
 };
 use mareader_appearance::{
-    Appearance, BaseMode, FULL_TINT, FilmGrain, NoiseMode, Preset, TextureMode, group_presets,
-    section_names,
+    Appearance, BaseMode, FilmGrain, NoiseMode, Preset, TextureMode, group_presets, section_names,
 };
 use mareader_settings::TextSettings;
 use std::sync::Arc;
