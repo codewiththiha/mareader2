@@ -397,8 +397,8 @@ fn reading_page_twenty() -> Harness<'static, MareaderApp> {
 
 #[test]
 fn zoom_keys_step_the_ladder_and_keep_the_page_in_view() {
-    use mareader_ui_egui::zoom::MAX;
     use mareader_engine::pane::Fit;
+    use mareader_ui_egui::zoom::MAX;
     let mut h = reading_page_twenty();
     let before = zoom(&h);
     assert_eq!(before.fit, Some(Fit::Width));
