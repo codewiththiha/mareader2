@@ -29,6 +29,7 @@ pub mod library;
 pub mod lru;
 pub mod notes_panel;
 pub mod page_ai;
+pub mod page_copy;
 pub mod pane;
 pub mod pane_texts;
 pub mod paper;

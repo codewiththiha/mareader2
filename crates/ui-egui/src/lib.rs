@@ -40,7 +40,6 @@ pub mod notes_panel;
 pub mod outline_panel;
 pub mod page_ai;
 pub mod page_bar;
-pub mod page_copy;
 pub mod pages;
 pub mod panes;
 pub mod park;

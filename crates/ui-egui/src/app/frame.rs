@@ -24,6 +24,7 @@ impl eframe::App for MareaderApp {
             self.ui.fonts = FontState::Installed;
             let wake = ctx.clone();
             let waker = Arc::new(move || wake.request_repaint());
+            self.ui.page_copy.attach(waker.clone());
             self.session.set_waker(waker);
         }
         self.restyle(ctx);

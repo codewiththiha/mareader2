@@ -91,10 +91,7 @@ impl Desk for Front<'_> {
 
     fn copy_pages(&mut self, pane: PaneId, pages: Vec<usize>) {
         if let Some(reading) = self.app.ui.documents.reading(pane) {
-            self.app
-                .ui
-                .page_copy
-                .start(self.ctx, reading.document, pages);
+            self.app.ui.page_copy.start(reading.document, pages);
         }
     }
 

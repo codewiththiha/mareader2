@@ -60,7 +60,7 @@ pub struct UiState {
     pub(super) outline: OutlineState,
     pub(super) thumbs: ThumbState,
     /// Picked pages' text on its way to the clipboard.
-    pub(super) page_copy: crate::page_copy::PageCopy,
+    pub(super) page_copy: mareader_engine::page_copy::PageCopy,
     pub(super) word_lists: crate::word_list::WordLists,
     pub(super) word_window: crate::word_list::window::WordWindow,
     pub(super) shelf_tree: PanelState,

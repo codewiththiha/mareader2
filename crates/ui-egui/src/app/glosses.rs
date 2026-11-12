@@ -385,8 +385,9 @@ impl MareaderApp {
             (&self.ui.pane_rects, &self.ui.documents),
             out,
         );
-        if let Some(toast) = self.ui.page_copy.poll(ctx) {
-            self.ui.toasts.push(toast);
+        if let Some(read) = self.ui.page_copy.poll() {
+            ctx.copy_text(read.text);
+            self.ui.toasts.push(read.toast);
         }
         self.ui
             .dict
