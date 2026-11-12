@@ -40,12 +40,12 @@ Don't stop to ask unless the decision is on the owner's list below.
 | Path | What |
 |---|---|
 | `apps/mareader` | The binary: opens the window, runs `MareaderApp` |
-| `crates/engine` | The app without a window (L5): session, commands, events, jobs, saving. Empty until P1–P4 move into it |
+| `crates/engine` | The app without a window (L5): the session and the door that changes it, the commands, the events, the toolkit-free rules, and the library's state |
 | `crates/ui-egui` | One front end in egui (L6): theme, icons, title bar, panes, shell |
 | `crates/appearance` | Base modes, tints, filters, presets, UI tokens (no egui) |
 | `crates/workspace` | The pane split tree and its layout (no egui) |
 | `crates/settings` | Every user setting: schema, defaults, ranges, migration, mareader import (no egui) |
-| `crates/engine/src/command.rs` | `Intent`: every user intent, applied by `Session::execute` |
+| `crates/engine/src/command.rs` | `Command`: every user command, applied by `Session::execute` |
 | `crates/ui-egui/src/ui_command.rs` | `UiCommand`: chrome only, applied in `MareaderApp::apply` |
 | `xtask` | `layers`, `wasm`, `trapped`, `parity`, `assets`, `unsafe`, `comments`, `ci` |
 | `parity/mareader-features.toml` | Every mareader feature, its status and evidence |

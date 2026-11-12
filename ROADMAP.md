@@ -1,8 +1,9 @@
 # Roadmap
 
 **Stage:** M0 to M8 done; v0.0.5 released. M9 (sync) is optional. The
-engine-first review (2026-11-11) is in progress: G0 fences the site, then G1–G6
-move the app into `crates/engine` and prove it with a headless client.
+engine-first review (2026-11-11) is in progress: G0 fences the site, G1
+evacuates the free files, G2 lands the reducer; G3–G6 move the rest of the app
+into `crates/engine` and prove it with a headless client.
 **Parity:** 121 of 121 features (100 %, partial counts half). Run
 `cargo xtask parity` for the current numbers; this line is updated each session.
 
@@ -196,6 +197,7 @@ appearance effects to that same pass.
 
 | Date | Change |
 |---|---|
+| 2026-11-12 | G2, the reducer (`refactor/engine-g2-reducer`): `Command` splits into `engine::Command` and `ui_egui::UiCommand`, `Session::execute` becomes the one door, every command gets a dotted id in `SPECS`, and `MareaderApp` is `{ session, ui }`. The reading place, the library's state and its work move down, so `cargo xtask trapped` falls 33 to 11 and P2's exit gate passes. To see it: `cargo run -p mareader`, open a book, split, turn a page, highlight and Export notes; `cargo test -p mareader-engine` replays the same script with no window. Written up in `docs/slices/G2.md` |
 | 2026-11-11 | G0, the fence (`feat/engine-g0-fence`): `crates/ui` becomes `crates/ui-egui` (`mareader-ui-egui`) and `crates/engine` (`mareader-engine`) opens at L5, the front end drops to L6 and the three binaries are checked at L7, with `cli` reserved and barred from any toolkit. `cargo xtask wasm` checks every L0–L5 crate, `ui-egui` and `mareader-web` for wasm32 (the `::warning::` escape is gone from `remote.yml`, the target is pinned, and `assist` is the one declared, reasoned exemption); `cargo xtask trapped` counts the 52 toolkit-free files left in the front end against `tools/trapped_count.txt`. No logic moved, no test changed, and all 521 parity evidence paths still resolve |
 | 2026-11-10 | Consolidated review batch on `refactor/review-batch-consolidated`: S0–S12 and SZ in one normal commit, with cross-slice UI, library-fixture, shared-WAV and EPUB memory-test repairs. Static gates, S11/S12 reconstruction and exact test-source inventories pass; the baseline is 111 files and 80 functions, with 11 duplicate groups listed below and enforcement off. Full Rust verification is delegated to CI rather than the constrained local sandbox; owner-only main cache operations remain outstanding |
 | 2026-11-10 | S12 `a0ce4f0` (`refactor/s12-reflow-flow`): split `flow.rs` into Setter, placement and five test-topic families, keeping all 19 parity-cited tests and fixtures inline. All 65 flow tests and the full 106-test reflow crate pass; clippy, formatting, shape and reconstruction audits are green, and parity is 122/122. All 11 new files are below 500 lines. Pushed; CI deliberately not watched yet |

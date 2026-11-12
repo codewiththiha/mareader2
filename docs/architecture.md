@@ -83,7 +83,9 @@ mirrored in two places.
 
 That owner is on its way down to `mareader-engine` (L5), which is why the crate
 exists and why `cargo xtask trapped` counts the files that still belong there.
-The toolkit-free rules have moved; the state itself follows in the next slices.
+The session already holds the settings, the pane tree, the focus and the route;
+the documents, the library's window half, the marks and read-aloud follow in P3
+and P4.
 
 **Views are functions.** A view takes the state it shows and a `&mut Commands`:
 `fn show(ui: &mut Ui, state: &T, out: &mut Commands)`. It draws and pushes
@@ -92,7 +94,7 @@ mutate app state, call other views' handlers or keep its own copy of the data.
 
 **Commands are the only way to change state.** Buttons, menus, shortcuts and
 drops all produce the same `Command` values, and `MareaderApp::apply` is the
-one place they take effect, after the frame's UI pass: an `Intent` goes to
+one place they take effect, after the frame's UI pass: a `Command` goes to
 `Session::execute` in the engine, a `UiCommand` is carried out by the chrome. So a shortcut and its
 button cannot drift apart, and every user action can be tested by pushing a
 command.
@@ -280,3 +282,4 @@ mareader typography setting has a parley equivalent.
 | 2026-10-13 | Scrolling long documents: admission, tiling and upload rules |
 | 2026-11-11 | P0 of the engine-first review: `crates/ui` becomes `crates/ui-egui` (`mareader-ui-egui`), `mareader-engine` takes L5, the front end L6 and the three apps L7; `cargo xtask wasm` and `cargo xtask trapped` become gates |
 | 2026-11-11 | P1: the toolkit-free rules move to `mareader-engine`; the front end calls them across the crate boundary, and `cargo xtask trapped` falls to 33 |
+| 2026-11-12 | P2 (G2): the command enum splits into `engine::Command` and `ui_egui::UiCommand`, `Session::execute` becomes the door and the app is `{ session, ui }`; the reading place, the library's state and its work move down, and `cargo xtask trapped` falls to 11 |
