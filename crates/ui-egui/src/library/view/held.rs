@@ -1,6 +1,5 @@
 //! Books the AI is organizing: a pass of light and a caption, no badge.
 
-use mareader_engine::library::Finding;
 use std::collections::BTreeSet;
 use std::f32::consts::TAU;
 

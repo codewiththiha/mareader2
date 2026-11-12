@@ -1,6 +1,5 @@
 //! Loose books an AI files on shelves: what it's asked, and its plan.
 
-use mareader_engine::library::wall_ms;
 use std::collections::BTreeSet;
 
 use mareader_library::{Book, BookId, Library, Origin, ShelfId};
@@ -690,7 +689,7 @@ mod tests {
         assert!(state.runs.list().is_empty(), "the card goes with the run");
         assert!(state.organizer().review().is_some());
         assert!(state.held.contains(&first));
-        state.act(super::super::Action::ApplyOrganized, 0.0, &mut out);
+        state.act(mareader_engine::library::Action::ApplyOrganized, 0.0, &mut out);
         assert!(state.held.is_empty());
         assert_eq!(state.model.shelves_of(first).len(), 1);
         let undo = out.iter().find_map(|c| match c {

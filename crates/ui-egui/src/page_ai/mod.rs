@@ -42,7 +42,7 @@ const RESET: f64 = 0.4;
 /// Results kept laid out for a book's pages before they are made again.
 const MAX_MADE: usize = 64;
 
-use mareader_engine::page_ai::{How, Slot};
+use mareader_engine::page_ai::Slot;
 
 /// A page to work on, as the app gathers it.
 pub struct Asked<'a> {

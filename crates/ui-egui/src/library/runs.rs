@@ -1,6 +1,5 @@
 //! A corner card per long import or walk; quick runs only toast.
 
-use mareader_engine::library::Carry;
 use std::f32::consts::TAU;
 
 use egui::{

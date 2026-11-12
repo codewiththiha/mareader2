@@ -4,7 +4,6 @@ use egui::{
     Button, Color32, Id, Popup, PopupCloseBehavior, Rect, RectAlign, RichText, Sense, Stroke,
     StrokeKind, Ui, pos2, vec2,
 };
-use mareader_engine::library::Carry;
 use mareader_library::{Book, BookId, Library, Link, LinkTo, Move, Shelf, ShelfId, natural};
 
 use crate::icons::Icon;
