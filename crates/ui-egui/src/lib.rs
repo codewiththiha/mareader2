@@ -47,6 +47,7 @@ pub mod pdf_view;
 pub mod platform;
 pub mod reach;
 pub mod read_aloud;
+pub mod repaint;
 pub mod resize;
 pub mod scripts;
 pub mod search;
