@@ -277,7 +277,7 @@ python3 tools/ci.py shots \
   example `set=layout.progress_bar:false`. Every switch can be
   shot on and off without a new key; an unknown path fails the shot.
 - **What happens.** The `Remote` workflow renders on lavapipe, the same
-  software GPU the tests use. It reuses the test job's build cache and
+  software GPU the tests use. It reuses Check's `linux` build cache and
   uploads only the PNGs, kept for 3 days.
 - **Where they land.** In `target/remote/shots/<name>.png`; open them with
   `read_file`.
