@@ -445,8 +445,8 @@ fn marks_kept_off_the_pens_show_only_while_in_use() {
 
 #[test]
 fn the_ai_tab_picks_who_explains() {
-    use mareader_settings::Provider;
     use mareader_engine::settings::Tab;
+    use mareader_settings::Provider;
     let mut h = reader(&[("pdf", "sample")]);
     h.state_mut()
         .queue(Sent::Engine(Command::OpenSettings(Tab::Ai)));

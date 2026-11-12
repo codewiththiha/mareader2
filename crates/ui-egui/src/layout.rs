@@ -10,8 +10,6 @@ pub const GAP: f32 = 12.0;
 pub const MARGIN: f32 = 16.0;
 
 use mareader_engine::pane::ViewMode;
-#[cfg(test)]
-use mareader_engine::pane::Arrow;
 
 /// What a fit measures: what shows together, at zoom 1.
 pub fn fit_box(
@@ -232,6 +230,8 @@ impl Layout {
 
 #[cfg(test)]
 mod tests {
+    use mareader_engine::pane::Arrow;
+
     use super::*;
 
     const LETTER: PageSize = PageSize {

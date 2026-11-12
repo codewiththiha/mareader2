@@ -7,7 +7,11 @@ use mareader_engine::library::SearchAction as S;
 
 impl MareaderApp {
     /// Library work; its dialogs need the app's files.
-    pub(super) fn library_action(&mut self, ctx: &Context, action: mareader_engine::library::Action) {
+    pub(super) fn library_action(
+        &mut self,
+        ctx: &Context,
+        action: mareader_engine::library::Action,
+    ) {
         if library_handles_1(&action) {
             self.library_special_1(ctx, action);
             return;

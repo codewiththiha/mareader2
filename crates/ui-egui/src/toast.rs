@@ -22,8 +22,6 @@ const WIDTH: f32 = 360.0;
 const SPOT_H: f32 = 52.0;
 
 use mareader_engine::toast::{Toast, Tone};
-#[cfg(test)]
-use mareader_engine::toast::SHOW_FOR;
 
 /// How a toast leaves.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -534,6 +532,8 @@ impl Toasts {
 
 #[cfg(test)]
 mod tests {
+    use mareader_engine::toast::SHOW_FOR;
+
     use {super::*, mareader_engine::command::Command};
 
     const SCREEN: Rect = Rect::from_min_max(pos2(0.0, 0.0), pos2(1200.0, 800.0));
@@ -638,8 +638,9 @@ mod tests {
 
         let mut long = Toasts::default();
         long.push(
-            Toast::info("Removed highlight from the second paragraph of chapter four")
-                .undo(Command::Study(mareader_engine::study::Action::Restore(Vec::new()))),
+            Toast::info("Removed highlight from the second paragraph of chapter four").undo(
+                Command::Study(mareader_engine::study::Action::Restore(Vec::new())),
+            ),
         );
         frame(&ctx, &mut long, None, 0.0);
         let long_card = card::measure(&ctx, &long.live[0], WIDTH, &t);

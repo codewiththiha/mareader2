@@ -262,7 +262,10 @@ impl LibraryState {
 
     /// Drops the sheet asking to replace the paused run, if it's up.
     pub fn close_replace(&mut self) {
-        if matches!(self.sheet, Some(mareader_engine::library::Sheet::Replace(_))) {
+        if matches!(
+            self.sheet,
+            Some(mareader_engine::library::Sheet::Replace(_))
+        ) {
             self.close_sheet();
         }
     }
