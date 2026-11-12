@@ -3,7 +3,7 @@
 mod card;
 mod stack;
 
-use crate::{motion, ui_command::{Commands, Sent, UiCommand}};
+use crate::ui_command::{Commands, Sent, UiCommand};
 use egui::{Context, Id, Rect, pos2};
 use mareader_engine::toast::{Toast, Tone};
 
@@ -381,7 +381,7 @@ impl Toasts {
         out: &mut Commands,
     ) {
         let now = ctx.input(|i| i.time);
-        let fade = f64::from(motion::secs(ctx, FADE));
+        let fade = f64::from(crate::motion::secs(ctx, FADE));
         let width = WIDTH.min(area.width() - 2.0 * INSET).max(200.0);
         let keep = kept(ctx);
         // The stack, standing on the page bar; a lone toast at least.

@@ -1,10 +1,10 @@
 //! The compact player: steps, play, a seek track with time left, and stop.
 
 use super::rate_label;
-use crate::icons::{Icon, anim::{self, Act as IconAct}};
+use crate::{icons::Icon, motion, widgets};
+use crate::icons::anim::{self, Act as IconAct};
 use crate::theme::{self, Tokens};
 use crate::ui_command::{Commands, Sent, UiCommand};
-use crate::{motion, widgets};
 use egui::{
     Color32, CornerRadius, Id, LayerId, Order, Pos2, Rect, RichText, Sense, Shape, Stroke, Ui,
     UiBuilder, pos2, vec2,
