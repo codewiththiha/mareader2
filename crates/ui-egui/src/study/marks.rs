@@ -5,10 +5,10 @@ use std::sync::Arc;
 
 use egui::{Color32, Id, Painter, Pos2, Rect, Stroke, StrokeKind, Ui, pos2};
 use mareader_appearance::{MarkFill, PageTone, Rgb};
+use mareader_engine::study::words;
 use mareader_library::{MarkId, Pen, Spot};
 use mareader_pdf::{Bounds, TextLayer};
 
-use super::words::find;
 use crate::gpu::{PagePass, PagesCallback, Quad};
 use crate::selection::{Caret, Pages, Selection};
 
@@ -87,7 +87,7 @@ pub fn place(marks: &[Shown], pages: &Pages<'_>) -> Vec<Placed> {
                     if (block, end) <= first || (block, start) > last {
                         continue;
                     }
-                    let Some(chars) = find(layer, block, start..end) else {
+                    let Some(chars) = words::find(layer, block, start..end) else {
                         continue;
                     };
                     (None, chars)

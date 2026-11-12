@@ -3,6 +3,8 @@
 use mareader_library::{MarkId, Style};
 use mareader_workspace::PaneId;
 
+pub mod words;
+
 /// What the card and the mark menu ask of the app.
 #[derive(Clone, Debug, PartialEq)]
 pub enum Action {

@@ -154,7 +154,7 @@ impl MareaderApp {
             Gloss::ReadAloud => {
                 if let Some(sel) = self.ui.documents.selection(pane) {
                     let (a, b) = sel.ordered();
-                    let spot = |c: crate::selection::Caret| mareader_speech::Spot {
+                    let spot = |c: mareader_session::Caret| mareader_speech::Spot {
                         page: c.page,
                         char: c.index,
                     };

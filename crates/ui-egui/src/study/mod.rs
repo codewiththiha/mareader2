@@ -8,7 +8,6 @@ mod note;
 mod picking;
 pub use picking::STYLE_ID as PICK_STYLE;
 mod restyle;
-pub mod words;
 
 use std::cell::RefCell;
 use std::collections::HashMap;
@@ -30,7 +29,7 @@ use mareader_study::{Explainer, Failure, Unavailable, WordInfo};
 use mareader_workspace::PaneId;
 
 pub use bar::{BarPress, show as show_bar};
-pub use words::Asked;
+pub use mareader_engine::study::words::Asked;
 
 use crate::theme::Tokens;
 use crate::toast::Toast;

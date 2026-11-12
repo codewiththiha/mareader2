@@ -5,9 +5,7 @@ use std::sync::Arc;
 
 use mareader_library::Spot;
 use mareader_pdf::Bounds;
-use mareader_session::TextLayer;
-
-use crate::selection::Selection;
+use mareader_session::{Selection, TextLayer};
 
 /// What Explain sends: the word, the words around it, where it is.
 #[derive(Clone, Debug, PartialEq)]
@@ -22,7 +20,7 @@ pub struct Asked {
 }
 
 /// A page's text with gaps as spaces; each char's layer index, if any.
-pub(crate) fn read(layer: &TextLayer) -> (Vec<char>, Vec<Option<usize>>) {
+pub fn read(layer: &TextLayer) -> (Vec<char>, Vec<Option<usize>>) {
     let chars = layer.text.chars();
     let mut text = Vec::with_capacity(chars.len() + chars.len() / 4);
     let mut index = Vec::with_capacity(text.capacity());
@@ -222,7 +220,7 @@ mod tests {
 
     #[test]
     fn a_highlight_spans_pages_by_char_on_a_pdf_and_by_byte_in_a_book() {
-        use crate::selection::Caret;
+        use mareader_session::Caret;
         let pdf = layer("The quick fox", false);
         let over = Selection {
             anchor: Caret { page: 2, index: 9 },

@@ -4,12 +4,12 @@ use egui::accesskit::Role;
 use egui::{Event, Modifiers, PointerButton, Pos2, Rect};
 use egui_kittest::Harness;
 use egui_kittest::kittest::{NodeT as _, Queryable as _};
+use mareader_engine::study::words;
 use mareader_library::{Pen, Spot};
 use mareader_pdf::TextLayer;
 use mareader_session::Anchor;
 use mareader_ui_egui::MareaderApp;
 use mareader_ui_egui::selection::Sheet;
-use mareader_ui_egui::study::words;
 use mareader_ui_egui::ui_command::{Command, Intent};
 
 use crate::common::{ai_reader as reader, find, page};

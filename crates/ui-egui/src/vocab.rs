@@ -13,8 +13,8 @@ use mareader_settings::{CefrMark, Reserved};
 
 use crate::selection::Pages;
 use crate::study::marks::Under;
-use crate::study::words;
 use crate::ui_command::Download;
+use mareader_engine::study::words;
 
 /// Shaded words per page at most; a book's stream page holds many.
 const PAGE_CAP: usize = 5_000;

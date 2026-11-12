@@ -133,8 +133,8 @@ fn under(cx: &mut ShowContext<'_>, ui: &mut Ui) {
             && let Some(w) = shaded.get(i)
             && let Some(layer) = texts.get(doc_id, w.page)
         {
-            let word = study::words::text_of(&layer, w.chars.clone());
-            let asked = study::words::asked_at(&layer, w.page, w.chars.clone());
+            let word = mareader_engine::study::words::text_of(&layer, w.chars.clone());
+            let asked = mareader_engine::study::words::asked_at(&layer, w.page, w.chars.clone());
             gloss.push(Gloss::Rest {
                 context: asked.map_or_else(|| word.clone(), |a| a.context),
                 word,

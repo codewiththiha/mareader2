@@ -385,7 +385,7 @@ fn read(document: &Document, pages: &[usize]) -> Vec<Page> {
         let Ok(layer) = document.text_layer(shown) else {
             continue;
         };
-        let (text, _) = crate::study::words::read(&layer);
+        let (text, _) = mareader_engine::study::words::read(&layer);
         let mut before = chapters.iter().filter(|e| e.page <= shown);
         let chapter = before.next_back().map(|e| e.title.trim().to_owned());
         let text = text.into_iter().collect();

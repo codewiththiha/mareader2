@@ -7,6 +7,7 @@ use std::sync::Arc;
 
 use egui::{Context, Rect, Ui, Vec2};
 use mareader_appearance::Rgb;
+use mareader_engine::study::words;
 use mareader_library::{BookId, Spot};
 use mareader_pdf::{Bounds, TextLayer};
 use mareader_session::{
@@ -22,7 +23,7 @@ use crate::loading_mark;
 use crate::pages::{PageCache, PageTexture};
 use crate::pdf_view::{self, Demand, PdfView, Sinks, Urgency, ViewContext};
 use crate::selection::{Selection, Sheet};
-use crate::study::{self, Asked, Gloss};
+use crate::study::{Asked, Gloss};
 use crate::theme::Tokens;
 use crate::thumbnails::{self, ThumbState};
 use crate::toast::Toast;
@@ -1254,7 +1255,7 @@ impl Documents {
         let view = self.view(pane)?;
         let sel = view.selection.filter(|s| !s.is_empty())?;
         let layer = |page| self.layer(pane, page);
-        let asked = study::words::asked(sel, layer)?;
+        let asked = words::asked(sel, layer)?;
         let sheet = view.sheets.iter().find(|s| s.page == asked.page)?;
         let held = layer(asked.page)?;
         let boxes = held.text.line_boxes(asked.chars.clone());
@@ -1312,7 +1313,7 @@ impl Documents {
     /// The word at `chars` of `page`, as Explain asks for it.
     pub fn asked_at(&self, pane: PaneId, page: usize, chars: Range<usize>) -> Option<Asked> {
         let layer = self.texts.get(self.place_of(pane)?.doc, page)?;
-        study::words::asked_at(&layer, page, chars)
+        words::asked_at(&layer, page, chars)
     }
 
     /// The pane's selected text for a lookup, and where it shows.
@@ -1339,7 +1340,7 @@ impl Documents {
         let view = self.view(pane)?;
         let sel = view.selection.filter(|s| !s.is_empty())?;
         let layer = |page| self.layer(pane, page);
-        let spot = study::words::span(sel, layer)?;
+        let spot = words::span(sel, layer)?;
         Some((spot, sel.text(layer)))
     }
 
@@ -1432,7 +1433,7 @@ impl Documents {
             .and_then(|(l, c)| crate::read_aloud::marker::word_span(&l.text, c));
         let word = (layer.as_ref().zip(span.clone()))
             .and_then(|(l, s)| l.text.line_boxes(s).reduce(Bounds::union));
-        let text = (layer.as_ref().zip(span)).map(|(l, s)| study::words::text_of(l, s));
+        let text = (layer.as_ref().zip(span)).map(|(l, s)| words::text_of(l, s));
         Some(crate::page_ai::Pin {
             point: egui::pos2(x, y),
             word,
