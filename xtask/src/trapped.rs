@@ -2,8 +2,8 @@
 //!
 //! A file belongs in the engine when it names no toolkit. Until P3 moves them
 //! all, this counts them against a committed number that may only fall
-//! (`docs/architecture.md` § Layers). The two allowlisted files are the front
-//! end's own: its root and its glyph table.
+//! (`docs/architecture.md` § Layers). The allowlisted files are the front
+//! end's own: its root, its glyph table and its dial labels.
 //!
 //! Only `src/` counts. `tests/` and `examples/` are harnesses: a test binary's
 //! root names no toolkit and never will, and no engine should hold it.
@@ -11,7 +11,10 @@
 use std::path::{Path, PathBuf};
 
 /// Files that may name no toolkit without leaving the front end.
-pub const ALLOWED: &[&str] = &["lib.rs", "icons/pack.rs"];
+///
+/// Each is presentation with nowhere to go: the crate's root, its glyph table,
+/// and the labels that map a look to one of the front end's icons.
+pub const ALLOWED: &[&str] = &["lib.rs", "icons/pack.rs", "dial_deck/labels.rs"];
 
 /// The committed count; only P3 deletes this file and makes the gate absolute.
 pub const COUNT_FILE: &str = "tools/trapped_count.txt";
@@ -121,8 +124,14 @@ mod tests {
     }
 
     #[test]
-    fn the_two_allowlisted_files_are_not_trapped() {
-        let found = files(&["lib.rs", "icons/pack.rs", "export.rs", "library/picks.rs"]);
+    fn the_allowlisted_files_are_not_trapped() {
+        let found = files(&[
+            "lib.rs",
+            "icons/pack.rs",
+            "dial_deck/labels.rs",
+            "export.rs",
+            "library/picks.rs",
+        ]);
         let left = trapped(&found, ALLOWED);
         assert_eq!(left, files(&["export.rs", "library/picks.rs"]));
     }

@@ -65,9 +65,9 @@ The rules:
    one exemption, because AI needs threads, a keychain and TLS (see below).
 4. A file under `crates/ui-egui/src` that names no toolkit is a file that belongs
    in the engine. `cargo xtask trapped` counts them against
-   `tools/trapped_count.txt`, which may only fall; the front end's own root and
-   glyph table are the allowlist. `tests/` and `examples/` are harnesses and are
-   not counted.
+   `tools/trapped_count.txt`, which may only fall; the front end's own root,
+   glyph table and dial labels are the allowlist, each being presentation with
+   nowhere to go. `tests/` and `examples/` are harnesses and are not counted.
 
 ## How the app is built in egui
 
