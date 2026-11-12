@@ -140,12 +140,12 @@ impl MareaderApp {
     }
 
     fn option_chromeless(&mut self, _key: &str, value: &str) -> Result<(), String> {
-        self.chromeless = value == "true";
+        self.ui.chromeless = value == "true";
         Ok(())
     }
 
     fn option_menu(&mut self, _key: &str, value: &str) -> Result<(), String> {
-        self.menu_shot = value == "true";
+        self.ui.menu_shot = value == "true";
         Ok(())
     }
 
@@ -309,7 +309,8 @@ impl MareaderApp {
     }
 
     fn option_reduced(&mut self, _key: &str, value: &str) -> Result<(), String> {
-        self.reduced_motion
+        self.ui
+            .reduced_motion
             .store(value == "true", Ordering::Relaxed);
         Ok(())
     }

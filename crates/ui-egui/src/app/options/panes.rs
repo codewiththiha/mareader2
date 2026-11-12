@@ -25,18 +25,18 @@ pub(super) fn set(app: &mut MareaderApp, key: &str, value: &str) -> Option<Resul
 
 impl MareaderApp {
     fn option_platform(&mut self, _key: &str, value: &str) -> Result<(), String> {
-        self.platform = Platform::parse(value).ok_or("platform: mac, windows or gnome")?;
+        self.ui.platform = Platform::parse(value).ok_or("platform: mac, windows or gnome")?;
 
         Ok(())
     }
 
     fn option_toast(&mut self, _key: &str, value: &str) -> Result<(), String> {
-        self.toasts.push(shot_toast(value));
+        self.ui.toasts.push(shot_toast(value));
         Ok(())
     }
 
     fn option_toasts(&mut self, _key: &str, value: &str) -> Result<(), String> {
-        self.toasts.set_open(value == "open");
+        self.ui.toasts.set_open(value == "open");
         Ok(())
     }
 
@@ -53,13 +53,13 @@ impl MareaderApp {
         let n = value
             .parse()
             .map_err(|_| "workers: a count, 0 runs inline")?;
-        self.documents.set_workers(n);
-        self.library.set_inline(n == 0);
-        self.study.set_inline(n == 0);
-        self.page_ai.set_inline(n == 0);
-        self.dict.set_inline(n == 0);
-        self.sounds.set_inline(n == 0);
-        self.search.set_inline(n == 0);
+        self.ui.documents.set_workers(n);
+        self.ui.library.set_inline(n == 0);
+        self.ui.study.set_inline(n == 0);
+        self.ui.page_ai.set_inline(n == 0);
+        self.ui.dict.set_inline(n == 0);
+        self.ui.sounds.set_inline(n == 0);
+        self.ui.search.set_inline(n == 0);
 
         Ok(())
     }
@@ -99,8 +99,8 @@ impl MareaderApp {
 
     fn option_sidebar(&mut self, _key: &str, value: &str) -> Result<(), String> {
         match Panel::parse(value) {
-            Some(p) => self.sidebar.open(Some(p)),
-            None if value == "closed" => self.sidebar.close(),
+            Some(p) => self.ui.sidebar.open(Some(p)),
+            None if value == "closed" => self.ui.sidebar.close(),
             None => return Err("sidebar: thumbnails, outline, library or closed".into()),
         };
         Ok(())
@@ -108,7 +108,7 @@ impl MareaderApp {
 
     // The bar's query, landing on its first hit once `open=find`.
     fn option_find(&mut self, _key: &str, value: &str) -> Result<(), String> {
-        self.find.seed(value);
+        self.ui.find.seed(value);
         Ok(())
     }
 
@@ -136,7 +136,7 @@ impl MareaderApp {
             }
             // The removal sheet for what `select` picked.
             "remove" => {
-                let books = self.queued.iter().find_map(|c| match c {
+                let books = self.ui.queued.iter().find_map(|c| match c {
                     Command::Intent(Intent::Library(ui_library::Action::Pick(
                         ui_library::PickAction::Only(p),
                     ))) => Some(p.iter().filter_map(|p| match p {
@@ -157,14 +157,14 @@ impl MareaderApp {
                 ))));
             }
             "rename" => {
-                let first = self.library.model().recent().first().map(|b| b.id);
+                let first = self.ui.library.model().recent().first().map(|b| b.id);
                 let first = first.ok_or("open=rename: no book")?;
                 let ask = ui_library::Action::AskRename(ui_library::Named::Book(first));
                 self.queue(Command::Intent(Intent::Library(ask)));
             }
             // The first missing book's find-again sheet.
             "find_again" => {
-                let lost = self.library.model().books().find(|b| b.missing());
+                let lost = self.ui.library.model().books().find(|b| b.missing());
                 let lost = lost.ok_or("open=find_again: no missing book")?.id;
                 self.queue(Command::Intent(Intent::Library(
                     ui_library::Action::FindAgain(lost),

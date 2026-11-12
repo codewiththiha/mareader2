@@ -5,7 +5,7 @@ use super::*;
 impl MareaderApp {
     /// Reopens what was read at exit, if its file is still there.
     pub fn resume(&mut self) -> bool {
-        let Some(last) = self.last.take().filter(|l| l.path.is_file()) else {
+        let Some(last) = self.ui.last.take().filter(|l| l.path.is_file()) else {
             return false;
         };
         let place = last.place.map(|(block, offset)| Anchor { block, offset });
@@ -29,15 +29,15 @@ impl MareaderApp {
 
     /// Keeps the library in `root`; without one it lives in memory.
     pub fn attach_library(&mut self, root: PathBuf) {
-        self.library.attach(root);
+        self.ui.library.attach(root);
     }
 
     /// Starts the AI service, its keys kept in `root`; `helper` as in `Ai`.
     #[cfg(not(target_arch = "wasm32"))]
     pub fn attach_ai(&mut self, ctx: &Context, root: PathBuf, helper: Option<PathBuf>) {
-        self.ai.attach(ctx, root, helper);
+        self.ui.ai.attach(ctx, root, helper);
         // A run stopped before quitting waits on its card.
-        self.library.set_paused(self.ai.paused());
+        self.ui.library.set_paused(self.ui.ai.paused());
     }
 
     /// Keeps language packs in `dir`.
@@ -45,8 +45,9 @@ impl MareaderApp {
     pub fn attach_dictionaries(&mut self, ctx: &Context, dir: PathBuf) {
         let ctx = ctx.clone();
         let waker = Arc::new(move || ctx.request_repaint());
-        if let Err(e) = self.dict.attach(dir, waker) {
-            self.toasts
+        if let Err(e) = self.ui.dict.attach(dir, waker) {
+            self.ui
+                .toasts
                 .push(Toast::info(format!("Dictionaries are off: {e}")));
         }
     }
@@ -56,8 +57,9 @@ impl MareaderApp {
     pub fn attach_vocabulary(&mut self, ctx: &Context, dir: PathBuf) {
         let ctx = ctx.clone();
         let waker = Arc::new(move || ctx.request_repaint());
-        if let Err(e) = self.vocab.attach(dir, waker) {
-            self.toasts
+        if let Err(e) = self.ui.vocab.attach(dir, waker) {
+            self.ui
+                .toasts
                 .push(Toast::info(format!("Word levels are off: {e}")));
         }
     }
@@ -79,7 +81,8 @@ impl MareaderApp {
         let ctx = ctx.clone();
         let waker = Arc::new(move || ctx.request_repaint());
         if let Err(e) = self.attach_voices(dir, catalogue, waker) {
-            self.toasts
+            self.ui
+                .toasts
                 .push(Toast::info(format!("Voice models are off: {e}")));
         }
     }
@@ -92,13 +95,13 @@ impl MareaderApp {
         catalogue: &'static [mareader_speech::Model],
         waker: mareader_speech::Waker,
     ) -> Result<(), String> {
-        let shelf = &mut self.read_aloud.shelf;
+        let shelf = &mut self.ui.read_aloud.shelf;
         shelf.attach(dir.clone(), catalogue, waker.clone())?;
-        self.sounds.attach(dir, waker, shelf)
+        self.ui.sounds.attach(dir, waker, shelf)
     }
 
     /// Keeps covers and other rebuildable files in `dir`.
     pub fn attach_cache(&mut self, dir: PathBuf) {
-        self.library.attach_cache(dir);
+        self.ui.library.attach_cache(dir);
     }
 }

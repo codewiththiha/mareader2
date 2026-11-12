@@ -28,18 +28,20 @@ pub(super) fn set(app: &mut MareaderApp, key: &str, value: &str) -> Option<Resul
 impl MareaderApp {
     #[cfg(not(target_arch = "wasm32"))]
     fn option_dictionaries(&mut self, _key: &str, value: &str) -> Result<(), String> {
-        let inline = self.study.inline();
-        self.dict.attach(PathBuf::from(value), Arc::new(|| {}))?;
-        self.dict.set_inline(inline);
+        let inline = self.ui.study.inline();
+        self.ui.dict.attach(PathBuf::from(value), Arc::new(|| {}))?;
+        self.ui.dict.set_inline(inline);
 
         Ok(())
     }
 
     #[cfg(not(target_arch = "wasm32"))]
     fn option_cefr(&mut self, _key: &str, value: &str) -> Result<(), String> {
-        let inline = self.study.inline();
-        self.vocab.attach(PathBuf::from(value), Arc::new(|| {}))?;
-        self.vocab.set_inline(inline);
+        let inline = self.ui.study.inline();
+        self.ui
+            .vocab
+            .attach(PathBuf::from(value), Arc::new(|| {}))?;
+        self.ui.vocab.set_inline(inline);
         self.set_field("study.cefr.enabled", true)?;
         Ok(())
     }
@@ -48,7 +50,7 @@ impl MareaderApp {
     fn option_dict_window(&mut self, _key: &str, value: &str) -> Result<(), String> {
         self.dict_window(crate::dict::Window::Toggle);
         if value != "show" {
-            self.dict.search(value);
+            self.ui.dict.search(value);
         };
 
         Ok(())
@@ -64,6 +66,7 @@ impl MareaderApp {
     fn option_dict_page(&mut self, _key: &str, value: &str) -> Result<(), String> {
         // After a queued open, which would otherwise leave it.
         match self
+            .ui
             .queued
             .iter()
             .any(|c| matches!(c, Command::Intent(Intent::Open(_))))
@@ -72,7 +75,7 @@ impl MareaderApp {
             false => self.go(Route::Dictionary),
         }
         if value != "show" {
-            self.dict.search(value);
+            self.ui.dict.search(value);
         };
 
         Ok(())
@@ -81,12 +84,15 @@ impl MareaderApp {
     // Who explains a word in a shot: a sample, script or nobody.
     fn option_explain(&mut self, _key: &str, value: &str) -> Result<(), String> {
         match value {
-            "assistant" => self.study.set_explainer(Arc::new(AssistantSample)),
+            "assistant" => self.ui.study.set_explainer(Arc::new(AssistantSample)),
             "canned" => {
-                self.study.set_explainer(Arc::new(mareader_study::Canned));
-                self.page_ai.set_canned(true);
+                self.ui
+                    .study
+                    .set_explainer(Arc::new(mareader_study::Canned));
+                self.ui.page_ai.set_canned(true);
             }
             "none" => self
+                .ui
                 .study
                 .set_explainer(Arc::new(mareader_study::Unavailable)),
             _ => return Err("explain: assistant, canned or none".into()),
@@ -120,7 +126,7 @@ impl MareaderApp {
         let (page, text) = value.split_once(':').ok_or(hint)?;
         let page = page.parse().map_err(|_| hint)?;
         let text = text.replace('_', " ");
-        self.staged.push_back(Staged {
+        self.ui.staged.push_back(Staged {
             page,
             text,
             explain: false,
@@ -137,7 +143,7 @@ impl MareaderApp {
 
     // Picks marks, as `pick=on pick=on pick=style`: Style… opens.
     fn option_pick(&mut self, _key: &str, value: &str) -> Result<(), String> {
-        self.staged.push_back(Staged {
+        self.ui.staged.push_back(Staged {
             page: 0,
             text: String::new(),
             explain: false,
@@ -155,7 +161,7 @@ impl MareaderApp {
     // Bookmarks a page, as `bookmark=2`.
     fn option_bookmark(&mut self, _key: &str, value: &str) -> Result<(), String> {
         let page = value.parse().map_err(|_| "bookmark: a page index")?;
-        self.staged.push_back(Staged {
+        self.ui.staged.push_back(Staged {
             page,
             text: String::new(),
             explain: false,
@@ -176,14 +182,14 @@ impl MareaderApp {
         let (a, b) = value.split_once('-').unwrap_or((value, value));
         let a: usize = a.parse().map_err(|_| hint)?;
         let b: usize = b.parse().map_err(|_| hint)?;
-        self.word_window_seed = Some((a..=b.max(a)).collect());
+        self.ui.word_window_seed = Some((a..=b.max(a)).collect());
 
         Ok(())
     }
 
     // Explains the staged selection: its card opens.
     fn option_gloss(&mut self, _key: &str, _value: &str) -> Result<(), String> {
-        match self.staged.back_mut() {
+        match self.ui.staged.back_mut() {
             Some(staged) => staged.explain = true,
             None => return Err("gloss: after selection=page:text".into()),
         };
@@ -192,7 +198,7 @@ impl MareaderApp {
 
     // Looks the staged selection up: the dictionary card opens.
     fn option_lookup(&mut self, _key: &str, _value: &str) -> Result<(), String> {
-        match self.staged.back_mut() {
+        match self.ui.staged.back_mut() {
             Some(staged) => staged.look_up = true,
             None => return Err("lookup: after selection=page:text".into()),
         };
@@ -201,7 +207,7 @@ impl MareaderApp {
 
     // Notes the staged selection: a draft, or saved with `noted`.
     fn option_note_noted(&mut self, key: &str, value: &str) -> Result<(), String> {
-        let staged = self.staged.back_mut().ok_or("note: after selection")?;
+        let staged = self.ui.staged.back_mut().ok_or("note: after selection")?;
         staged.note = Some((value.replace('_', " "), key == "noted"));
 
         Ok(())
@@ -212,7 +218,7 @@ impl MareaderApp {
         let hint = "highlight: full, half or underline, after selection";
         let pen =
             serde_json::from_value(serde_json::Value::String(value.into())).map_err(|_| hint)?;
-        let staged = self.staged.back_mut().ok_or(hint)?;
+        let staged = self.ui.staged.back_mut().ok_or(hint)?;
         staged.pen = Some(pen);
 
         Ok(())

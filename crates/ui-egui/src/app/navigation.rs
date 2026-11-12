@@ -11,7 +11,9 @@ impl MareaderApp {
     /// Something is open in a pane, so the library can go back to it.
     pub(super) fn reading(&self) -> bool {
         let panes = self.tree().panes();
-        panes.iter().any(|p| self.documents.reading(*p).is_some())
+        panes
+            .iter()
+            .any(|p| self.ui.documents.reading(*p).is_some())
     }
 
     /// The one way between routes; leaving the reader ends its overlays.
@@ -23,15 +25,15 @@ impl MareaderApp {
     /// What the page left behind had open closes; the new one settles in.
     pub(super) fn arrived(&mut self, route: Route) {
         if route == Route::Library {
-            self.settings_window.close();
+            self.ui.settings_window.close();
         }
         if route != Route::Reader {
-            self.find.close();
+            self.ui.find.close();
         }
         if route == Route::Dictionary {
-            self.dict.arrive();
+            self.ui.dict.arrive();
         } else {
-            self.library.showing = route == Route::Library;
+            self.ui.library.showing = route == Route::Library;
         }
     }
 
@@ -39,7 +41,7 @@ impl MareaderApp {
     pub(super) fn dict_window(&mut self, w: crate::dict::Window) {
         use crate::dict::Window as W;
         if !matches!(w, W::Place(_)) {
-            self.read_aloud.yield_to_dictionary();
+            self.ui.read_aloud.yield_to_dictionary();
         }
         let mut win = self.settings().dictionary.window.clone();
         match w {
@@ -61,20 +63,20 @@ impl MareaderApp {
         let _ = self.set_field("dictionary.window", win.clone());
         // Shown, its field takes the keys.
         if win.open && !win.minimized && !matches!(w, W::Place(_)) {
-            self.dict.arrive();
+            self.ui.dict.arrive();
         }
     }
 
     /// The card's word, searched where the Dictionary opens from here.
     pub(super) fn pursue(&mut self, word: &str) {
-        self.dict.escape();
+        self.ui.dict.escape();
         let floats = self.settings().dictionary.opens == DictionaryOpens::Window;
         if self.route() == Route::Reader && floats {
             self.dict_window(crate::dict::Window::Focus);
         } else {
             self.go(Route::Dictionary);
         }
-        self.dict.search(word);
+        self.ui.dict.search(word);
     }
 
     /// Where the Dictionary page's pressed button returns.
@@ -91,9 +93,10 @@ impl MareaderApp {
         let Some(at) = crate::focus::rect(ctx).map(|r| r.center()) else {
             return;
         };
-        let modal =
-            self.settings_window.is_open() || self.word_window.is_open() || self.library.sheet_up();
-        let pane = self.pane_rects.iter().find(|(_, r)| r.contains(at));
+        let modal = self.ui.settings_window.is_open()
+            || self.ui.word_window.is_open()
+            || self.ui.library.sheet_up();
+        let pane = self.ui.pane_rects.iter().find(|(_, r)| r.contains(at));
         if let Some((id, _)) = pane.filter(|(id, _)| !modal && *id != self.active()) {
             out.push(Command::Intent(Intent::FocusPane(*id)));
         }
@@ -101,34 +104,40 @@ impl MareaderApp {
 
     /// Asks for the bar's query once it settles, and walks to its hits.
     pub(super) fn drive_search(&mut self, ctx: &Context) {
-        let Some(pane) = self.find.pane() else {
+        let Some(pane) = self.ui.find.pane() else {
             return;
         };
-        let Some(reading) = self.documents.reading(pane) else {
+        let Some(reading) = self.ui.documents.reading(pane) else {
             return;
         };
         if !reading.document.is_complete() {
             return;
         }
         let key = Arc::as_ptr(&reading.document).addr();
-        if self.find.due(ctx.input(|i| i.time), key) {
-            let query = self.find.query();
-            self.search.ask(ctx, reading.doc, &reading.document, query);
-            self.find.asked(key);
+        if self.ui.find.due(ctx.input(|i| i.time), key) {
+            let query = self.ui.find.query();
+            self.ui
+                .search
+                .ask(ctx, reading.doc, &reading.document, query);
+            self.ui.find.asked(key);
         }
-        let found = self.search.found(reading.doc, &reading.document);
-        let found = found.filter(|f| f.query == self.find.query());
-        self.find.settle(found, reading.current);
-        let Some(i) = self.find.seeking() else {
+        let found = self.ui.search.found(reading.doc, &reading.document);
+        let found = found.filter(|f| f.query == self.ui.find.query());
+        self.ui.find.settle(found, reading.current);
+        let Some(i) = self.ui.find.seeking() else {
             return;
         };
         ctx.request_repaint();
         let Some(hit) = found.and_then(|f| f.hits.get(i)) else {
-            self.find.sought();
+            self.ui.find.sought();
             return;
         };
-        if self.documents.reveal_hit(pane, hit.page, hit.chars.clone()) {
-            self.find.sought();
+        if self
+            .ui
+            .documents
+            .reveal_hit(pane, hit.page, hit.chars.clone())
+        {
+            self.ui.find.sought();
         }
     }
 
@@ -140,7 +149,7 @@ impl MareaderApp {
             (Route::Dictionary, None) => Some(Tab::Dictionary),
             _ => tab,
         };
-        self.settings_window.open(tab, limited);
+        self.ui.settings_window.open(tab, limited);
     }
 
     /// Puts the focused pane first in `recent`, dropping closed panes.

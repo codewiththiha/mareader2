@@ -13,9 +13,9 @@ impl MareaderApp {
 
     fn staged(&mut self, ctx: &Context, out: &mut Commands) {
         let pane = self.active();
-        let sheets = self.documents.sheets(pane);
+        let sheets = self.ui.documents.sheets(pane);
         let shown = |page| sheets.iter().any(|s| s.page == page);
-        match self.staged.pop_front() {
+        match self.ui.staged.pop_front() {
             // Its page is turned to first, then selected once laid out.
             Some(mut staged) if !sheets.is_empty() && !shown(staged.page) => {
                 if !staged.turned {
@@ -25,7 +25,7 @@ impl MareaderApp {
                     }));
                 }
                 staged.turned = true;
-                self.staged.push_front(staged);
+                self.ui.staged.push_front(staged);
                 ctx.request_repaint();
             }
             Some(Staged {
@@ -43,7 +43,7 @@ impl MareaderApp {
                 match (bookmark, first) {
                     (true, _) => out.push(Command::Intent(Intent::Bookmark(Some(pane)))),
                     // Picking starts, then a later `pick` takes all in.
-                    (false, Some(id)) if text.is_empty() && !self.study.picking() => {
+                    (false, Some(id)) if text.is_empty() && !self.ui.study.picking() => {
                         let start = crate::study::Action::SelectSeveral(pane, id);
                         out.push(Command::Intent(Intent::Study(start)));
                     }
@@ -74,66 +74,68 @@ impl MareaderApp {
                     )));
                 }
                 // The next waits a frame, as each selection replaces the last.
-                if !self.staged.is_empty() {
+                if !self.ui.staged.is_empty() {
                     ctx.request_repaint();
                 }
             }
-            Some(staged) => self.staged.push_front(staged),
+            Some(staged) => self.ui.staged.push_front(staged),
             None => {}
         }
     }
 
     fn seeds(&mut self, ctx: &Context, out: &mut Commands) {
         let pane = self.active();
-        let sheets = self.documents.sheets(pane);
+        let sheets = self.ui.documents.sheets(pane);
         let shown = |page| sheets.iter().any(|s| s.page == page);
         if let Some(pages) = self
+            .ui
             .word_window_seed
             .take_if(|p| p.first().is_some_and(|&p| shown(p)))
         {
             out.push(Command::Intent(Intent::WordListWindow { pane, pages }));
         }
-        if let Some((page, task, follow, last)) = self.page_ai_seed.clone()
+        if let Some((page, task, follow, last)) = self.ui.page_ai_seed.clone()
             && shown(page)
         {
-            let book = self.library.book_in(&self.documents, pane);
-            let name = self.documents.title(pane).unwrap_or_default().to_owned();
+            let book = self.ui.library.book_in(&self.ui.documents, pane);
+            let name = self.ui.documents.title(pane).unwrap_or_default().to_owned();
             let ai_look = self.settings().ai.clone();
             let asked = crate::page_ai::Asked {
                 pane,
                 page,
                 book,
                 name: &name,
-                documents: &self.documents,
-                ai: &self.ai,
+                documents: &self.ui.documents,
+                ai: &self.ui.ai,
                 settings: &ai_look,
             };
             let now = ctx.input(|i| i.time);
             let done = match follow {
                 false if last > page => {
                     let pages: Vec<usize> = (page..=last).collect();
-                    self.page_ai.run_pages(asked, &pages, task);
+                    self.ui.page_ai.run_pages(asked, &pages, task);
                     true
                 }
-                true if self.page_ai.can_read(&asked) => {
-                    let model = self.library.model();
-                    self.page_ai.follow(asked, model, task, true, now, out);
+                true if self.ui.page_ai.can_read(&asked) => {
+                    let model = self.ui.library.model();
+                    self.ui.page_ai.follow(asked, model, task, true, now, out);
                     true
                 }
                 true => false,
                 false => self
+                    .ui
                     .page_ai
-                    .seed(asked, self.library.model_mut(), task, now),
+                    .seed(asked, self.ui.library.model_mut(), task, now),
             };
             if done {
-                self.page_ai_seed = None;
+                self.ui.page_ai_seed = None;
             }
             ctx.request_repaint();
         }
     }
 
     fn gloss_events(&mut self, ctx: &Context, out: &mut Commands) {
-        for (pane, gloss) in self.documents.take_gloss() {
+        for (pane, gloss) in self.ui.documents.take_gloss() {
             if study_gloss(&gloss) {
                 self.study_gloss(ctx, out, pane, gloss);
             } else if page_gloss(&gloss) {
@@ -150,7 +152,7 @@ impl MareaderApp {
             Gloss::LookUp => out.push(Command::Intent(Intent::LookUp(pane))),
             Gloss::Note => out.push(Command::Intent(Intent::Note(pane))),
             Gloss::ReadAloud => {
-                if let Some(sel) = self.documents.selection(pane) {
+                if let Some(sel) = self.ui.documents.selection(pane) {
                     let (a, b) = sel.ordered();
                     let spot = |c: crate::selection::Caret| mareader_speech::Spot {
                         page: c.page,
@@ -161,7 +163,7 @@ impl MareaderApp {
                         at: Some(spot(a)),
                         until: Some(spot(b)),
                     };
-                    self.documents.clear_selection(pane);
+                    self.ui.documents.clear_selection(pane);
                     out.push(Command::Intent(Intent::ReadAloud { pane, from }));
                 }
             }
@@ -171,21 +173,22 @@ impl MareaderApp {
             }
             Gloss::Copied => out.push(Command::Ui(UiCommand::Notify(Toast::info("Copied")))),
             Gloss::Open { mark, at } => {
-                self.study
-                    .open_mark(ctx, self.library.model(), pane, mark, at);
+                self.ui
+                    .study
+                    .open_mark(ctx, self.ui.library.model(), pane, mark, at);
                 self.ask_role();
             }
             Gloss::Shaded { page, chars, at } => self.explain_shaded(ctx, pane, page, chars, at),
             Gloss::Rest { word, context, at } => self.rest(pane, (word, context), at),
             Gloss::Menu { mark, at, words } => {
-                self.menu_shot = false;
-                let model = self.library.model();
-                self.study.open_menu(model, pane, mark, at, words);
+                self.ui.menu_shot = false;
+                let model = self.ui.library.model();
+                self.ui.study.open_menu(model, pane, mark, at, words);
             }
-            Gloss::Anchor(at) => self.study.anchor(pane, at),
-            Gloss::Pick(mark) => self.study.pick(pane, mark),
-            Gloss::Toggle(mark) => self.study.toggle(pane, mark),
-            Gloss::Seen { page, all } => self.study.seen(pane, page, all),
+            Gloss::Anchor(at) => self.ui.study.anchor(pane, at),
+            Gloss::Pick(mark) => self.ui.study.pick(pane, mark),
+            Gloss::Toggle(mark) => self.ui.study.toggle(pane, mark),
+            Gloss::Seen { page, all } => self.ui.study.seen(pane, page, all),
             _ => {}
         }
     }
@@ -193,7 +196,7 @@ impl MareaderApp {
     fn page_gloss(&mut self, ctx: &Context, _out: &mut Commands, pane: PaneId, gloss: Gloss) {
         match gloss {
             Gloss::Lift(origin) if self.tree().len() > 1 => {
-                let home = self.pane_rects.iter().find(|(id, _)| *id == pane);
+                let home = self.ui.pane_rects.iter().find(|(id, _)| *id == pane);
                 if let Some(&(_, home)) = home {
                     let since = ctx.input(|i| i.time);
                     let lift = crate::lift::Lift {
@@ -202,7 +205,7 @@ impl MareaderApp {
                         home,
                         since,
                     };
-                    self.lifting = Some(lift);
+                    self.ui.lifting = Some(lift);
                     self.focus(pane);
                     ctx.request_repaint();
                 }
@@ -214,22 +217,22 @@ impl MareaderApp {
                 place,
                 caret,
             } => {
-                let aloud = self.documents.reading(pane).map(|_| ReadFrom {
+                let aloud = self.ui.documents.reading(pane).map(|_| ReadFrom {
                     anchor: place,
                     at: caret.map(|char| mareader_speech::Spot { page, char }),
                     until: None,
                 });
-                self.page_ai.open_menu(pane, page, at, aloud);
-                if let Some(pin) = self.documents.menu_pin(pane, page, at, caret) {
-                    self.page_ai.pin_menu(pin);
+                self.ui.page_ai.open_menu(pane, page, at, aloud);
+                if let Some(pin) = self.ui.documents.menu_pin(pane, page, at, caret) {
+                    self.ui.page_ai.pin_menu(pin);
                 }
             }
             Gloss::Bubble { page, index, at } => {
                 let now = ctx.input(|i| i.time);
-                self.page_ai.pick(pane, page, index, at, now);
+                self.ui.page_ai.pick(pane, page, index, at, now);
             }
             Gloss::BubbleMenu { page, index, at } => {
-                self.page_ai.open_bubble_menu(pane, page, index, at);
+                self.ui.page_ai.open_bubble_menu(pane, page, index, at);
             }
             _ => {}
         }
@@ -237,26 +240,26 @@ impl MareaderApp {
 
     fn pill_gloss(&mut self, ctx: &Context, out: &mut Commands, pane: PaneId, gloss: Gloss) {
         match gloss {
-            Gloss::Pill(crate::page_ai::PillPress::Stop) => self.page_ai.stop_pill(pane),
+            Gloss::Pill(crate::page_ai::PillPress::Stop) => self.ui.page_ai.stop_pill(pane),
             Gloss::Pill(crate::page_ai::PillPress::Continue) => {
-                let Some(reading) = self.documents.reading(pane) else {
+                let Some(reading) = self.ui.documents.reading(pane) else {
                     return;
                 };
-                let book = self.library.book_in(&self.documents, pane);
-                let name = self.documents.title(pane).unwrap_or_default().to_owned();
+                let book = self.ui.library.book_in(&self.ui.documents, pane);
+                let name = self.ui.documents.title(pane).unwrap_or_default().to_owned();
                 let ai_look = self.settings().ai.clone();
                 let asked = crate::page_ai::Asked {
                     pane,
                     page: reading.current,
                     book,
                     name: &name,
-                    documents: &self.documents,
-                    ai: &self.ai,
+                    documents: &self.ui.documents,
+                    ai: &self.ui.ai,
                     settings: &ai_look,
                 };
                 let now = ctx.input(|i| i.time);
-                let model = self.library.model();
-                self.page_ai.resume(asked, model, now, out);
+                let model = self.ui.library.model();
+                self.ui.page_ai.resume(asked, model, now, out);
             }
 
             _ => {}
@@ -264,37 +267,37 @@ impl MareaderApp {
     }
 
     fn poll_services(&mut self, ctx: &Context) {
-        for (pane, _) in &self.pane_rects {
-            if self.documents.sheets(*pane).is_empty() {
-                self.study.hold(*pane);
+        for (pane, _) in &self.ui.pane_rects {
+            if self.ui.documents.sheets(*pane).is_empty() {
+                self.ui.study.hold(*pane);
             }
         }
         let ai_look = self.settings().ai.clone();
-        if let Some(explainer) = self.ai.follow(&ai_look) {
-            self.study.set_explainer(explainer);
+        if let Some(explainer) = self.ui.ai.follow(&ai_look) {
+            self.ui.study.set_explainer(explainer);
         }
         self.take_organized();
-        self.study.receive(self.library.model_mut());
-        let (changed, role) = self.vocab.poll();
+        self.ui.study.receive(self.ui.library.model_mut());
+        let (changed, role) = self.ui.vocab.poll();
         if changed {
             // Answers came: the pages plan their shading again.
             ctx.request_repaint();
         }
-        if self.read_aloud.shelf.poll() {
+        if self.ui.read_aloud.shelf.poll() {
             // A voice model came or went: the pronunciation pack follows.
-            self.sounds.voices_changed();
+            self.ui.sounds.voices_changed();
             ctx.request_repaint();
         }
-        if self.sounds.poll(ctx.input(|i| i.time)) {
+        if self.ui.sounds.poll(ctx.input(|i| i.time)) {
             ctx.request_repaint();
         }
         let memory = self.settings().read_aloud.speech_memory_mb as usize;
-        self.read_aloud.shelf.set_speech_memory(memory << 20);
-        (self.read_aloud.shelf).set_model_idle(self.settings().read_aloud.model_idle());
+        self.ui.read_aloud.shelf.set_speech_memory(memory << 20);
+        (self.ui.read_aloud.shelf).set_model_idle(self.settings().read_aloud.model_idle());
         // Whichever card asked takes it; each checks the word is its own.
         if let Some((word, role)) = role {
-            self.dict.set_role(&word, role.clone());
-            self.study.set_role(&word, role);
+            self.ui.dict.set_role(&word, role.clone());
+            self.ui.study.set_role(&word, role);
         }
     }
 
@@ -312,17 +315,17 @@ impl MareaderApp {
         let dictionary_look = self.settings().dictionary.clone();
         let aloud_look = self.settings().read_aloud.clone();
         let looks = (&gloss_look, &highlight_look);
-        let model = self.library.model();
+        let model = self.ui.library.model();
         let others = dictionary_look.other_voices;
         let dict = &dictionary_look;
-        let looking = self.dict.card_word().is_some() || dict.window.open;
+        let looking = self.ui.dict.card_word().is_some() || dict.window.open;
         if others && (looking || self.route() == Route::Dictionary) {
             // Copied out first: `list_voices` borrows the reader mutably.
-            self.read_aloud.list_voices(ctx, &aloud_look);
+            self.ui.read_aloud.list_voices(ctx, &aloud_look);
         }
-        let saying = self.read_aloud.saying();
-        let (speakers, offers) = self.read_aloud.speakers(&aloud_look, others);
-        self.dict.set_voice(crate::dict::Voice {
+        let saying = self.ui.read_aloud.saying();
+        let (speakers, offers) = self.ui.read_aloud.speakers(&aloud_look, others);
+        self.ui.dict.set_voice(crate::dict::Voice {
             saying: saying.map(str::to_owned),
             sounds: sounds.clone(),
             speakers,
@@ -332,8 +335,8 @@ impl MareaderApp {
             saying,
             sounds: &sounds,
         };
-        let panes = (&self.pane_rects[..], heard);
-        self.study.show(ctx, model, panes, looks, out);
+        let panes = (&self.ui.pane_rects[..], heard);
+        self.ui.study.show(ctx, model, panes, looks, out);
         sounds
     }
 
@@ -343,54 +346,62 @@ impl MareaderApp {
         out: &mut Commands,
         sounds: &[(String, Vec<crate::sounds::Line>)],
     ) {
-        let gpu = self.documents.gpu();
-        self.page_ai
-            .receive(ctx, self.library.model_mut(), gpu, out);
+        let gpu = self.ui.documents.gpu();
+        self.ui
+            .page_ai
+            .receive(ctx, self.ui.library.model_mut(), gpu, out);
         let ai_look = self.settings().ai.clone();
         let around = crate::page_ai::Around {
-            main: self.library.model(),
-            documents: &self.documents,
-            ai: &self.ai,
+            main: self.ui.library.model(),
+            documents: &self.ui.documents,
+            ai: &self.ui.ai,
             settings: &ai_look,
         };
-        self.page_ai.tick(ctx, &around, out);
+        self.ui.page_ai.tick(ctx, &around, out);
         // A book lays its pane's shown results and transcripts into its pages.
         let wanted = mareader_engine::transcript::wanted(&ai_look);
         for pane in self.tree().panes() {
-            let book = self.library.book_in(&self.documents, pane);
-            let name = self.documents.title(pane).unwrap_or_default().to_owned();
-            let model = self.library.model();
+            let book = self.ui.library.book_in(&self.ui.documents, pane);
+            let name = self.ui.documents.title(pane).unwrap_or_default().to_owned();
+            let model = self.ui.library.model();
             let who = (book, name.as_str());
-            let ai = self.page_ai.inserts(model, pane, &self.documents, who);
-            let own = self.documents.transcripts(pane, &wanted);
-            let shown = self.documents.triggered(pane);
+            let ai = self
+                .ui
+                .page_ai
+                .inserts(model, pane, &self.ui.documents, who);
+            let own = self.ui.documents.transcripts(pane, &wanted);
+            let shown = self.ui.documents.triggered(pane);
             let ai = mareader_engine::transcript::combine(ai, own);
             if let Some(inserts) = mareader_engine::transcript::combine(ai, shown) {
-                self.documents.set_inserts(pane, inserts);
+                self.ui.documents.set_inserts(pane, inserts);
             }
         }
-        let model = self.library.model();
-        self.page_ai.show(
+        let model = self.ui.library.model();
+        self.ui.page_ai.show(
             ctx,
             &ai_look,
             model,
-            (&self.pane_rects, &self.documents),
+            (&self.ui.pane_rects, &self.ui.documents),
             out,
         );
-        if let Some(toast) = self.page_copy.poll(ctx) {
-            self.toasts.push(toast);
+        if let Some(toast) = self.ui.page_copy.poll(ctx) {
+            self.ui.toasts.push(toast);
         }
-        self.dict.set_exact_only(!self.settings().dictionary.near);
-        self.dict.poll();
+        self.ui
+            .dict
+            .set_exact_only(!self.settings().dictionary.near);
+        self.ui.dict.poll();
         self.poll_word_list(ctx);
         let settings = self.settings().clone();
-        let services = (&mut self.vocab, &mut self.dict, &self.files);
-        self.word_window.show(ctx, &settings, services, out);
-        let documents = &self.documents;
+        let services = (&mut self.ui.vocab, &mut self.ui.dict, &self.ui.files);
+        self.ui.word_window.show(ctx, &settings, services, out);
+        let documents = &self.ui.documents;
         let offset = |pane| documents.offset(pane);
-        let saying = self.read_aloud.saying();
+        let saying = self.ui.read_aloud.saying();
         let heard = crate::sounds::Heard { saying, sounds };
-        self.dict.show(ctx, (&self.pane_rects, heard), offset, out);
+        self.ui
+            .dict
+            .show(ctx, (&self.ui.pane_rects, heard), offset, out);
     }
 }
 

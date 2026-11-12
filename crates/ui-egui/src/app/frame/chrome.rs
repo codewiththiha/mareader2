@@ -9,7 +9,7 @@ impl MareaderApp {
         inset: f32,
         commands: &mut Commands,
     ) {
-        self.library.end_frame(ctx);
+        self.ui.library.end_frame(ctx);
         self.glosses(ctx, commands);
         if route == Route::Reader {
             let mut stage = ctx.content_rect();
@@ -19,16 +19,16 @@ impl MareaderApp {
             stage.max.y -= crate::page_bar::BAR_H;
             let dictionary = self.settings().dictionary.clone();
             let lift = self.toast_lift(ctx, ctx.content_rect());
-            let toasts = self.toasts.active_bed_for(
+            let toasts = self.ui.toasts.active_bed_for(
                 ctx,
                 ctx.content_rect(),
                 lift,
-                self.read_aloud.island_anchor(),
-                self.dict.window_cover(),
+                self.ui.read_aloud.island_anchor(),
+                self.ui.dict.window_cover(),
             );
             let now = ctx.input(|i| i.time);
-            let player = self.read_aloud.clearance_rect(now);
-            if self.dict.window(
+            let player = self.ui.read_aloud.clearance_rect(now);
+            if self.ui.dict.window(
                 ctx,
                 (&dictionary, self.settings().workspace.edge_parking),
                 stage,
@@ -36,7 +36,7 @@ impl MareaderApp {
                 player,
                 commands,
             ) {
-                self.read_aloud.yield_to_dictionary();
+                self.ui.read_aloud.yield_to_dictionary();
             }
         }
         self.lifted(ctx);
@@ -50,29 +50,30 @@ impl MareaderApp {
         view: &PaneView,
         commands: &mut Commands,
     ) -> Backdrop {
-        ui_library::sheets::show(ctx, &self.library, commands);
+        ui_library::sheets::show(ctx, &self.ui.library, commands);
         let backdrop = self.backdrop(ctx, view);
         self.page_bars(ctx, &backdrop, commands);
-        let top = self.titlebar.band_bottom(ctx);
-        let found = found_in(&self.search, &self.documents, &self.find);
-        self.find.show(ctx, &self.pane_rects, top, found);
+        let top = self.ui.titlebar.band_bottom(ctx);
+        let found = found_in(&self.ui.search, &self.ui.documents, &self.ui.find);
+        self.ui.find.show(ctx, &self.ui.pane_rects, top, found);
         self.player(ctx, route, commands);
         self.drive_search(ctx);
         // Typing, or filtered by what was typed, the field stays in view.
         let searching = route == Route::Library
-            && (self.library.searching() || ui_library::search::focused(ctx));
+            && (self.ui.library.searching() || ui_library::search::focused(ctx));
         let band = ctx
             .content_rect()
-            .with_max_y(self.titlebar.band_bottom(ctx));
+            .with_max_y(self.ui.titlebar.band_bottom(ctx));
         let tabbing = crate::focus::within(ctx, band);
-        self.titlebar.hold = self.find.is_open() || searching || tabbing;
+        self.ui.titlebar.hold = self.ui.find.is_open() || searching || tabbing;
         let field = self
+            .ui
             .dict
             .page_field()
             .filter(|_| route == Route::Dictionary);
-        self.titlebar.quiet = field;
+        self.ui.titlebar.quiet = field;
         self.follow_focus(ctx, commands);
-        self.documents.end_frame(ctx);
+        self.ui.documents.end_frame(ctx);
         backdrop
     }
 
@@ -91,23 +92,24 @@ impl MareaderApp {
         let library_view = self.settings().library;
         let (title, look, page) = match route {
             Route::Reader => (
-                self.documents.title(self.active()).unwrap_or("Mareader"),
+                self.ui.documents.title(self.active()).unwrap_or("Mareader"),
                 self.look(self.active()),
                 BarPage::Reader(self.reader_bar(overlay)),
             ),
             Route::Library => {
                 let width = self
+                    .ui
                     .library_rect
                     .map_or(ctx.content_rect().width(), |r| r.width());
                 let library = LibraryBar {
                     view: &library_view,
                     auto_columns: ui_library::view::page_columns(width),
                     can_return: self.reading(),
-                    trail: self.library.trail(),
-                    renaming: self.library.renaming(),
-                    search: self.library.field(),
-                    organizing: self.library.organizer().busy(),
-                    paused: (self.library.organizer().paused())
+                    trail: self.ui.library.trail(),
+                    renaming: self.ui.library.renaming(),
+                    search: self.ui.library.field(),
+                    organizing: self.ui.library.organizer().busy(),
+                    paused: (self.ui.library.organizer().paused())
                         .map(ui_library::organizing::Paused::short),
                 };
                 // On a shelf, the breadcrumb names the page.
@@ -130,7 +132,7 @@ impl MareaderApp {
         let bar = BarContext {
             title,
             pinned: self.settings().chrome.pinned(route.bar()),
-            platform: self.platform,
+            platform: self.ui.platform,
             left_inset: inset,
             maximized: ctx.input(|i| i.viewport().maximized.unwrap_or(false)),
             fullscreen,
@@ -140,13 +142,13 @@ impl MareaderApp {
             appearance_menu: self.settings().chrome.appearance_menu,
             presets: &presets,
             user_presets: &user_presets,
-            gpu: self.documents.gpu(),
+            gpu: self.ui.documents.gpu(),
             backdrop,
             page,
         };
-        self.titlebar.show(ctx, &bar, commands);
+        self.ui.titlebar.show(ctx, &bar, commands);
         if route == Route::Library {
-            ui_library::search::suggestions(ctx, &mut self.library, commands);
+            ui_library::search::suggestions(ctx, &mut self.ui.library, commands);
         }
     }
 
@@ -158,19 +160,19 @@ impl MareaderApp {
         overlay: bool,
         commands: &mut Commands,
     ) {
-        self.lights = self.place_lights(ctx, overlay, route);
+        self.ui.lights = self.place_lights(ctx, overlay, route);
         // Shots and the preview simulate macOS; draw where the lights go.
-        let simulated = self.platform == Platform::Mac && !cfg!(target_os = "macos");
+        let simulated = self.ui.platform == Platform::Mac && !cfg!(target_os = "macos");
         let spots = if simulated {
             Some(LightSpots::STAND_IN)
         } else {
-            self.light_spots
+            self.ui.light_spots
         };
-        if let Some(spots) = spots.filter(|_| self.platform == Platform::Mac) {
-            back_lights(ctx, self.lights, spots, &theme::Tokens::get(ctx));
+        if let Some(spots) = spots.filter(|_| self.ui.platform == Platform::Mac) {
+            back_lights(ctx, self.ui.lights, spots, &theme::Tokens::get(ctx));
         }
         if simulated {
-            stand_in_lights(ctx, self.lights);
+            stand_in_lights(ctx, self.ui.lights);
         }
         let mut stage = ctx.content_rect();
         stage.min.x += inset;
@@ -179,18 +181,18 @@ impl MareaderApp {
             Route::Reader => self.toast_lift(ctx, stage),
             Route::Library | Route::Dictionary => 0.0,
         };
-        ctx.data_mut(|d| d.insert_temp(egui::Id::new("toast-platform"), self.platform));
-        self.toasts.show_with_player(
+        ctx.data_mut(|d| d.insert_temp(egui::Id::new("toast-platform"), self.ui.platform));
+        self.ui.toasts.show_with_player(
             ctx,
             stage,
             lift,
-            self.read_aloud.island_anchor(),
-            self.dict.window_cover(),
+            self.ui.read_aloud.island_anchor(),
+            self.ui.dict.window_cover(),
             commands,
         );
         // A paused run waits on the library page, off the pages read.
         let paused = route == Route::Library;
-        let runs = &mut self.library.runs;
+        let runs = &mut self.ui.library.runs;
         // A run outlives the page that started it, so cards show on both.
         ui_library::runs::show(ctx, runs, (stage, lift), paused, commands);
     }
@@ -200,23 +202,23 @@ impl MareaderApp {
         self.voices_shown(ctx);
         let settings = self.settings().clone();
         let voices = crate::settings_window::Voices {
-            booth: &self.read_aloud.booth,
-            shelf: &self.read_aloud.shelf,
-            platform: self.platform,
-            sounds: &self.sounds,
+            booth: &self.ui.read_aloud.booth,
+            shelf: &self.ui.read_aloud.shelf,
+            platform: self.ui.platform,
+            sounds: &self.ui.sounds,
             english: self.english_voice(),
         };
-        self.settings_window.show(
+        self.ui.settings_window.show(
             ctx,
             &settings,
             &window,
-            (&self.ai, &self.dict, &self.vocab, &voices),
+            (&self.ui.ai, &self.ui.dict, &self.ui.vocab, &voices),
             commands,
         );
-        crate::shortcuts::show(ctx, self.platform);
+        crate::shortcuts::show(ctx, self.ui.platform);
         crate::focus::paint(ctx);
         self.film_grain(ctx);
-        self.fade.paint(ctx);
+        self.ui.fade.paint(ctx);
     }
 
     pub(super) fn finish(&mut self, ctx: &Context, outside: bool, commands: Commands) {
@@ -224,7 +226,7 @@ impl MareaderApp {
         if !commands.is_empty() {
             ctx.request_repaint();
             // A change still waiting on its snapshot lands first.
-            if let Some(after) = self.fade.take() {
+            if let Some(after) = self.ui.fade.take() {
                 self.restore(after);
             }
             let before = self.held();
@@ -239,13 +241,13 @@ impl MareaderApp {
             if !outside && self.may_fade(ctx) && self.leapt(&before) {
                 let after = self.held();
                 self.restore(before);
-                self.fade.hold(ctx, after);
+                self.ui.fade.hold(ctx, after);
             }
         }
         // This frame drew with the old look; show the new one next frame.
         if self.restyle(ctx) {
             ctx.request_repaint();
         }
-        self.machine_fonts.after_frame(ctx);
+        self.ui.machine_fonts.after_frame(ctx);
     }
 }

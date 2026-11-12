@@ -38,7 +38,7 @@ impl Desk for Front<'_> {
 
     fn edge_tab(&self) -> EdgeTab {
         EdgeTab {
-            shown: self.app.dict.edge_tab_active(),
+            shown: self.app.ui.dict.edge_tab_active(),
             focused: self.ctx.memory(|m| m.has_focus(egui::Id::new(EDGE_TAB))),
         }
     }
@@ -48,66 +48,69 @@ impl Desk for Front<'_> {
     }
 
     fn close_pane(&mut self, pane: PaneId) {
-        self.app.documents.close_pane(pane);
-        self.app.page_ai.close_pane(pane);
+        self.app.ui.documents.close_pane(pane);
+        self.app.ui.page_ai.close_pane(pane);
     }
 
     fn resume(&mut self, request: OpenRequest) -> Option<OpenRequest> {
-        self.app.library.resume(request)
+        self.app.ui.library.resume(request)
     }
 
     fn open(&mut self, pane: PaneId, request: OpenRequest) -> Option<Toast> {
-        self.app.documents.open(self.ctx, pane, request)
+        self.app.ui.documents.open(self.ctx, pane, request)
     }
 
     fn zoom(&mut self, pane: PaneId, zoom: ZoomCommand, now: f64) {
-        self.app.documents.zoom(pane, zoom, now);
+        self.app.ui.documents.zoom(pane, zoom, now);
     }
 
     fn set_mode(&mut self, pane: PaneId, mode: ViewMode, now: f64) {
-        self.app.documents.set_mode(pane, mode, now);
+        self.app.ui.documents.set_mode(pane, mode, now);
     }
 
     fn arrow(&mut self, pane: PaneId, arrow: Arrow, now: f64) {
-        self.app.documents.arrow(pane, arrow, now);
+        self.app.ui.documents.arrow(pane, arrow, now);
     }
 
     fn page_key(&mut self, pane: PaneId, forward: bool) {
-        self.app.documents.page_key(pane, forward);
+        self.app.ui.documents.page_key(pane, forward);
     }
 
     fn toggle_drift(&mut self, pane: PaneId, now: f64) -> bool {
-        self.app.documents.toggle_drift(pane, now)
+        self.app.ui.documents.toggle_drift(pane, now)
     }
 
     fn go_to(&mut self, pane: PaneId, page: usize) {
-        self.app.documents.go_to(pane, page);
+        self.app.ui.documents.go_to(pane, page);
     }
 
     fn turn(&mut self, pane: PaneId, forward: bool) {
-        self.app.documents.turn(pane, forward);
+        self.app.ui.documents.turn(pane, forward);
     }
 
     fn copy_pages(&mut self, pane: PaneId, pages: Vec<usize>) {
-        if let Some(reading) = self.app.documents.reading(pane) {
-            self.app.page_copy.start(self.ctx, reading.document, pages);
+        if let Some(reading) = self.app.ui.documents.reading(pane) {
+            self.app
+                .ui
+                .page_copy
+                .start(self.ctx, reading.document, pages);
         }
     }
 
     fn save(&mut self, name: String, format: Format, contents: String) {
-        self.app.files.save(self.ctx, name, format, contents);
+        self.app.ui.files.save(self.ctx, name, format, contents);
     }
 
     fn book(&self, pane: PaneId) -> Option<BookId> {
-        self.app.documents.book(pane)
+        self.app.ui.documents.book(pane)
     }
 
     fn path(&self, pane: PaneId) -> Option<PathBuf> {
-        self.app.documents.path(pane).map(PathBuf::from)
+        self.app.ui.documents.path(pane).map(PathBuf::from)
     }
 
     fn restart_at_start(&mut self, panes: &[PaneId]) -> Vec<Toast> {
-        self.app.documents.restart_at_start(self.ctx, panes)
+        self.app.ui.documents.restart_at_start(self.ctx, panes)
     }
 
     /// The shelf wears the window's look, the crowned pane's if split.
@@ -116,9 +119,9 @@ impl Desk for Front<'_> {
         let routing = app.routing();
         let mut global = app.settings().appearance;
         if app.route() == Route::Reader {
-            app.looks.edit(app.active(), &mut global, routing, look);
+            app.ui.looks.edit(app.active(), &mut global, routing, look);
         } else {
-            app.looks.edit_window(&mut global, routing, look);
+            app.ui.looks.edit_window(&mut global, routing, look);
         }
         let _ = app.set_field("appearance", global);
     }
@@ -129,23 +132,23 @@ impl Desk for Front<'_> {
 
     fn word_list(&mut self, pane: PaneId, pages: Vec<usize>, list: WordList) {
         if let Some(ask) = self.app.word_ask(pane, pages, list) {
-            self.app.word_lists.start(self.ctx, ask);
+            self.app.ui.word_lists.start(self.ctx, ask);
         }
     }
 
     fn word_window(&mut self, pane: PaneId, pages: Vec<usize>, list: WordList) {
         if let Some(ask) = self.app.word_ask(pane, pages, list) {
             let chapters = !ask.document.outline().is_empty();
-            self.app.word_window.open(self.ctx, pane, ask, chapters);
+            self.app.ui.word_window.open(self.ctx, pane, ask, chapters);
         }
     }
 
     fn study(&mut self, action: StudyAction) {
         let app = &mut *self.app;
         let mut out = Commands::new();
-        let model = app.library.model_mut();
-        app.study.act(self.ctx, model, action, &mut out);
-        app.queued.extend(out);
+        let model = app.ui.library.model_mut();
+        app.ui.study.act(self.ctx, model, action, &mut out);
+        app.ui.queued.extend(out);
     }
 
     fn explain(&mut self, pane: PaneId) {
@@ -169,7 +172,7 @@ impl Desk for Front<'_> {
     }
 
     fn select(&mut self, pane: PaneId, page: usize, text: &str) {
-        self.app.documents.select(pane, page, text);
+        self.app.ui.documents.select(pane, page, text);
     }
 
     fn dict_window(&mut self, window: Window) {
@@ -181,15 +184,15 @@ impl Desk for Front<'_> {
     }
 
     fn dict(&mut self, action: DictAction) {
-        self.app.dict.act(action);
+        self.app.ui.dict.act(action);
     }
 
     fn vocab(&mut self, action: Download) {
-        self.app.vocab.act(action);
+        self.app.ui.vocab.act(action);
     }
 
     fn pronunciation(&mut self, action: Download) -> Result<(), String> {
-        self.app.sounds.act(action)
+        self.app.ui.sounds.act(action)
     }
 
     fn page_ai(&mut self, action: PageAiAction) {
@@ -198,59 +201,62 @@ impl Desk for Front<'_> {
 
     #[cfg(not(target_arch = "wasm32"))]
     fn ai(&mut self, job: mareader_settings::Job) {
-        self.app.ai.send(job);
+        self.app.ui.ai.send(job);
     }
 
     fn place_read_marker(&mut self, pane: PaneId, spot: Spot, now: f64) {
-        self.app.documents.place_read_marker(pane, spot, now);
+        self.app.ui.documents.place_read_marker(pane, spot, now);
     }
 
     fn dismiss_read_markers(&mut self, now: f64) {
-        self.app.documents.dismiss_read_markers(now);
+        self.app.ui.documents.dismiss_read_markers(now);
     }
 
     fn read_aloud(&mut self, pane: PaneId, from: ReadFrom) {
         let app = &mut *self.app;
-        if let Some(reading) = app.documents.reading(pane) {
-            app.clips.stop();
+        if let Some(reading) = app.ui.documents.reading(pane) {
+            app.ui.clips.stop();
             let settings = app.settings().read_aloud.clone();
-            app.read_aloud.start(self.ctx, &reading, from, &settings);
+            app.ui.read_aloud.start(self.ctx, &reading, from, &settings);
         }
     }
 
     fn toggle_read_aloud(&mut self) -> bool {
-        self.app.read_aloud.toggle()
+        self.app.ui.read_aloud.toggle()
     }
 
     fn stop_read_aloud(&mut self) {
-        self.app.read_aloud.stop();
+        self.app.ui.read_aloud.stop();
     }
 
     fn try_voice(&mut self) {
         self.app.hush();
         let settings = self.app.settings().read_aloud.clone();
-        self.app.read_aloud.booth.try_voice(&settings);
+        self.app.ui.read_aloud.booth.try_voice(&settings);
     }
 
     fn try_voice_of(&mut self, voice: &str) {
         self.app.hush();
         let settings = self.app.settings().read_aloud.clone();
-        let (booth, shelf) = (&mut self.app.read_aloud.booth, &self.app.read_aloud.shelf);
+        let (booth, shelf) = (
+            &mut self.app.ui.read_aloud.booth,
+            &self.app.ui.read_aloud.shelf,
+        );
         booth.try_voice_of(self.ctx, &settings, shelf, voice);
     }
 
     fn stop_voice_try(&mut self) {
-        self.app.read_aloud.booth.stop_trying();
+        self.app.ui.read_aloud.booth.stop_trying();
     }
 
     fn say_word(&mut self, word: &str, voice: Option<&str>) -> Result<(), String> {
         self.app.hush();
         let settings = self.app.settings().read_aloud.clone();
-        (self.app.read_aloud).say_word(self.ctx, &settings, (word, voice))
+        (self.app.ui.read_aloud).say_word(self.ctx, &settings, (word, voice))
     }
 
     fn stop_saying(&mut self) {
-        self.app.read_aloud.stop_word();
+        self.app.ui.read_aloud.stop_word();
     }
 
     fn reveal_voice(&mut self, model: &'static Model, language: &'static str) {
@@ -265,7 +271,7 @@ impl Desk for Front<'_> {
         action: Download,
         settings: &mut ReadAloudSettings,
     ) -> Result<(), String> {
-        self.app.read_aloud.act((item, action), settings)
+        self.app.ui.read_aloud.act((item, action), settings)
     }
 
     fn open_book(&mut self, book: BookId, pane: Option<PaneId>, placement: Placement) {

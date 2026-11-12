@@ -8,10 +8,10 @@ impl MareaderApp {
         pages: Vec<usize>,
         list: mareader_settings::WordList,
     ) -> Option<crate::word_list::Ask> {
-        let reading = self.documents.reading(pane)?;
+        let reading = self.ui.documents.reading(pane)?;
         Some(crate::word_list::Ask {
             document: reading.document,
-            title: self.documents.title(pane).unwrap_or_default().to_owned(),
+            title: self.ui.documents.title(pane).unwrap_or_default().to_owned(),
             pages,
             level: self.settings().study.cefr.level.band(),
             list,
@@ -20,54 +20,59 @@ impl MareaderApp {
 
     /// Moves a word list on; made, it is copied or saved.
     pub(super) fn poll_word_list(&mut self, ctx: &egui::Context) {
-        if !self.word_lists.busy() {
+        if !self.ui.word_lists.busy() {
             return;
         }
         // Answers land by waker, but a list's own steps need frames.
         ctx.request_repaint();
-        let toast = match self.word_lists.poll(&mut self.vocab, &mut self.dict) {
+        let toast = match self
+            .ui
+            .word_lists
+            .poll(&mut self.ui.vocab, &mut self.ui.dict)
+        {
             None => return,
             Some(Err(toast)) => toast,
             Some(Ok((made, list))) => {
                 let title = self
+                    .ui
                     .documents
                     .title(self.active())
                     .unwrap_or_default()
                     .to_owned();
-                match crate::word_list::deliver(ctx, &self.files, &title, &made, list.output) {
+                match crate::word_list::deliver(ctx, &self.ui.files, &title, &made, list.output) {
                     Some(toast) => toast,
                     None => return,
                 }
             }
         };
-        self.toasts.push(toast);
+        self.ui.toasts.push(toast);
     }
 
     /// Who says English words on cards, which picks the accent they show.
     pub(super) fn english_voice(&self) -> Option<crate::sounds::EnglishVoice> {
         let others = self.settings().dictionary.other_voices;
-        let picked = || (self.read_aloud).english_voice(&self.settings().read_aloud, others);
-        self.english.clone().or_else(picked)
+        let picked = || (self.ui.read_aloud).english_voice(&self.settings().read_aloud, others);
+        self.ui.english.clone().or_else(picked)
     }
 
     /// How the open cards' words sound, as the settings write them.
     pub(super) fn card_sounds(&mut self, now: f64) -> Vec<(String, Vec<crate::sounds::Line>)> {
-        let words = [self.study.card_word(), self.dict.card_word()];
+        let words = [self.ui.study.card_word(), self.ui.dict.card_word()];
         let mut words: Vec<String> = words.into_iter().flatten().map(str::to_owned).collect();
-        words.extend(self.dict.sound_words());
+        words.extend(self.ui.dict.sound_words());
         let english = self.english_voice();
         let voice = crate::sounds::spoken(english.as_ref().map(|v| v.tag.as_str()));
         let pronunciation = self.settings().study.pronunciation;
         let shown = (&pronunciation, voice);
-        let sounds = &mut self.sounds;
+        let sounds = &mut self.ui.sounds;
         let lines = |w: String| sounds.lines(&w, shown, now).map(|l| (w, l));
         words.into_iter().filter_map(lines).collect()
     }
 
     /// Asks the tagger for the open card's word's role.
     pub(super) fn ask_role(&mut self) {
-        if let Some((word, context)) = self.study.card_words() {
-            self.vocab.ask_role(word, context);
+        if let Some((word, context)) = self.ui.study.card_words() {
+            self.ui.vocab.ask_role(word, context);
         }
     }
 
@@ -80,13 +85,13 @@ impl MareaderApp {
         chars: std::ops::Range<usize>,
         rect: Rect,
     ) {
-        let Some(asked) = self.documents.asked_at(pane, page, chars) else {
+        let Some(asked) = self.ui.documents.asked_at(pane, page, chars) else {
             return;
         };
-        self.documents.clear_selection(pane);
-        self.dict.escape();
-        let book = self.library.book_in(&self.documents, pane);
-        let name = self.documents.title(pane).unwrap_or_default().to_owned();
+        self.ui.documents.clear_selection(pane);
+        self.ui.dict.escape();
+        let book = self.ui.library.book_in(&self.ui.documents, pane);
+        let name = self.ui.documents.title(pane).unwrap_or_default().to_owned();
         let at = Explained {
             pane,
             book,
@@ -94,53 +99,54 @@ impl MareaderApp {
             asked,
             rect,
         };
-        let model = self.library.model_mut();
-        self.study.explain(ctx, model, at, ui_library::wall_ms());
+        let model = self.ui.library.model_mut();
+        self.ui.study.explain(ctx, model, at, ui_library::wall_ms());
         self.ask_role();
     }
 
     /// Resting on a shaded word looks it up, when a pack can answer.
     pub(super) fn rest(&mut self, pane: PaneId, (word, context): (String, String), at: Rect) {
         if !self.settings().dictionary.hover
-            || self.dict.ready().is_empty()
-            || self.study.card_open()
+            || self.ui.dict.ready().is_empty()
+            || self.ui.study.card_open()
         {
             return;
         }
-        let offset = self.documents.offset(pane);
+        let offset = self.ui.documents.offset(pane);
         let to = self.settings().dictionary.default_lang.clone();
-        if self.dict.rest(pane, word.clone(), at, offset, to) {
-            self.vocab.ask_role(&word, &context);
+        if self.ui.dict.rest(pane, word.clone(), at, offset, to) {
+            self.ui.vocab.ask_role(&word, &context);
         }
     }
 
     /// Look up: the pane's selection, its card beside it.
     pub(super) fn look_up(&mut self, pane: PaneId) {
-        let Some((text, rect)) = self.documents.looked_up(pane) else {
+        let Some((text, rect)) = self.ui.documents.looked_up(pane) else {
             return;
         };
         let max = mareader_study::MAX_GLOSS_CHARS;
         let Some(word) = crate::dict::lookup_text(&text, max) else {
             let rule = format!("Look up takes a word or short phrase, up to {max} characters.");
-            self.toasts.push(Toast::info(rule));
+            self.ui.toasts.push(Toast::info(rule));
             return;
         };
         // An open window answers instead; selection stays.
         if self.settings().dictionary.window.open && self.route() == Route::Reader {
             let _ = self.set_field("dictionary.window.minimized", false);
-            self.dict.escape();
-            self.dict.feed(&word);
+            self.ui.dict.escape();
+            self.ui.dict.feed(&word);
             return;
         }
         // Its sentence, so the card can name the word's class there.
-        let context = self.documents.asked(pane).map(|(a, _)| a.context);
-        self.documents.clear_selection(pane);
+        let context = self.ui.documents.asked(pane).map(|(a, _)| a.context);
+        self.ui.documents.clear_selection(pane);
         // One card at a time.
-        self.study.escape(self.library.model_mut());
-        let offset = self.documents.offset(pane);
+        self.ui.study.escape(self.ui.library.model_mut());
+        let offset = self.ui.documents.offset(pane);
         let to = self.settings().dictionary.default_lang.clone();
-        self.dict.look_up(pane, word.clone(), rect, offset, to);
-        self.vocab
+        self.ui.dict.look_up(pane, word.clone(), rect, offset, to);
+        self.ui
+            .vocab
             .ask_role(&word, context.as_deref().unwrap_or(&word));
     }
 
@@ -151,12 +157,12 @@ impl MareaderApp {
         pen: mareader_library::Pen,
         color: Option<Rgb>,
     ) {
-        let Some((spot, text)) = self.documents.highlighted(pane) else {
+        let Some((spot, text)) = self.ui.documents.highlighted(pane) else {
             return;
         };
-        self.documents.clear_selection(pane);
-        let book = self.library.book_in(&self.documents, pane);
-        let name = self.documents.title(pane).unwrap_or_default().to_owned();
+        self.ui.documents.clear_selection(pane);
+        let book = self.ui.library.book_in(&self.ui.documents, pane);
+        let name = self.ui.documents.title(pane).unwrap_or_default().to_owned();
         let at = Highlighted {
             book,
             name: &name,
@@ -165,25 +171,25 @@ impl MareaderApp {
             pen,
             color,
         };
-        let model = self.library.model_mut();
-        self.study.highlight(model, at, ui_library::wall_ms());
+        let model = self.ui.library.model_mut();
+        self.ui.study.highlight(model, at, ui_library::wall_ms());
     }
 
     /// Note: highlights the selection in the bar's first pen, then
     /// opens a draft on it.
     pub(super) fn note(&mut self, pane: PaneId) {
-        let Some((spot, text)) = self.documents.highlighted(pane) else {
+        let Some((spot, text)) = self.ui.documents.highlighted(pane) else {
             return;
         };
-        let rect = self.documents.looked_up(pane).map(|(_, r)| r);
-        self.documents.clear_selection(pane);
+        let rect = self.ui.documents.looked_up(pane).map(|(_, r)| r);
+        self.ui.documents.clear_selection(pane);
         let look = &self.settings().study.highlights;
         let pen = look.bar.iter().find_map(|i| match i {
             mareader_settings::BarItem::Highlight(pen) => Some(*pen),
             _ => None,
         });
-        let book = self.library.book_in(&self.documents, pane);
-        let name = self.documents.title(pane).unwrap_or_default().to_owned();
+        let book = self.ui.library.book_in(&self.ui.documents, pane);
+        let name = self.ui.documents.title(pane).unwrap_or_default().to_owned();
         let at = Highlighted {
             book,
             name: &name,
@@ -192,55 +198,57 @@ impl MareaderApp {
             pen: pen.unwrap_or_default(),
             color: None,
         };
-        let model = self.library.model_mut();
+        let model = self.ui.library.model_mut();
         let rect = rect.unwrap_or(Rect::NOTHING);
-        self.study
+        self.ui
+            .study
             .write_note(model, pane, at, rect, ui_library::wall_ms());
     }
 
     /// Bookmarks the pane's page, or takes back the bookmark on it.
     pub(super) fn bookmark(&mut self, pane: PaneId) {
-        let Some(reading) = self.documents.reading(pane) else {
+        let Some(reading) = self.ui.documents.reading(pane) else {
             return;
         };
         let page = reading.current;
         let doc = &reading.document;
-        let kept = bookmarks::on_pages(&self.study, &self.library, &self.documents, pane);
+        let kept = bookmarks::on_pages(&self.ui.study, &self.ui.library, &self.ui.documents, pane);
         // A result's later pages share its first page's bookmark.
         let here = crate::notes_panel::page_of(doc, bookmarks::spot(doc, page)).unwrap_or(page);
         let existing = kept.iter().find(|(_, p)| *p == here).map(|(id, _)| *id);
-        let name = self.documents.title(pane).unwrap_or_default().to_owned();
+        let name = self.ui.documents.title(pane).unwrap_or_default().to_owned();
         let at = ui_study::Bookmarking {
-            book: self.library.book_in(&self.documents, pane),
+            book: self.ui.library.book_in(&self.ui.documents, pane),
             name: &name,
             spot: bookmarks::spot(doc, page),
             label: bookmarks::label(doc, page),
             existing,
         };
         let mut out = Commands::new();
-        let model = self.library.model_mut();
-        self.study
+        let model = self.ui.library.model_mut();
+        self.ui
+            .study
             .toggle_bookmark(model, at, ui_library::wall_ms(), &mut out);
-        self.queued.extend(out);
+        self.ui.queued.extend(out);
     }
 
     /// Explain: the pane's selected word, marked, its card open.
     pub(super) fn explain(&mut self, ctx: &Context, pane: PaneId) {
-        if self.documents.selection(pane).is_none() {
+        if self.ui.documents.selection(pane).is_none() {
             return;
         }
-        let Some((asked, rect)) = self.documents.asked(pane) else {
+        let Some((asked, rect)) = self.ui.documents.asked(pane) else {
             let rule = format!(
                 "The AI Dictionary takes one word, up to {} characters.",
                 mareader_study::MAX_GLOSS_CHARS
             );
-            self.toasts.push(Toast::info(rule));
+            self.ui.toasts.push(Toast::info(rule));
             return;
         };
-        self.documents.clear_selection(pane);
-        self.dict.escape();
-        let book = self.library.book_in(&self.documents, pane);
-        let name = self.documents.title(pane).unwrap_or_default().to_owned();
+        self.ui.documents.clear_selection(pane);
+        self.ui.dict.escape();
+        let book = self.ui.library.book_in(&self.ui.documents, pane);
+        let name = self.ui.documents.title(pane).unwrap_or_default().to_owned();
         let at = Explained {
             pane,
             book,
@@ -248,8 +256,8 @@ impl MareaderApp {
             asked,
             rect,
         };
-        let model = self.library.model_mut();
-        self.study.explain(ctx, model, at, ui_library::wall_ms());
+        let model = self.ui.library.model_mut();
+        self.ui.study.explain(ctx, model, at, ui_library::wall_ms());
         self.ask_role();
     }
 }

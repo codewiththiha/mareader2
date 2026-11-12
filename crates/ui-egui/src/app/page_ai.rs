@@ -33,7 +33,7 @@ impl MareaderApp {
         } else {
             self.page_ai_result(ctx, action, now, &mut out);
         }
-        self.queued.extend(out);
+        self.ui.queued.extend(out);
     }
 
     fn page_ai_run(
@@ -65,25 +65,25 @@ impl MareaderApp {
                     }
                     let _ = self.set_field("ai.tasks", tasks);
                 }
-                let book = self.library.book_in(&self.documents, pane);
-                let name = self.documents.title(pane).unwrap_or_default().to_owned();
-                self.documents.clear_selection(pane);
+                let book = self.ui.library.book_in(&self.ui.documents, pane);
+                let name = self.ui.documents.title(pane).unwrap_or_default().to_owned();
+                self.ui.documents.clear_selection(pane);
                 let ai_settings = self.settings().ai.clone();
                 let asked = crate::page_ai::Asked {
                     pane,
                     page,
                     book,
                     name: &name,
-                    documents: &self.documents,
-                    ai: &self.ai,
+                    documents: &self.ui.documents,
+                    ai: &self.ui.ai,
                     settings: &ai_settings,
                 };
                 match how.continuous && kind != PageTask::Summarize {
                     true => {
-                        let model = self.library.model();
-                        self.page_ai.follow(asked, model, task, true, now, out);
+                        let model = self.ui.library.model();
+                        self.ui.page_ai.follow(asked, model, task, true, now, out);
                     }
-                    false => self.page_ai.run(asked, task, now, out),
+                    false => self.ui.page_ai.run(asked, task, now, out),
                 }
             }
             _ => {}
@@ -92,7 +92,7 @@ impl MareaderApp {
 
     fn page_ai_pages(&mut self, action: Action) {
         match action {
-            Action::StopFollow(pane) => self.page_ai.stop_follow(pane),
+            Action::StopFollow(pane) => self.ui.page_ai.stop_follow(pane),
             Action::RunPages {
                 pane,
                 pages,
@@ -112,52 +112,54 @@ impl MareaderApp {
                     }
                 };
                 let Some(task) = task else { return };
-                let book = self.library.book_in(&self.documents, pane);
-                let name = self.documents.title(pane).unwrap_or_default().to_owned();
+                let book = self.ui.library.book_in(&self.ui.documents, pane);
+                let name = self.ui.documents.title(pane).unwrap_or_default().to_owned();
                 let ai_settings = self.settings().ai.clone();
                 let asked = crate::page_ai::Asked {
                     pane,
                     page: pages.first().copied().unwrap_or_default(),
                     book,
                     name: &name,
-                    documents: &self.documents,
-                    ai: &self.ai,
+                    documents: &self.ui.documents,
+                    ai: &self.ui.ai,
                     settings: &ai_settings,
                 };
-                self.page_ai.run_pages(asked, &pages, task);
+                self.ui.page_ai.run_pages(asked, &pages, task);
             }
-            Action::PagesMenu { pane, pages, at } => self.page_ai.open_pages_menu(pane, pages, at),
+            Action::PagesMenu { pane, pages, at } => {
+                self.ui.page_ai.open_pages_menu(pane, pages, at)
+            }
             _ => {}
         }
     }
 
     fn page_ai_result(&mut self, ctx: &Context, action: Action, now: f64, out: &mut Commands) {
         match action {
-            Action::StopPages(pane) => self.page_ai.stop_groups(pane),
+            Action::StopPages(pane) => self.ui.page_ai.stop_groups(pane),
             Action::Redo { pane, page, slot } => {
-                let book = self.library.book_in(&self.documents, pane);
-                let name = self.documents.title(pane).unwrap_or_default().to_owned();
+                let book = self.ui.library.book_in(&self.ui.documents, pane);
+                let name = self.ui.documents.title(pane).unwrap_or_default().to_owned();
                 let ai_settings = self.settings().ai.clone();
                 let asked = crate::page_ai::Asked {
                     pane,
                     page,
                     book,
                     name: &name,
-                    documents: &self.documents,
-                    ai: &self.ai,
+                    documents: &self.ui.documents,
+                    ai: &self.ui.ai,
                     settings: &ai_settings,
                 };
-                let model = self.library.model();
-                self.page_ai.again(asked, model, slot, now, out);
+                let model = self.ui.library.model();
+                self.ui.page_ai.again(asked, model, slot, now, out);
             }
-            Action::Show { pane, page, slot } => self.page_ai.show_result(pane, page, slot, now),
+            Action::Show { pane, page, slot } => self.ui.page_ai.show_result(pane, page, slot, now),
             Action::Copy(slot) => {
-                if let Some(text) = self.page_ai.text_of(self.library.model(), slot) {
+                if let Some(text) = self.ui.page_ai.text_of(self.ui.library.model(), slot) {
                     ctx.copy_text(text);
                     out.push(Command::Ui(UiCommand::Notify(Toast::info("Copied"))));
                 }
             }
-            Action::Delete(slot) => self.page_ai.delete(self.library.model_mut(), slot),
+            Action::Delete(slot) => self.ui.page_ai.delete(self.ui.library.model_mut(), slot),
 
             _ => {}
         }

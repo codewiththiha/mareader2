@@ -14,14 +14,14 @@ impl eframe::App for MareaderApp {
     }
 
     fn logic(&mut self, ctx: &Context, _frame: &mut eframe::Frame) {
-        if self.fonts == FontState::Missing {
+        if self.ui.fonts == FontState::Missing {
             theme::install_fonts(ctx);
             egui_extras::install_image_loaders(ctx);
             // Zoom keys zoom the document, not the interface.
             ctx.options_mut(|o| o.zoom_with_keyboard = false);
             // Nothing zooms the interface now: a size saved before goes.
             ctx.set_zoom_factor(1.0);
-            self.fonts = FontState::Installed;
+            self.ui.fonts = FontState::Installed;
             let wake = ctx.clone();
             let waker = Arc::new(move || wake.request_repaint());
             self.session.set_waker(waker);
@@ -52,7 +52,7 @@ impl eframe::App for MareaderApp {
     }
 
     fn save(&mut self, storage: &mut dyn Storage) {
-        self.library.flush();
+        self.ui.library.flush();
         storage.set_string(SETTINGS_KEY, mareader_settings::to_json(self.settings()));
         // Nothing open saves `null`: the next launch starts empty.
         let last = serde_json::to_string(&self.last_document());

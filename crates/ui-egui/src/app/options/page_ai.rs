@@ -29,16 +29,16 @@ impl MareaderApp {
             },
         };
         if follow || last > page {
-            self.page_ai.set_canned(true);
+            self.ui.page_ai.set_canned(true);
         }
-        self.page_ai_seed = Some((page, task, follow, last));
+        self.ui.page_ai_seed = Some((page, task, follow, last));
 
         Ok(())
     }
 
     // Page AI runs stay mid-answer: `page_ai_hold=true`.
     fn option_page_ai_hold(&mut self, _key: &str, value: &str) -> Result<(), String> {
-        self.page_ai.set_held(value == "true");
+        self.ui.page_ai.set_held(value == "true");
         Ok(())
     }
 }

@@ -4,38 +4,38 @@ impl MareaderApp {
     /// Restyles egui when the look changed; true if it did.
     pub(super) fn restyle(&mut self, ctx: &Context) -> bool {
         #[cfg(all(debug_assertions, not(target_arch = "wasm32")))]
-        if self.live.poll(ctx) {
-            self.styled = None;
+        if self.ui.live.poll(ctx) {
+            self.ui.styled = None;
         }
-        let reduced = self.reduced_motion.load(Ordering::Relaxed);
+        let reduced = self.ui.reduced_motion.load(Ordering::Relaxed);
         let want = (
             self.settings().appearance,
             self.settings().motion.clone(),
             reduced,
         );
-        if self.styled.as_ref() == Some(&want) {
+        if self.ui.styled.as_ref() == Some(&want) {
             return false;
         }
         #[allow(unused_mut)]
         let mut tokens = theme::Tokens::new(&self.settings().appearance);
         #[cfg(all(debug_assertions, not(target_arch = "wasm32")))]
-        self.live.overlay(&mut tokens);
+        self.ui.live.overlay(&mut tokens);
         theme::apply(ctx, &tokens);
         motion::set(ctx, &self.settings().motion, reduced);
-        self.styled = Some(want);
+        self.ui.styled = Some(want);
         true
     }
 
     /// Panes whose book sets its own design: their text, so overridden.
     pub(super) fn book_designs(&self) -> Vec<(PaneId, TextSettings)> {
-        let own = self.texts.own(&self.settings().text);
-        let lib = self.library.model();
+        let own = self.ui.texts.own(&self.settings().text);
+        let lib = self.ui.library.model();
         let pane_text = |pane: PaneId| {
             let mine = own.iter().find(|(p, _)| *p == pane);
             mine.map_or(&self.settings().text, |(_, t)| *t)
         };
         let designed = |pane: PaneId| {
-            let book = self.library.book_in(&self.documents, pane)?;
+            let book = self.ui.library.book_in(&self.ui.documents, pane)?;
             let design = lib.book(book)?.design.value?;
             let book_design = match design {
                 mareader_library::Design::Auto => BookDesign::Auto,
@@ -59,7 +59,7 @@ impl MareaderApp {
 
     /// What the focused pane and the workspace show: which settings apply.
     pub fn settings_scope(&self) -> Scope {
-        let docs = &self.documents;
+        let docs = &self.ui.documents;
         let reading = docs.reading(self.active());
         let focused = match &reading {
             None => Shown::Nothing,
@@ -69,11 +69,11 @@ impl MareaderApp {
             Some(_) => Shown::Pdf,
         };
         // An AI page on screen is set in the pane's type, like a book.
-        let ai = |pane: PaneId| self.page_ai.on_screen(pane);
+        let ai = |pane: PaneId| self.ui.page_ai.on_screen(pane);
         let text = |p: PaneId| docs.reflowable(p) || ai(p);
         let book_design = match focused {
-            Shown::Book { .. } => self.library.book_in(docs, self.active()).and_then(|id| {
-                let book = self.library.model().book(id)?;
+            Shown::Book { .. } => self.ui.library.book_in(docs, self.active()).and_then(|id| {
+                let book = self.ui.library.model().book(id)?;
                 Some((id, book.design.value))
             }),
             _ => None,
@@ -85,7 +85,7 @@ impl MareaderApp {
             any_text: self.tree().panes().into_iter().any(text),
             ai_pages: focused == Shown::Pdf && ai(self.active()),
             sideways: reading.is_some_and(|r| r.mode == ViewMode::Horizontal),
-            explains: self.study.explains(),
+            explains: self.ui.study.explains(),
         }
     }
 
@@ -93,9 +93,9 @@ impl MareaderApp {
     pub(super) fn toast_lift(&self, ctx: &Context, stage: Rect) -> f32 {
         let corner = stage.max - egui::vec2(24.0, 24.0);
         let under = |(id, rect): &(PaneId, Rect)| {
-            rect.contains(corner) && self.page_bars.get(id).is_some_and(PageBar::shown)
+            rect.contains(corner) && self.ui.page_bars.get(id).is_some_and(PageBar::shown)
         };
-        let up = !self.chromeless && self.pane_rects.iter().any(under);
+        let up = !self.ui.chromeless && self.ui.pane_rects.iter().any(under);
         let target = if up { page_bar::BAR_H } else { 0.0 };
         let time = crate::motion::secs(ctx, crate::toast::FADE);
         ctx.animate_value_with_time(egui::Id::new("toast-lift"), target, time)
@@ -103,22 +103,23 @@ impl MareaderApp {
 
     /// What the bars show behind them: pane fills, then this frame's pages.
     pub(super) fn backdrop(&mut self, ctx: &Context, view: &PaneView) -> Backdrop {
-        let drawn = self.documents.take_drawn();
+        let drawn = self.ui.documents.take_drawn();
         if !self.settings().chrome.glass {
             return Backdrop::Solid;
         }
-        let Some(gpu) = self.documents.gpu() else {
+        let Some(gpu) = self.ui.documents.gpu() else {
             return Backdrop::Tint;
         };
         let t = theme::Tokens::get(ctx);
         let fill = |id| view.style(id).map_or(t.paper, |s| s.fill);
         let fills = self
+            .ui
             .pane_rects
             .iter()
             .map(|(id, r)| Quad::fill(*r, fill(*id)));
         let mut quads: Vec<Quad> = fills.collect();
         // The library page's paper stands in for the panes.
-        quads.extend(self.library_rect.map(|r| Quad::fill(r, t.paper)));
+        quads.extend(self.ui.library_rect.map(|r| Quad::fill(r, t.paper)));
         quads.extend(drawn);
         Backdrop::Glass(Glass {
             pass: gpu.pass.clone(),
@@ -134,17 +135,17 @@ impl MareaderApp {
             return None;
         }
         if self.routing().colour() {
-            return self.documents.paper(pane, paper.area);
+            return self.ui.documents.paper(pane, paper.area);
         }
         // The latest focused pane with a paper: a book's has none, as mareader.
         self.recent()
             .iter()
-            .find_map(|&p| self.documents.paper(p, paper.area))
+            .find_map(|&p| self.ui.documents.paper(p, paper.area))
     }
 
     /// The latest focused pane showing a PDF: shared blend reads its paper.
     pub(super) fn paper_source(&self) -> Option<PaneId> {
-        let d = &self.documents;
+        let d = &self.ui.documents;
         self.recent()
             .iter()
             .copied()
@@ -159,15 +160,15 @@ impl MareaderApp {
     pub(super) fn held(&self) -> Held {
         Held {
             settings: self.settings().clone(),
-            looks: self.looks.clone(),
-            routed: self.routed,
+            looks: self.ui.looks.clone(),
+            routed: self.ui.routed,
         }
     }
 
     pub(super) fn restore(&mut self, held: Held) {
         self.set_settings(held.settings.clone());
-        self.looks = held.looks;
-        self.routed = held.routed;
+        self.ui.looks = held.looks;
+        self.ui.routed = held.routed;
     }
 
     /// Whether the window or a pane jumped to another look since `before`.
@@ -186,13 +187,13 @@ impl MareaderApp {
     /// A fade needs motion, the GPU's snapshot, and no slider held.
     pub(super) fn may_fade(&self, ctx: &Context) -> bool {
         let held = ctx.input(|i| i.pointer.any_down());
-        motion::enabled(ctx) && self.documents.gpu().is_some() && !held
+        motion::enabled(ctx) && self.ui.documents.gpu().is_some() && !held
     }
 
     /// `pane`'s look as drawn: the window's, or its own while split.
     pub fn look(&self, pane: PaneId) -> Appearance {
         let global = &self.settings().appearance;
-        self.looks.shown(pane, global, self.routing())
+        self.ui.looks.shown(pane, global, self.routing())
     }
 
     /// Fits the panes' own text to the panes and the focused one.
@@ -200,32 +201,34 @@ impl MareaderApp {
         let on = self.settings().workspace.independent_text;
         let placed = self.tree().panes();
         let mut window = self.settings().text.clone();
-        self.texts
+        self.ui
+            .texts
             .reconcile(on, (&placed, self.active()), &mut window);
         let _ = self.set_field("text", window);
     }
 
     /// `pane`'s text settings: the window's, or its own while independent.
     pub fn text(&self, pane: PaneId) -> &mareader_settings::TextSettings {
-        self.texts.of(pane, &self.settings().text)
+        self.ui.texts.of(pane, &self.settings().text)
     }
 
     /// Fits the panes' looks to this frame's routing and panes.
     pub(super) fn reconcile_looks(&mut self, ctx: &Context) {
         let now = self.routing();
         let placed = self.tree().panes();
-        let mut state = self.random ^ ctx.input(|i| i.time).to_bits();
+        let mut state = self.ui.random ^ ctx.input(|i| i.time).to_bits();
         let mut random = || {
             state = splitmix(state);
             (state >> 11) as f64 / (1u64 << 53) as f64
         };
         let mut global = self.settings().appearance;
-        let changes = (self.routed, now);
-        self.looks
+        let changes = (self.ui.routed, now);
+        self.ui
+            .looks
             .reconcile(changes, (&placed, self.active()), &mut global, &mut random);
         let _ = self.set_field("appearance", global);
-        self.random = state;
-        self.routed = now;
+        self.ui.random = state;
+        self.ui.routed = now;
     }
 
     /// Each pane's theme this frame, and its blend paper.
@@ -239,7 +242,7 @@ impl MareaderApp {
             };
             let paper = self.blend_paper(id);
             // A book's pane takes its page's paper, as mareader's text panes.
-            let plain = match self.documents.reflowable(id) {
+            let plain = match self.ui.documents.reflowable(id) {
                 true => theme::color(Rgb::from_unit(tokens.book.paper)),
                 false => tokens.paper,
             };
@@ -259,7 +262,7 @@ impl MareaderApp {
     pub(super) fn film_grain(&self, ctx: &Context) {
         let (Some(grain), Some(gpu)) = (
             FilmGrain::of(&self.settings().appearance),
-            self.documents.gpu(),
+            self.ui.documents.gpu(),
         ) else {
             return;
         };
@@ -273,19 +276,19 @@ impl MareaderApp {
     pub(super) fn reader_bar(&self, overlay: bool) -> ReaderBar {
         let routing = self.routing();
         ReaderBar {
-            sidebar_toggle: !overlay && !self.sidebar.is_open(),
-            rail_docked: !overlay && self.sidebar.is_open(),
+            sidebar_toggle: !overlay && !self.ui.sidebar.is_open(),
+            rail_docked: !overlay && self.ui.sidebar.is_open(),
             independence: routing.split.then_some(Independence {
                 themes: routing.themes,
                 textures: routing.textures,
             }),
-            zoom: self.documents.zoom_state(self.active()),
-            mode: self.documents.mode(self.active()),
-            auto_scroll: self.documents.drifting(self.active()),
-            aloud: (self.documents.reading(self.active())).map(|_| self.read_aloud.active()),
-            ink: (self.documents.reflowable(self.active()))
+            zoom: self.ui.documents.zoom_state(self.active()),
+            mode: self.ui.documents.mode(self.active()),
+            auto_scroll: self.ui.documents.drifting(self.active()),
+            aloud: (self.ui.documents.reading(self.active())).map(|_| self.ui.read_aloud.active()),
+            ink: (self.ui.documents.reflowable(self.active()))
                 .then_some(self.settings().text.ink_contrast),
-            text: (self.documents.reflowable(self.active()))
+            text: (self.ui.documents.reflowable(self.active()))
                 .then(|| crate::appearance_menu::QuickText::of(&self.settings().text)),
             dictionary: {
                 let w = &self.settings().dictionary.window;
@@ -296,7 +299,7 @@ impl MareaderApp {
 
     /// The rail hosts the lights while drawn; then the bar, unless overlay.
     pub(super) fn place_lights(&self, ctx: &Context, overlay: bool, route: Route) -> NativeLights {
-        let rail = self.sidebar.offset().filter(|_| route.has_rail());
+        let rail = self.ui.sidebar.offset().filter(|_| route.has_rail());
         let bar_hosts = rail.is_none() && (!overlay || !route.has_rail());
         // Handing over from a rail, they fade in rather than pop.
         let secs = motion::secs(ctx, titlebar::FADE);
@@ -308,7 +311,7 @@ impl MareaderApp {
             },
             None if bar_hosts => NativeLights {
                 shift: 0.0,
-                opacity: self.titlebar.opacity().min(handoff),
+                opacity: self.ui.titlebar.opacity().min(handoff),
             },
             None => NativeLights::default(),
         }

@@ -19,7 +19,7 @@ impl MareaderApp {
     fn option_english_voice(&mut self, _key: &str, value: &str) -> Result<(), String> {
         let (name, tag) = value.split_once(':').ok_or("english_voice=name:tag")?;
         let (name, tag) = (name.replace('_', " "), tag.to_owned());
-        self.english = Some(crate::sounds::EnglishVoice { name, tag });
+        self.ui.english = Some(crate::sounds::EnglishVoice { name, tag });
 
         Ok(())
     }
@@ -34,7 +34,7 @@ impl MareaderApp {
     }
 
     fn option_read_aloud(&mut self, _key: &str, value: &str) -> Result<(), String> {
-        self.read_aloud_shot = value == "true";
+        self.ui.read_aloud_shot = value == "true";
         Ok(())
     }
 
@@ -43,7 +43,7 @@ impl MareaderApp {
         for one in value.split(',') {
             let (card, track) = one.split_once(':').unwrap_or((one, ""));
             let card = card.parse().map_err(|_| "transcript: card[:track],…")?;
-            self.transcript_shot.push((card, track.parse().ok()));
+            self.ui.transcript_shot.push((card, track.parse().ok()));
         }
 
         Ok(())
@@ -54,7 +54,7 @@ impl MareaderApp {
         for one in value.split(',') {
             let (target, how) = one.split_once(':').unwrap_or((one, "show"));
             let target = target.parse().map_err(|_| "trigger: target[:hide],…")?;
-            self.trigger_shot.push((target, how != "hide"));
+            self.ui.trigger_shot.push((target, how != "hide"));
         }
 
         Ok(())
@@ -62,13 +62,16 @@ impl MareaderApp {
 
     // Clicks the first element each selector matches; comma separated.
     fn option_script(&mut self, _key: &str, value: &str) -> Result<(), String> {
-        self.script_shot.extend(value.split(',').map(str::to_owned));
+        self.ui
+            .script_shot
+            .extend(value.split(',').map(str::to_owned));
         Ok(())
     }
 
     fn option_settings(&mut self, _key: &str, value: &str) -> Result<(), String> {
         // A downloaded model's tab goes by the model's id.
         let model = self
+            .ui
             .read_aloud
             .shelf
             .ready()

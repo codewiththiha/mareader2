@@ -13,6 +13,7 @@ mod panes;
 mod read_aloud;
 mod setup;
 mod study;
+mod ui_state;
 
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -63,6 +64,8 @@ use crate::ui_command::{Allows, Route};
 use crate::ui_command::{Command, Commands, Independence, Intent};
 use crate::{keymap, motion, resize, theme};
 use mareader_engine::pane_texts::PaneTexts;
+use mareader_engine::session::Session;
+use ui_state::UiState;
 
 pub const SETTINGS_KEY: &str = "settings";
 /// Kept apart from settings: it says what was read, not how to read.
@@ -136,93 +139,9 @@ impl mareader_study::Explainer for AssistantSample {
 
 pub struct MareaderApp {
     /// The owner: settings, tree, route, and the door that changes them.
-    session: mareader_engine::session::Session,
-    platform: Platform,
-    titlebar: TitleBar,
-    /// Distraction-free: bars stay hidden while reading.
-    chromeless: bool,
-    /// Shots: the newest mark's menu opens once it is drawn.
-    menu_shot: bool,
-    /// Shots: reads the focused book aloud once it opens.
-    read_aloud_shot: bool,
-    /// Cards' transcripts, and their tracks, to open for a screenshot.
-    transcript_shot: Vec<(usize, Option<usize>)>,
-    /// Trigger targets to show or hide for a screenshot.
-    trigger_shot: Vec<(usize, bool)>,
-    /// Selectors a screenshot clicks on scripted pages, in order.
-    script_shot: Vec<String>,
-    scripts: crate::scripts::Runtimes,
-    /// Clips the books' triggers play.
-    clips: crate::trigger::Clips,
-    /// Shots and tests: a page AI result kept, or a run started (true).
-    page_ai_seed: Option<(usize, mareader_library::AiTask, bool, usize)>,
-    /// Shots: pages the word list window opens on, once shown.
-    word_window_seed: Option<Vec<usize>>,
-    sidebar: Sidebar,
-    settings_window: SettingsWindow,
-    find: FindBar,
-    search: Search,
-    toasts: Toasts,
-    /// The selection bar's answers, marks and the word card.
-    study: Study,
-    page_ai: crate::page_ai::PageAi,
-    read_aloud: crate::read_aloud::ReadAloud,
-    /// Who answers Explain, and the AI settings' background work.
-    ai: crate::ai::Ai,
-    /// Language packs, the lookup card and the Dictionary panel.
-    dict: crate::dict::Dict,
-    vocab: crate::vocab::Vocab,
-    /// How card words sound; shares files with the voice models.
-    sounds: crate::sounds::Sounds,
-    /// A stand-in English voice, for shots and tests.
-    english: Option<crate::sounds::EnglishVoice>,
-    /// A selection the options asked for, made once its page is laid out.
-    staged: std::collections::VecDeque<Staged>,
-    lights: NativeLights,
-    /// Where AppKit last drew the lights, once the binary measured them.
-    light_spots: Option<LightSpots>,
-    documents: Documents,
-    files: Files,
-    library: LibraryState,
-    /// The sidebar panels' scroll-following, for the focused pane.
-    outline: OutlineState,
-    thumbs: ThumbState,
-    /// Picked pages' text on its way to the clipboard.
-    page_copy: crate::page_copy::PageCopy,
-    word_lists: crate::word_list::WordLists,
-    word_window: crate::word_list::window::WordWindow,
-    shelf_tree: PanelState,
-    /// Each pane's page bar.
-    page_bars: std::collections::BTreeMap<PaneId, PageBar>,
-    /// Last frame's pane rects, to aim a file drop.
-    pane_rects: Vec<(PaneId, egui::Rect)>,
-    /// A pane held up to be moved, till the press ends.
-    lifting: Option<crate::lift::Lift>,
-    /// The library page's rect while it is up, for the glass behind bars.
-    library_rect: Option<egui::Rect>,
-    /// What an empty pane offers, as of a library revision.
-    reopen: (u64, Vec<(mareader_library::BookId, String)>),
-    /// Split panes' own looks, and the routing they were last fitted to.
-    looks: PaneLooks<PaneId>,
-    routed: Routing,
-    /// Split panes' own text, while text is independent.
-    texts: PaneTexts,
-    /// Picks new panes' hues and textures.
-    random: u64,
-    /// A theme change held for, or fading over, a snapshot.
-    fade: Crossfade<Held>,
-    styled: Option<(Appearance, MotionSettings, bool)>,
-    /// The system asks for less motion; set off the UI thread at launch.
-    reduced_motion: Arc<AtomicBool>,
-    /// Read from storage; [`MareaderApp::resume`] opens it.
-    last: Option<LastDocument>,
-    fonts: FontState,
-    /// Fills in letters no bundled face has from the machine's fonts.
-    machine_fonts: MachineFonts,
-    /// Commands from outside a view: tests, OS drops, later the keymap.
-    queued: Commands,
-    #[cfg(all(debug_assertions, not(target_arch = "wasm32")))]
-    live: theme::live::LiveTokens,
+    session: Session,
+    /// What dies with the window: `MareaderApp` is these two and nothing else.
+    ui: UiState,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -260,62 +179,64 @@ impl MareaderApp {
         settings.sanitize();
         let titlebar = TitleBar::default();
         Self {
-            titlebar,
-            session: mareader_engine::session::Session::new(settings),
-            platform: Platform::current(),
-            chromeless: false,
-            menu_shot: false,
-            read_aloud_shot: false,
-            transcript_shot: Vec::new(),
-            trigger_shot: Vec::new(),
-            script_shot: Vec::new(),
-            scripts: Default::default(),
-            clips: crate::trigger::Clips::default(),
-            page_ai_seed: None,
-            word_window_seed: None,
-            sidebar: Sidebar::default(),
-            settings_window: SettingsWindow::default(),
-            find: FindBar::default(),
-            search: Search::default(),
-            toasts: Toasts::default(),
-            study: Study::default(),
-            page_ai: crate::page_ai::PageAi::default(),
-            read_aloud: crate::read_aloud::ReadAloud::default(),
-            ai: crate::ai::Ai::default(),
-            dict: crate::dict::Dict::default(),
-            vocab: crate::vocab::Vocab::default(),
-            sounds: crate::sounds::Sounds::default(),
-            english: None,
-            staged: Default::default(),
-            lights: NativeLights::default(),
-            light_spots: None,
-            documents: Documents::default(),
-            files: Files::default(),
-            library: LibraryState::default(),
-            outline: OutlineState::default(),
-            thumbs: ThumbState::default(),
-            page_copy: Default::default(),
-            word_lists: Default::default(),
-            word_window: Default::default(),
-            shelf_tree: PanelState::default(),
-            page_bars: std::collections::BTreeMap::new(),
-            pane_rects: Vec::new(),
-            lifting: None,
-            library_rect: None,
-            reopen: (u64::MAX, Vec::new()),
-            looks: PaneLooks::default(),
-            routed: Routing::default(),
-            texts: PaneTexts::default(),
-            random: 0x9e37_79b9_7f4a_7c15,
-            fade: Crossfade::default(),
-            styled: None,
-            reduced_motion: Arc::new(AtomicBool::new(false)),
-            last: None,
-            fonts: FontState::Missing,
-            machine_fonts: MachineFonts::default(),
-            queued: Commands::new(),
-            #[cfg(all(debug_assertions, not(target_arch = "wasm32")))]
-            live: theme::live::LiveTokens::from_env(),
+            session: Session::new(settings),
+            ui: UiState {
+                titlebar,
+                platform: Platform::current(),
+                chromeless: false,
+                menu_shot: false,
+                read_aloud_shot: false,
+                transcript_shot: Vec::new(),
+                trigger_shot: Vec::new(),
+                script_shot: Vec::new(),
+                scripts: Default::default(),
+                clips: crate::trigger::Clips::default(),
+                page_ai_seed: None,
+                word_window_seed: None,
+                sidebar: Sidebar::default(),
+                settings_window: SettingsWindow::default(),
+                find: FindBar::default(),
+                search: Search::default(),
+                toasts: Toasts::default(),
+                study: Study::default(),
+                page_ai: crate::page_ai::PageAi::default(),
+                read_aloud: crate::read_aloud::ReadAloud::default(),
+                ai: crate::ai::Ai::default(),
+                dict: crate::dict::Dict::default(),
+                vocab: crate::vocab::Vocab::default(),
+                sounds: crate::sounds::Sounds::default(),
+                english: None,
+                staged: Default::default(),
+                lights: NativeLights::default(),
+                light_spots: None,
+                documents: Documents::default(),
+                files: Files::default(),
+                library: LibraryState::default(),
+                outline: OutlineState::default(),
+                thumbs: ThumbState::default(),
+                page_copy: Default::default(),
+                word_lists: Default::default(),
+                word_window: Default::default(),
+                shelf_tree: PanelState::default(),
+                page_bars: std::collections::BTreeMap::new(),
+                pane_rects: Vec::new(),
+                lifting: None,
+                library_rect: None,
+                reopen: (u64::MAX, Vec::new()),
+                looks: PaneLooks::default(),
+                routed: Routing::default(),
+                texts: PaneTexts::default(),
+                random: 0x9e37_79b9_7f4a_7c15,
+                fade: Crossfade::default(),
+                styled: None,
+                reduced_motion: Arc::new(AtomicBool::new(false)),
+                last: None,
+                fonts: FontState::Missing,
+                machine_fonts: MachineFonts::default(),
+                queued: Commands::new(),
+                #[cfg(all(debug_assertions, not(target_arch = "wasm32")))]
+                live: theme::live::LiveTokens::from_env(),
+            },
         }
     }
 
@@ -327,7 +248,7 @@ impl MareaderApp {
     pub fn from_storage(storage: Option<&dyn Storage>) -> Self {
         let mut app = Self::settings_from(storage);
         let last = storage.and_then(|s| s.get_string(LAST_DOCUMENT_KEY));
-        app.last = last.and_then(|json| serde_json::from_str(&json).ok());
+        app.ui.last = last.and_then(|json| serde_json::from_str(&json).ok());
         app
     }
 
@@ -343,7 +264,7 @@ impl MareaderApp {
         let mut app = Self::with_settings(loaded.settings);
         if repaired {
             let note = "Some settings couldn't be read and were reset to defaults.";
-            app.toasts.push(Toast::error(note));
+            app.ui.toasts.push(Toast::error(note));
         }
         app
     }
