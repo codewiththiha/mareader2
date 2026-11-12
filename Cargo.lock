@@ -3565,6 +3565,7 @@ version = "0.0.5"
 dependencies = [
  "eframe",
  "egui",
+ "mareader-engine",
  "mareader-ui-egui",
  "objc2 0.6.5",
  "objc2-app-kit 0.3.2",
