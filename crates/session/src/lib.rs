@@ -372,6 +372,27 @@ impl Session {
         !self.opening.is_empty()
     }
 
+    /// Files a document that finished opening and hands back its id.
+    fn admit(
+        &mut self,
+        doc: Document,
+        name: String,
+        path: Option<PathBuf>,
+        typo: Arc<Typography>,
+    ) -> DocId {
+        let id = DocId(self.bump());
+        self.docs.insert(
+            id,
+            Entry {
+                doc: Arc::new(doc),
+                name,
+                path,
+                typo,
+            },
+        );
+        id
+    }
+
     fn accept(&mut self, out: Output) -> Option<Event> {
         match out {
             Output::Opened { ticket, result } => {
@@ -381,17 +402,7 @@ impl Session {
                 let result = result.map(|doc| {
                     let name = mareader_pdf::display_name(doc.raw_title(), name.as_deref())
                         .unwrap_or_else(|| "Untitled".to_string());
-                    let id = DocId(self.bump());
-                    self.docs.insert(
-                        id,
-                        Entry {
-                            doc: Arc::new(doc),
-                            name,
-                            path,
-                            typo,
-                        },
-                    );
-                    id
+                    self.admit(doc, name, path, typo)
                 });
                 Some(Event::Opened {
                     ticket: Ticket(ticket),
@@ -409,16 +420,7 @@ impl Session {
                     .as_ref()
                     .and_then(|target| doc.target_page(target))
                     .unwrap_or(opening.target_page);
-                let id = DocId(self.bump());
-                self.docs.insert(
-                    id,
-                    Entry {
-                        doc: Arc::new(doc),
-                        name,
-                        path,
-                        typo,
-                    },
-                );
+                let id = self.admit(doc, name, path, typo);
                 let opening = self.opening.get_mut(&ticket)?;
                 opening.doc = Some(id);
                 opening.target_page = target_page;
@@ -452,16 +454,7 @@ impl Session {
                     .unwrap_or_else(|| "Untitled".to_string());
                 let path = opening.path.clone();
                 let typo = Arc::clone(&opening.typo);
-                let new = DocId(self.bump());
-                self.docs.insert(
-                    new,
-                    Entry {
-                        doc: Arc::new(doc),
-                        name,
-                        path,
-                        typo,
-                    },
-                );
+                let new = self.admit(doc, name, path, typo);
                 match opening.doc {
                     Some(old) => Some(Event::Completed {
                         ticket: Ticket(ticket),
