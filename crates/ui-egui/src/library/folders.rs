@@ -11,14 +11,14 @@ use mareader_library::{
     Plan, Planned, ShelfId,
 };
 
-use super::find::folder_name;
 use super::io::{Copies, CopyIn, Files, Job, Measured, Tag, Walk, Walked};
-use super::moving::CopyWork;
 use super::runs::{Phase, RunId};
 use super::{LibraryState, Pick, Sheet, Status, wall_ms};
 use crate::toast::Toast;
 use crate::ui_command::{Commands, Sent, UiCommand};
+use mareader_engine::library::CopyWork;
 use mareader_engine::library::Question;
+use mareader_engine::library::folder_name;
 
 /// Seconds between rescans when the window keeps regaining focus.
 const RESCAN_GAP: f64 = 2.0;
@@ -402,6 +402,7 @@ impl LibraryState {
             let note = format!("Couldn't copy “{}”: {why}{more}.", file_name(path));
             out.push(Sent::Ui(UiCommand::Notify(Toast::error(note))));
         }
+        let copies = &done.copies;
         match self.folders.pending.remove(&done.tag) {
             Some(Pending::Land(planned, going)) => {
                 self.land(*planned, &done.copies, going, now, out);
@@ -411,11 +412,13 @@ impl LibraryState {
                 let copy = question.found().and_then(|f| done.copies.get(&f.path));
                 self.write_answer(*question, answer, copy, now, out);
             }
-            Some(Pending::Depart(work)) => self.departed(*work, &done.copies, out),
-            Some(Pending::Duplicate(picks)) => self.duplicated(&picks, &done.copies, out),
+            Some(Pending::Depart(work)) => self.engine(out, |s, a| s.departed(work, copies, a)),
+            Some(Pending::Duplicate(picks)) => {
+                self.engine(out, |s, a| s.duplicated(&picks, &done.copies, a))
+            }
             Some(Pending::Restored(folder, content, found)) => {
                 let copy = done.copies.get(&found.path);
-                self.restored(folder, content, &found, copy, now, out);
+                self.restored(folder, content, &found, copy, now, out)
             }
             _ => {}
         }

@@ -108,7 +108,7 @@ impl MareaderApp {
                     trail: self.ui.library.trail(),
                     renaming: self.ui.library.renaming(),
                     search: self.ui.library.field(),
-                    organizing: self.ui.library.organizer().busy(),
+                    organizing: self.ui.library.busy(),
                     paused: (self.ui.library.organizer().paused())
                         .map(ui_library::organizing::Paused::short),
                 };

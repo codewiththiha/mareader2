@@ -5,7 +5,7 @@ use std::collections::BTreeSet;
 use mareader_library::{Book, BookId, Library, Origin, ShelfId};
 
 use super::runs::{Beat, Phase, RunId};
-use super::{LibraryState, Pick, ShelfAction};
+use super::{LibraryState, Pick};
 use crate::toast::Toast;
 use crate::ui_command::{Command, Commands, Sent, UiCommand};
 use mareader_engine::library::counted;
@@ -122,7 +122,6 @@ pub enum Heard {
 /// A run, then its plan under review; its books stay put meanwhile.
 #[derive(Debug, Default)]
 pub struct Organizer {
-    books: BTreeSet<BookId>,
     run: Option<RunId>,
     review: Option<Box<Proposal>>,
     /// A stopped run, its books free until it resumes.
@@ -132,13 +131,8 @@ pub struct Organizer {
 
 impl Organizer {
     /// A run is going or its plan waits: no second one starts.
-    pub fn busy(&self) -> bool {
-        !self.books.is_empty()
-    }
-
-    /// Books a run holds: they open, but don't move.
-    pub fn held(&self) -> &BTreeSet<BookId> {
-        &self.books
+    pub fn busy(&self, held: &BTreeSet<BookId>) -> bool {
+        !held.is_empty()
     }
 
     pub fn review(&self) -> Option<&Proposal> {
@@ -163,7 +157,7 @@ impl LibraryState {
 
     /// What to ask about `picked`, else every loose book; or why not.
     pub fn ask_organize(&self, picked: Option<&[BookId]>) -> Result<Ask, &'static str> {
-        if self.organizer.busy() {
+        if !self.held.is_empty() {
             return Err("Already organizing. Wait until it's done.");
         }
         let model = &self.model;
@@ -208,7 +202,7 @@ impl LibraryState {
         let gone = "Nothing left to organize: the paused run's books are all \
                     on shelves or removed.";
         let mut ask = match self.ask_organize(None) {
-            Err(why) if self.organizer.busy() => return Err(why),
+            Err(why) if !self.held.is_empty() => return Err(why),
             Err(_) => return Err(gone),
             Ok(ask) => ask,
         };
@@ -234,7 +228,7 @@ impl LibraryState {
         let Some(paused) = self.organizer.paused.as_ref() else {
             return;
         };
-        if self.organizer.busy() {
+        if !self.held.is_empty() {
             return;
         }
         let phase = match paused.ready {
@@ -274,12 +268,12 @@ impl LibraryState {
     /// A run began for `books`; its card says what with `label`.
     pub fn organizing(&mut self, books: impl IntoIterator<Item = BookId>, label: &str) {
         self.organizer_end();
-        self.organizer.books = books.into_iter().collect();
+        self.state.held = books.into_iter().collect();
         self.paused_card();
-        let label = format!("{} books · {label}", self.organizer.books.len());
+        let label = format!("{} books · {label}", self.state.held.len());
         self.organizer.run = Some(self.runs.start(label, Phase::Shelving));
         // Held books can't move, so none stay picked.
-        let held = &self.organizer.books;
+        let held = &self.state.held;
         let keep: Vec<Pick> = (self.picks.items().into_iter())
             .filter(|p| !matches!(p, Pick::Book(b) if held.contains(b)))
             .collect();
@@ -382,55 +376,6 @@ impl LibraryState {
     }
 
     /// A shelf move without the books a run holds; a toast says why.
-    pub(super) fn unheld(&self, action: ShelfAction, out: &mut Commands) -> Option<ShelfAction> {
-        let held = &self.organizer.books;
-        if held.is_empty() {
-            return Some(action);
-        }
-        let free = |p: &Pick| !matches!(p, Pick::Book(b) if held.contains(b));
-        let (action, dropped) = match action {
-            ShelfAction::Carry(mut mv) => {
-                let n = mv.books.len();
-                mv.books.retain(|b| !held.contains(b));
-                let dropped = mv.books.len() < n;
-                (Some(ShelfAction::Carry(mv)), dropped)
-            }
-            ShelfAction::Stack {
-                onto,
-                mut carry,
-                level,
-                keep,
-            } => {
-                let n = carry.items.len();
-                carry.items.retain(free);
-                let dropped = held.contains(&onto) || carry.items.len() < n;
-                let stack = ShelfAction::Stack {
-                    onto,
-                    carry,
-                    level,
-                    keep,
-                };
-                ((!dropped).then_some(stack), dropped)
-            }
-            other => (Some(other), false),
-        };
-        if dropped {
-            out.push(Sent::Ui(UiCommand::Notify(Toast::info(HELD))));
-        }
-        action
-    }
-
-    /// Picks without the books a run holds; a toast says why.
-    pub(super) fn unheld_picks(&self, mut picks: Vec<Pick>, out: &mut Commands) -> Vec<Pick> {
-        let held = &self.organizer.books;
-        let n = picks.len();
-        picks.retain(|p| !matches!(p, Pick::Book(b) if held.contains(b)));
-        if picks.len() < n {
-            out.push(Sent::Ui(UiCommand::Notify(Toast::info(HELD))));
-        }
-        picks
-    }
-
     pub(super) fn undo_organized(&mut self, done: &Applied) {
         undo(&mut self.model, done, super::wall_ms());
     }
@@ -491,9 +436,6 @@ impl LibraryState {
         self.heard(Heard::Plan(plan), &mut out);
     }
 }
-
-/// Why a book stayed put when moved.
-const HELD: &str = "Books the AI is organizing stay put until it's done.";
 
 /// Makes the plan's shelves and files its books that are still loose.
 pub fn apply(model: &mut Library, plan: &Proposal, wall_ms: u64) -> Applied {
@@ -722,7 +664,7 @@ mod tests {
         let mut state = library(4);
         let all = ids(&state);
         state.organizing(all.clone(), "Fast");
-        assert!(state.organizer().busy());
+        assert!(!state.held.is_empty());
         assert!(!state.picks.active(), "a run doesn't start selecting");
         assert!(state.ask_organize(None).is_err(), "one run at a time");
         let mut out = Commands::new();
@@ -742,9 +684,9 @@ mod tests {
         state.heard(Heard::Plan(plan), &mut out);
         assert!(state.runs.list().is_empty(), "the card goes with the run");
         assert!(state.organizer().review().is_some());
-        assert!(state.organizer().held().contains(&first));
+        assert!(state.held.contains(&first));
         state.act(super::super::Action::ApplyOrganized, 0.0, &mut out);
-        assert!(!state.organizer().busy());
+        assert!(!!state.held.is_empty());
         assert_eq!(state.model.shelves_of(first).len(), 1);
         let undo = out.iter().find_map(|c| match c {
             Sent::Ui(UiCommand::Notify(t)) => t.undo.clone(),

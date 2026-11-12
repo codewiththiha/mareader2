@@ -178,7 +178,7 @@ impl MareaderApp {
         match self.ui.library.ask_resume() {
             Ok(ask) => self.start_organizing(&ask, true),
             Err(why) => {
-                if !self.ui.library.organizer().busy() {
+                if !self.ui.library.busy() {
                     self.ui.ai.forget();
                     self.ui.library.set_paused(None);
                 }

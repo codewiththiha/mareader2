@@ -10,10 +10,10 @@ use super::{
     lit_ring, margin, prefetch, shelf_detail, shelf_hit,
 };
 use crate::icons::Icon;
-use crate::library::shelving::{Carry, ShelfAction};
 use crate::library::{Action, Pick, menus};
 use crate::theme;
 use crate::ui_command::{Command, Sent};
+use mareader_engine::library::{Carry, ShelfAction};
 
 /// How far each level down sits in.
 const INDENT: f32 = 20.0;

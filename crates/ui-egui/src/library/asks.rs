@@ -4,16 +4,14 @@ use egui::{Button, RichText, Ui};
 use mareader_library::conflict::next_name;
 use mareader_library::gate::{Answered, Clash};
 use mareader_library::screen::{Answer, FileAsk, Why};
-use mareader_library::{
-    Copied, Entry, Found, Level, Library, MergeAsk, MoveAsk, Options, Placement,
-};
+use mareader_library::{Copied, Entry, Level, Library, MergeAsk, MoveAsk, Options, Placement};
 
-use super::books::counted;
 use super::{Action, LibraryState, Pick, wall_ms};
 use crate::modal::title;
 use crate::theme::Tokens;
 use crate::toast::Toast;
 use crate::ui_command::{Commands, Sent, UiCommand};
+use mareader_engine::library::counted;
 
 use mareader_engine::library::{Kind, Question};
 impl LibraryState {

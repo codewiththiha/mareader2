@@ -46,8 +46,7 @@ fn shelved(h: &Harness<'static, MareaderApp>) -> usize {
 }
 
 fn held(h: &Harness<'static, MareaderApp>) -> Vec<BookId> {
-    let organizer = h.state().library_state().organizer();
-    organizer.held().iter().copied().collect()
+    h.state().library_state().held().iter().copied().collect()
 }
 
 #[test]

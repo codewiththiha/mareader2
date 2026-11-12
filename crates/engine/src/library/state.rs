@@ -30,6 +30,8 @@ pub struct State {
     pub folder: Option<Folder>,
     /// Questions waiting for the reader, oldest first.
     pub asks: VecDeque<Question>,
+    /// Books a filing run holds: they open, but they don't move.
+    pub held: BTreeSet<BookId>,
     pub status: Status,
     /// Disk work runs on the frame rather than on a worker.
     pub inline: bool,
@@ -77,6 +79,7 @@ impl Default for State {
             file_target: None,
             sheet: None,
             asks: VecDeque::new(),
+            held: BTreeSet::new(),
         }
     }
 }

@@ -7,12 +7,30 @@ use mareader_library::{
     Move, Options, Placement, ShelfId, Target,
 };
 
+mod books;
 mod counted;
+mod duplicating;
+mod find;
+mod held;
+mod moving;
+
 mod question;
+mod shelving;
 mod state;
 pub use counted::counted;
+pub use find::folder_name;
+pub use moving::listed;
 pub use question::{Kind, Question};
+pub use shelving::Crumb;
 pub use state::{State, Status, wall_ms};
+
+/// A book pointed at a file again: the reader picked it, or a search found it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Relink {
+    pub book: BookId,
+    pub path: PathBuf,
+    pub force: bool,
+}
 
 /// What the library asks the shell for, once its own state is settled.
 ///
@@ -35,11 +53,9 @@ pub enum Out {
     /// Looks for `book`'s file again, under `folder`.
     Seek { book: BookId, folder: PathBuf },
     /// Points `book` at the file at `path`.
-    Relink {
-        book: BookId,
-        path: PathBuf,
-        force: bool,
-    },
+    Relink(Relink),
+    /// The search is over: what it found is being left behind.
+    ClearSearch,
 }
 
 /// Books, shelves and links picked on the page: the library's own item.

@@ -5,13 +5,13 @@ use std::path::PathBuf;
 
 use mareader_library::{BookId, Copied, Found, Library, LinkTo};
 
-use super::{LibraryState, Pick, wall_ms};
+use super::Out;
+use super::{Pick, State, wall_ms};
 use crate::toast::Toast;
-use crate::ui_command::{Commands, Sent, UiCommand};
 
-impl LibraryState {
+impl State {
     /// Copies the books the picks want, then duplicates them.
-    pub(super) fn duplicate(&mut self, picks: Vec<Pick>, out: &mut Commands) {
+    pub fn duplicate(&mut self, picks: Vec<Pick>, out: &mut Vec<Out>) {
         let mut files: Vec<Found> = Vec::new();
         for book in picks.iter().flat_map(|p| self.wants(*p)) {
             let found = self.found_of(book);
@@ -22,7 +22,7 @@ impl LibraryState {
         match files.is_empty() {
             // Shelf links and empty shelves copy no bytes.
             true => self.duplicated(&picks, &HashMap::new(), out),
-            false => self.copy_to_duplicate(picks, files, out),
+            false => out.push(Out::CopyTwins { picks, files }),
         }
     }
 
@@ -40,11 +40,11 @@ impl LibraryState {
     }
 
     /// Makes the duplicates from the copies made, then tells of them.
-    pub(super) fn duplicated(
+    pub fn duplicated(
         &mut self,
         picks: &[Pick],
         copies: &HashMap<PathBuf, Copied>,
-        out: &mut Commands,
+        out: &mut Vec<Out>,
     ) {
         let wall = wall_ms();
         let mut landed: Vec<(String, bool)> = Vec::new();
@@ -70,7 +70,7 @@ impl LibraryState {
         }
         if let Some(note) = report(&landed) {
             self.settle();
-            out.push(Sent::Ui(UiCommand::Notify(Toast::info(note))));
+            out.push(Out::Toast(Toast::info(note)));
         }
     }
 

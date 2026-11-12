@@ -5,15 +5,14 @@ use std::path::Path;
 use mareader_library::disk::{FoundAgain, Sought};
 use mareader_library::{BookId, Format, Measure, RelinkError};
 
-use super::io::{Job, Relink};
-use super::{Action, LibraryState, Sheet};
-use crate::ui_command::{Command, Commands, Sent};
+use super::{Action, Out, Relink, Sheet, State};
+use crate::command::Command;
 
-pub use mareader_engine::library::{Finding, Step};
+pub use super::{Finding, Step};
 
-impl LibraryState {
+impl State {
     /// The find-again sheet's work.
-    pub(super) fn find_act(&mut self, action: Action, out: &mut Commands) {
+    pub fn find_act(&mut self, action: Action, out: &mut Vec<Out>) {
         match action {
             Action::FindAgain(book) => {
                 let step = Step::Ask;
@@ -23,7 +22,7 @@ impl LibraryState {
                 let path = std::fs::canonicalize(&path).unwrap_or(path);
                 self.finding(book, Step::Working("Checking the file…".into()));
                 let force = false;
-                self.io.send(Job::Relink(Relink { book, path, force }));
+                out.push(Out::Relink(Relink { book, path, force }));
             }
             Action::UseAnyway(book) => {
                 if let Some(Step::Differs {
@@ -37,16 +36,12 @@ impl LibraryState {
                 }
             }
             Action::Seek { book, folder } => {
-                let Some(sought) = self.sought(book) else {
+                if self.sought(book).is_none() {
                     return;
-                };
+                }
                 let name = folder_name(&folder);
                 self.finding(book, Step::Working(format!("Looking in “{name}”…")));
-                self.io.send(Job::Seek {
-                    book,
-                    folder,
-                    sought,
-                });
+                out.push(Out::Seek { book, folder });
             }
             _ => {}
         }
@@ -69,7 +64,7 @@ impl LibraryState {
     }
 
     /// What a lost book's file is looked for by.
-    fn sought(&self, book: BookId) -> Option<Sought> {
+    pub fn sought(&self, book: BookId) -> Option<Sought> {
         let book = self.model.book(book)?;
         let last = book.locations.first();
         Some(Sought {
@@ -80,11 +75,11 @@ impl LibraryState {
         })
     }
 
-    pub(super) fn relink_measured(
+    pub fn relink_measured(
         &mut self,
         relink: Relink,
         measured: Option<(Format, Measure)>,
-        out: &mut Commands,
+        out: &mut Vec<Out>,
     ) {
         let book = relink.book;
         let Some((format, measure)) = measured else {
@@ -110,12 +105,12 @@ impl LibraryState {
         }
     }
 
-    pub(super) fn sought_found(
+    pub fn sought_found(
         &mut self,
         book: BookId,
         folder: &Path,
         found: FoundAgain,
-        out: &mut Commands,
+        out: &mut Vec<Out>,
     ) {
         let format = self.model.book(book).map(|b| b.format);
         match (found, format) {
@@ -140,11 +135,11 @@ impl LibraryState {
     }
 
     /// Closes the sheet and opens the book, or says why not.
-    fn relinked(&mut self, book: BookId, done: Result<(), RelinkError>, out: &mut Commands) {
+    fn relinked(&mut self, book: BookId, done: Result<(), RelinkError>, out: &mut Vec<Out>) {
         let note = match done {
             Ok(()) => {
                 self.sheet = None;
-                out.push(Sent::Engine(Command::OpenBook(book)));
+                out.push(Out::Command(Command::OpenBook(book)));
                 return;
             }
             Err(RelinkError::Removed) => {
@@ -164,7 +159,7 @@ impl LibraryState {
     }
 }
 
-pub(super) fn folder_name(folder: &Path) -> String {
+pub fn folder_name(folder: &Path) -> String {
     let name = folder.file_name().map(|n| n.to_string_lossy().into_owned());
     name.unwrap_or_else(|| folder.display().to_string())
 }

@@ -100,12 +100,7 @@ pub struct Copies {
     pub failed: Vec<(PathBuf, String)>,
 }
 
-#[derive(Clone, Debug)]
-pub struct Relink {
-    pub book: BookId,
-    pub path: PathBuf,
-    pub force: bool,
-}
+pub use mareader_engine::library::Relink;
 
 /// A file a pane opened, waiting to be measured.
 #[derive(Clone, Debug)]

@@ -3,26 +3,21 @@
 mod actions;
 mod add;
 pub mod asks;
-pub mod books;
 mod copying;
 mod covers;
 pub mod crumbs;
-mod duplicating;
-mod find;
 pub mod folders;
 mod import_sheet;
 mod io;
 mod living;
 pub(crate) mod menu;
 mod menus;
-pub mod moving;
 pub mod organizing;
 mod remove_alert;
 mod review;
 pub mod runs;
 pub mod search;
 pub mod sheets;
-pub mod shelving;
 pub mod view;
 
 use std::collections::BTreeSet;
@@ -41,16 +36,16 @@ use crate::toast::Toast;
 use crate::ui_command::{Command, Commands, Sent, UiCommand};
 pub use actions::{Action, Named, Scope, Sheet};
 pub use add::ADD_MENU;
-pub use books::BookAction;
 pub use covers::Covers;
-pub use find::{Finding, Step};
 use io::{Io, Job, News, Probe};
-pub use mareader_engine::library::{Status, wall_ms};
+pub use mareader_engine::library::BookAction;
+pub use mareader_engine::library::{Carry, Crumb, ShelfAction};
+pub use mareader_engine::library::{Finding, Step};
+pub use mareader_engine::library::{Out, State, Status, wall_ms};
 pub use mareader_library::picks::{self, Pick, PickAction, Picks};
 pub use menu::LIBRARY_VIEW_MENU;
 pub use menus::{Organizer, organize_rows};
 pub use search::{Field, Listing, SearchAction};
-pub use shelving::{Carry, Crumb, ShelfAction};
 
 /// Seconds between writes while reading.
 pub const SAVE_DELAY: f64 = 0.5;
@@ -89,6 +84,48 @@ impl std::ops::DerefMut for LibraryState {
 impl LibraryState {
     pub fn model(&self) -> &Library {
         &self.model
+    }
+
+    /// Runs `work` on the engine's state, then answers what it asked for.
+    ///
+    /// The engine never calls upward: a note, a copy, a file dialog all come
+    /// back as an `Out` for the window to carry out.
+    fn engine(&mut self, out: &mut Commands, work: impl FnOnce(&mut State, &mut Vec<Out>)) {
+        let mut asked = Vec::new();
+        work(&mut self.state, &mut asked);
+        for ask in asked {
+            match ask {
+                Out::Toast(toast) => out.push(Sent::Ui(UiCommand::Notify(toast))),
+                Out::Command(command) => out.push(Sent::Engine(command)),
+                Out::ClearSearch => {
+                    self.search.clear();
+                }
+                Out::Import { paths, to } => self.import_files(paths, to, out),
+                Out::Copy { work, files } => self.copy_out(Box::new(work), files, out),
+                Out::CopyTwins { picks, files } => self.copy_to_duplicate(picks, files, out),
+                Out::Seek { book, folder } => {
+                    let sought = self.state.sought(book);
+                    if let Some(sought) = sought {
+                        self.io.send(Job::Seek {
+                            book,
+                            folder,
+                            sought,
+                        });
+                    }
+                }
+                Out::Relink(relink) => self.io.send(Job::Relink(relink)),
+            }
+        }
+    }
+
+    /// Books a filing run holds: they open, but they don't move.
+    pub fn held(&self) -> &BTreeSet<BookId> {
+        &self.state.held
+    }
+
+    /// Whether a filing run holds any book.
+    pub fn busy(&self) -> bool {
+        !self.state.held.is_empty()
     }
 
     /// Paints `book`'s cover in `rect`; false when it isn't shelved.
@@ -206,12 +243,14 @@ impl LibraryState {
                 News::Files(done) => self.measured(*done, now, out),
                 News::Copied(done) => self.copied(*done, now, out),
                 News::Checked(gone) => self.checked(&gone),
-                News::Relinked(relink, measured) => self.relink_measured(relink, measured, out),
+                News::Relinked(relink, measured) => {
+                    self.engine(out, |s, a| s.relink_measured(relink, measured, a))
+                }
                 News::Sought {
                     book,
                     folder,
                     found,
-                } => self.sought_found(book, &folder, found, out),
+                } => self.engine(out, |s, a| s.sought_found(book, &folder, found, a)),
                 News::Beat(beat) => self.runs.beat(beat),
             }
         }

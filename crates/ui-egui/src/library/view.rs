@@ -19,13 +19,13 @@ use super::folders;
 use super::living::{Grab, Motion};
 use super::menus;
 use super::search::{self, Lit, SearchAction};
-use super::shelving::{Carry, ShelfAction};
 use super::{Action, LibraryState, Pick, PickAction, Picks, Scope};
 use crate::icons::Icon;
 use crate::motion;
 use crate::theme::{self, Tokens};
 use crate::ui_command::{Command, Commands, Sent};
 use mareader_engine::library::counted;
+use mareader_engine::library::{Carry, ShelfAction};
 
 mod face;
 mod grid;
@@ -95,9 +95,9 @@ pub fn show(ui: &mut Ui, library: &mut LibraryState, view: &View, top: f32, out:
     let loading = library.loading();
     let offline = library.offline().clone();
     // Books the AI is organizing open as usual but don't move.
-    let held = library.organizer().held().clone();
+    let held = library.held().clone();
     let plan = library.organizer().review().cloned();
-    let busy = library.organizer().busy();
+    let busy = library.busy();
     // One last pass of light over the held covers as the plan lands.
     let landed = Id::new("library-plan-landed");
     let settle = ui

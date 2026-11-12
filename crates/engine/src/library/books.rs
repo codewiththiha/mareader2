@@ -3,14 +3,14 @@
 
 use mareader_library::{LinkId, Move};
 
-use super::{LibraryState, Pick, Sheet, wall_ms};
+use super::Out;
+use super::{Pick, Sheet, State, wall_ms};
 use crate::toast::Toast;
-use crate::ui_command::{Commands, Sent, UiCommand};
 
-pub use mareader_engine::library::BookAction;
+pub use super::BookAction;
 
-impl LibraryState {
-    pub(super) fn book_act(&mut self, action: BookAction, out: &mut Commands) {
+impl State {
+    pub fn book_act(&mut self, action: BookAction, out: &mut Vec<Out>) {
         let now = wall_ms();
         match action {
             BookAction::AskRemove {
@@ -46,9 +46,9 @@ impl LibraryState {
                     made.unwrap_or_default(),
                     from.unwrap_or_default()
                 );
-                out.push(Sent::Ui(UiCommand::Notify(Toast::info(note))));
+                out.push(Out::Toast(Toast::info(note)));
             }
-            BookAction::Import { paths, to } => self.import_files(paths, to, out),
+            BookAction::Import { paths, to } => out.push(Out::Import { paths, to }),
             BookAction::ShelveTogether(picks) => {
                 let picks = self.unheld_picks(picks, out);
                 if !picks.is_empty() {
@@ -62,7 +62,7 @@ impl LibraryState {
     }
 
     /// Links go at once: what they point at stays. `alone` tells of it.
-    fn remove_links(&mut self, links: &[LinkId], alone: bool, out: &mut Commands) {
+    fn remove_links(&mut self, links: &[LinkId], alone: bool, out: &mut Vec<Out>) {
         let first = links.first().and_then(|l| self.model.link(*l));
         let first = first.map(|l| l.name.value.clone()).unwrap_or_default();
         let gone = self.model.remove_links(links, wall_ms());
@@ -75,17 +75,13 @@ impl LibraryState {
             1 => format!("Removed the link “{first}”."),
             n => format!("Removed {n} links."),
         };
-        out.push(Sent::Ui(UiCommand::Notify(Toast::info(note))));
+        out.push(Out::Toast(Toast::info(note)));
     }
 
     /// A new shelf where the reader is, the picks added to it.
-    fn shelve_together(&mut self, picks: &[Pick], out: &mut Commands) {
-        let name = super::shelving::NEW_SHELF;
-        let Ok(id) = self
-            .state
-            .model
-            .create_shelf(name, self.state.at, wall_ms())
-        else {
+    fn shelve_together(&mut self, picks: &[Pick], out: &mut Vec<Out>) {
+        let name = super::NEW_SHELF;
+        let Ok(id) = self.model.create_shelf(name, self.at, wall_ms()) else {
             return;
         };
         let mv = Move {
@@ -98,4 +94,4 @@ impl LibraryState {
     }
 }
 
-pub use mareader_engine::library::counted;
+pub use super::counted;

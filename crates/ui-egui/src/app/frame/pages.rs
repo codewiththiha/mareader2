@@ -41,9 +41,9 @@ impl MareaderApp {
             active: self.active(),
             click: self.settings().workspace.library_click,
             home: self.settings().library.home,
-            held: organizer.held(),
+            held: self.ui.library.held(),
             organizer: ui_library::Organizer {
-                busy: organizer.busy(),
+                busy: self.ui.library.busy(),
                 paused: paused.as_deref(),
             },
         };

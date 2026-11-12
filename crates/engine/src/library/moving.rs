@@ -5,17 +5,18 @@ use std::path::{Path, PathBuf};
 
 use mareader_library::{BookId, Copied, Data, Found, LinkId, Move, Moved, ShelfId};
 
+use super::Out;
+use super::Question;
 use super::books::counted;
-use super::{LibraryState, PickAction, Sheet, wall_ms};
+use super::{PickAction, Sheet, State, wall_ms};
+use crate::command::Command;
 use crate::toast::Toast;
-use crate::ui_command::{Command, Commands, Sent, UiCommand};
-use mareader_engine::library::Question;
 
-pub use mareader_engine::library::{CopyAnswer, CopyWork};
+pub use super::{CopyAnswer, CopyWork};
 
-impl LibraryState {
+impl State {
     /// Lands a move, asking first if books must leave their folder.
-    pub(super) fn carry(&mut self, mv: Move, out: &mut Commands) {
+    pub fn carry(&mut self, mv: Move, out: &mut Vec<Out>) {
         let owed = self.model.departure(&mv);
         match owed.is_empty() {
             true => self.land_moved(&mv, &[], out),
@@ -24,7 +25,7 @@ impl LibraryState {
     }
 
     /// Takes a shelf apart; a rung with books read in place asks first.
-    pub(super) fn apart(&mut self, id: ShelfId, out: &mut Commands) {
+    pub fn apart(&mut self, id: ShelfId, out: &mut Vec<Out>) {
         match self.model.rung_books(id, false).is_empty() {
             true => self.take_apart(id, out),
             false => self.ask_copy(CopyWork::Apart(id)),
@@ -32,12 +33,12 @@ impl LibraryState {
     }
 
     /// The remove sheet's answer: the cascade counted in, copies asked.
-    pub(super) fn remove_entries(
+    pub fn remove_entries(
         &mut self,
         (books, shelves): (&[BookId], &[ShelfId]),
         cascade: bool,
         forget: bool,
-        out: &mut Commands,
+        out: &mut Vec<Out>,
     ) {
         self.sheet = None;
         let going = self.model.removing(books, shelves, cascade);
@@ -58,7 +59,7 @@ impl LibraryState {
     }
 
     /// The copy ask answered: copies first, or the way without them.
-    pub(super) fn answer_copy(&mut self, answer: CopyAnswer, out: &mut Commands) {
+    pub fn answer_copy(&mut self, answer: CopyAnswer, out: &mut Vec<Out>) {
         let Some(Sheet::Copy(work)) = self.sheet.take() else {
             return;
         };
@@ -69,13 +70,13 @@ impl LibraryState {
         let books = work.books(&self.model);
         let files: Vec<Found> = books.iter().filter_map(|b| self.found_of(*b)).collect();
         match files.is_empty() {
-            true => self.departed(*work, &HashMap::new(), out),
-            false => self.copy_out(work, files, out),
+            true => self.departed(work, &HashMap::new(), out),
+            false => out.push(Out::Copy { work: *work, files }),
         }
     }
 
     /// A book as the copier takes it: its file read in place.
-    pub(super) fn found_of(&self, id: BookId) -> Option<Found> {
+    pub fn found_of(&self, id: BookId) -> Option<Found> {
         let book = self.model.book(id)?;
         let home = book.home()?;
         Some(Found {
@@ -90,7 +91,7 @@ impl LibraryState {
         })
     }
 
-    fn without(&mut self, work: CopyWork, out: &mut Commands) {
+    fn without(&mut self, work: CopyWork, out: &mut Vec<Out>) {
         match work {
             CopyWork::Move { mv, .. } => {
                 let back = self.model.send_home(&mv, wall_ms());
@@ -99,7 +100,7 @@ impl LibraryState {
                     [one] => format!("Put “{}” back in its place.", self.shelf_name(*one)),
                     many => format!("Put {} back in their places.", many.len()),
                 };
-                out.push(Sent::Ui(UiCommand::Notify(Toast::info(note))));
+                out.push(Out::Toast(Toast::info(note)));
             }
             CopyWork::Removal {
                 books,
@@ -112,11 +113,11 @@ impl LibraryState {
     }
 
     /// The copies made: each book departs, then the gesture finishes.
-    pub(super) fn departed(
+    pub fn departed(
         &mut self,
-        work: CopyWork,
+        work: Box<CopyWork>,
         copies: &HashMap<PathBuf, Copied>,
-        out: &mut Commands,
+        out: &mut Vec<Out>,
     ) {
         let wall = wall_ms();
         let books = work.books(&self.model);
@@ -128,7 +129,7 @@ impl LibraryState {
                 done.push(id);
             }
         }
-        match work {
+        match *work {
             CopyWork::Move { mv, .. } => self.land_moved(&mv, &done, out),
             // A copy that failed leaves the rung standing.
             CopyWork::Apart(id) if done.len() == books.len() => self.take_apart(id, out),
@@ -143,7 +144,7 @@ impl LibraryState {
     }
 
     /// Lands what's clean; same-name books join the questions.
-    fn land_moved(&mut self, mv: &Move, departed: &[BookId], out: &mut Commands) {
+    fn land_moved(&mut self, mv: &Move, departed: &[BookId], out: &mut Vec<Out>) {
         let on = |b: &BookId, s: Option<ShelfId>| {
             s.is_some_and(|s| self.model.shelves_of(*b).contains(&s))
         };
@@ -156,10 +157,8 @@ impl LibraryState {
             self.picks.apply(PickAction::Clear);
         }
         let note = self.moved_note(mv, &moved, (already, leaving));
-        self.folders
-            .asks
-            .extend(moved.asks.into_iter().map(Question::Move));
-        out.extend(note.map(|n| Sent::Ui(UiCommand::Notify(Toast::info(n)))));
+        self.asks.extend(moved.asks.into_iter().map(Question::Move));
+        out.extend(note.map(|n| Out::Toast(Toast::info(n))));
     }
 
     fn moved_note(
@@ -208,7 +207,7 @@ impl LibraryState {
     }
 
     /// Takes a shelf apart now: its shelves move up, a rung's books too.
-    pub(super) fn take_apart(&mut self, id: ShelfId, out: &mut Commands) {
+    pub fn take_apart(&mut self, id: ShelfId, out: &mut Vec<Out>) {
         let name = self.shelf_name(id);
         let home = self.model.seat(id).flatten();
         let Some(done) = self.model.remove_shelf(id, wall_ms()) else {
@@ -223,16 +222,16 @@ impl LibraryState {
             ),
             (_, None) => format!("Took “{name}” apart. Its books stay in the library."),
         };
-        out.push(Sent::Ui(UiCommand::Notify(Toast::info(note))));
+        out.push(Out::Toast(Toast::info(note)));
     }
 
     /// Removes books, then shelves deepest first, and says so.
-    pub(super) fn remove(
+    pub fn remove(
         &mut self,
         books: &[BookId],
         shelves: &[ShelfId],
         forget: bool,
-        out: &mut Commands,
+        out: &mut Vec<Out>,
     ) {
         let now = wall_ms();
         let first = books.first().and_then(|id| self.model.book(*id));
@@ -270,7 +269,7 @@ impl LibraryState {
         };
         let done = self.model.remove_books(books, data, now);
         if forget && done > 0 {
-            out.push(Sent::Engine(Command::ForgetPositions {
+            out.push(Out::Command(Command::ForgetPositions {
                 books: reset_books,
                 paths: reset_paths,
             }));
@@ -296,12 +295,12 @@ impl LibraryState {
             0 => said,
             _ => format!("{said} The folder's Add menu can give them back."),
         };
-        out.push(Sent::Ui(UiCommand::Notify(Toast::info(note))));
+        out.push(Out::Toast(Toast::info(note)));
     }
 }
 
 /// "2 books, 1 shelf and 3 links": the counts that aren't nought.
-pub(super) fn listed(counts: &[(usize, &str, &str)]) -> String {
+pub fn listed(counts: &[(usize, &str, &str)]) -> String {
     let parts: Vec<String> = (counts.iter())
         .filter(|(n, ..)| *n > 0)
         .map(|&(n, one, many)| counted(n, one, many))

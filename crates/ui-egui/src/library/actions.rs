@@ -40,7 +40,7 @@ impl LibraryState {
             Action::FindAgain(_)
             | Action::Relink { .. }
             | Action::UseAnyway(_)
-            | Action::Seek { .. } => self.find_act(action, out),
+            | Action::Seek { .. } => self.engine(out, |s, a| s.find_act(action, a)),
             Action::CloseSheet => {
                 // A note lights its shelf however it's closed.
                 let lit = match &self.sheet {
@@ -61,9 +61,9 @@ impl LibraryState {
             Action::Design(book, design) => {
                 self.model.set_design(book, design, super::wall_ms());
             }
-            Action::Shelf(action) => self.shelf_act(action, out),
+            Action::Shelf(action) => self.engine(out, |s, a| s.shelf_act(action, a)),
             Action::Pick(action) => self.picks.apply(action),
-            Action::Book(action) => self.book_act(action, out),
+            Action::Book(action) => self.engine(out, |s, a| s.book_act(action, a)),
             Action::Search(action) => self.search_act(action, now),
             Action::ApplyOrganized => self.apply_organized(out),
             Action::DiscardOrganized | Action::StopOrganizing => self.organizer_end(),

@@ -2,11 +2,12 @@
 
 use mareader_library::{BookId, Item, Move, ShelfId};
 
-use super::{Action, LibraryState, Scope, wall_ms};
+use super::Out;
+use super::{Action, Scope, State, wall_ms};
+use crate::command::Command;
 use crate::toast::Toast;
-use crate::ui_command::{Command, Commands, Sent, UiCommand};
 
-pub use mareader_engine::library::{Carry, CopyAnswer, NEW_SHELF, ShelfAction};
+pub use super::{Carry, NEW_SHELF, ShelfAction};
 
 /// One step of the breadcrumb; none is the library's top level.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -17,7 +18,7 @@ pub struct Crumb {
     pub watched: bool,
 }
 
-impl LibraryState {
+impl State {
     /// The shelf open on the page; none is the top level.
     pub fn at(&self) -> Option<ShelfId> {
         self.at
@@ -52,8 +53,8 @@ impl LibraryState {
     /// A shelf removed, here or by a sync, gives way to its nearest parent.
     pub fn settle(&mut self) {
         self.settle_picks();
-        let model = &self.state.model;
-        self.state.unfolded.retain(|&id| model.shelf(id).is_some());
+        let model = &self.model;
+        self.unfolded.retain(|&id| model.shelf(id).is_some());
         let Some(at) = self.at else {
             return;
         };
@@ -84,8 +85,8 @@ impl LibraryState {
         if self.picks.is_empty() {
             return;
         }
-        let model = &self.state.model;
-        self.state.picks.retain(|p| match p {
+        let model = &self.model;
+        self.picks.retain(|p| match p {
             super::Pick::Book(id) => model.book(id).is_some(),
             super::Pick::Shelf(id) => model.shelf(id).is_some(),
             super::Pick::Link(id) => model.link(id).is_some(),
@@ -130,7 +131,7 @@ impl LibraryState {
     }
 
     /// Writes a shelf's watch; a new watch looks for books at once.
-    fn watch(&mut self, id: ShelfId, on: bool, out: &mut Commands) {
+    fn watch(&mut self, id: ShelfId, on: bool, out: &mut Vec<Out>) {
         let Some(watch) = self.model.shelf_watch(id) else {
             return;
         };
@@ -147,13 +148,13 @@ impl LibraryState {
             true => format!("Watching {ground} for new books."),
             false => format!("{ground} is no longer watched for new books."),
         };
-        out.push(Sent::Ui(UiCommand::Notify(Toast::info(note))));
+        out.push(Out::Toast(Toast::info(note)));
         if on {
-            out.push(Sent::Engine(Command::Library(Action::Rescan)));
+            out.push(Out::Command(Command::Library(Action::Rescan)));
         }
     }
 
-    pub(super) fn shelf_act(&mut self, action: ShelfAction, out: &mut Commands) {
+    pub fn shelf_act(&mut self, action: ShelfAction, out: &mut Vec<Out>) {
         let Some(action) = self.unheld(action, out) else {
             return;
         };
@@ -163,7 +164,7 @@ impl LibraryState {
                 let at = at.filter(|&id| self.model.shelf(id).is_some());
                 // Into a shelf the search found: that search is done.
                 if self.goes_down(at) {
-                    self.search.clear();
+                    out.push(Out::ClearSearch);
                 }
                 if self.at != at {
                     self.unfolded.clear();
@@ -174,10 +175,10 @@ impl LibraryState {
                 self.picks.apply(super::PickAction::Clear);
             }
             ShelfAction::New => {
-                if let Ok(id) = self.state.model.create_shelf(NEW_SHELF, self.state.at, now) {
-                    self.search.clear();
-                    self.state.at = Some(id);
-                    self.state.scope = Scope::All;
+                if let Ok(id) = self.model.create_shelf(NEW_SHELF, self.at, now) {
+                    out.push(Out::ClearSearch);
+                    self.at = Some(id);
+                    self.scope = Scope::All;
                 }
             }
             ShelfAction::NewIn(parent) => {
@@ -224,7 +225,7 @@ impl LibraryState {
         carry: &Carry,
         level: Option<ShelfId>,
         keep: bool,
-        out: &mut Commands,
+        out: &mut Vec<Out>,
     ) {
         let now = wall_ms();
         let Move {
@@ -264,7 +265,7 @@ impl LibraryState {
         shared.unwrap_or_else(|| NEW_SHELF.to_owned())
     }
 
-    pub(super) fn shelf_name(&self, id: ShelfId) -> String {
+    pub fn shelf_name(&self, id: ShelfId) -> String {
         let shelf = self.model.shelf(id).map(|s| s.name.value.clone());
         shelf.unwrap_or_default()
     }
