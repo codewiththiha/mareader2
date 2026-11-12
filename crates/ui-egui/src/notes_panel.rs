@@ -307,9 +307,9 @@ fn share(ui: &mut Ui, reading: &Reading, shown: &[&Row], _t: &Tokens, out: &mut 
     if widgets::icon_button(ui, Icon::Copy, "Copy all as Markdown", false).clicked() {
         ui.ctx().copy_text(render(Format::Markdown));
         let copied = format!("Copied {tally}");
-        out.push(Sent::Ui(UiCommand::Notify(mareader_engine::toast::Toast::info(
-            copied,
-        ))));
+        out.push(Sent::Ui(UiCommand::Notify(
+            mareader_engine::toast::Toast::info(copied),
+        )));
     }
 }
 

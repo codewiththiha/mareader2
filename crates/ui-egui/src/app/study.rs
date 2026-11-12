@@ -100,7 +100,9 @@ impl MareaderApp {
             rect,
         };
         let model = self.ui.library.model_mut();
-        self.ui.study.explain(ctx, model, at, mareader_engine::library::wall_ms());
+        self.ui
+            .study
+            .explain(ctx, model, at, mareader_engine::library::wall_ms());
         self.ask_role();
     }
 
@@ -172,7 +174,9 @@ impl MareaderApp {
             color,
         };
         let model = self.ui.library.model_mut();
-        self.ui.study.highlight(model, at, mareader_engine::library::wall_ms());
+        self.ui
+            .study
+            .highlight(model, at, mareader_engine::library::wall_ms());
     }
 
     /// Note: highlights the selection in the bar's first pen, then
@@ -257,7 +261,9 @@ impl MareaderApp {
             rect,
         };
         let model = self.ui.library.model_mut();
-        self.ui.study.explain(ctx, model, at, mareader_engine::library::wall_ms());
+        self.ui
+            .study
+            .explain(ctx, model, at, mareader_engine::library::wall_ms());
         self.ask_role();
     }
 }

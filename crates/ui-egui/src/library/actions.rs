@@ -60,7 +60,8 @@ impl LibraryState {
             }
             Action::Rename(named, name) => self.rename(named, &name),
             Action::Design(book, design) => {
-                self.model.set_design(book, design, mareader_engine::library::wall_ms());
+                self.model
+                    .set_design(book, design, mareader_engine::library::wall_ms());
             }
             Action::Shelf(action) => self.engine(out, |s, a| s.shelf_act(action, a)),
             Action::Pick(action) => self.picks.apply(action),

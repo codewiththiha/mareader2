@@ -372,9 +372,9 @@ impl LibraryState {
         }
         let toast = match books {
             0 => Toast::info(said),
-            _ => Toast::info(said).undo(Command::Library(mareader_engine::library::Action::UndoOrganized(Box::new(
-                done,
-            )))),
+            _ => Toast::info(said).undo(Command::Library(
+                mareader_engine::library::Action::UndoOrganized(Box::new(done)),
+            )),
         };
         out.push(Sent::Ui(UiCommand::Notify(toast)));
     }
@@ -689,7 +689,11 @@ mod tests {
         assert!(state.runs.list().is_empty(), "the card goes with the run");
         assert!(state.organizer().review().is_some());
         assert!(state.held.contains(&first));
-        state.act(mareader_engine::library::Action::ApplyOrganized, 0.0, &mut out);
+        state.act(
+            mareader_engine::library::Action::ApplyOrganized,
+            0.0,
+            &mut out,
+        );
         assert!(state.held.is_empty());
         assert_eq!(state.model.shelves_of(first).len(), 1);
         let undo = out.iter().find_map(|c| match c {

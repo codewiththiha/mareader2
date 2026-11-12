@@ -1719,6 +1719,9 @@ mod open_notes {
         assert!(locked.message.ends_with("save an unlocked copy."));
         let none = open_failed("a.pdf", &OpenError::Pdf(Pdf::NoPages));
         assert_eq!(none.message, "Couldn't open a.pdf: the PDF has no pages.");
-        assert_eq!(cut_short("a.pdf").tone, mareader_engine::toast::Tone::Warning);
+        assert_eq!(
+            cut_short("a.pdf").tone,
+            mareader_engine::toast::Tone::Warning
+        );
     }
 }

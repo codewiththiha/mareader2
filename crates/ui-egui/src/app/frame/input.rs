@@ -152,9 +152,9 @@ impl MareaderApp {
         let window = self.settings().dictionary.window.open && route == Route::Reader;
         if free && window && self.ui.dict.typing() {
             if !self.ui.dict.page_escape() {
-                commands.push(Sent::Engine(Command::Dict(mareader_engine::dict::Action::Window(
-                    mareader_engine::dict::Window::Close,
-                ))));
+                commands.push(Sent::Engine(Command::Dict(
+                    mareader_engine::dict::Action::Window(mareader_engine::dict::Window::Close),
+                )));
             }
             free = false;
         }

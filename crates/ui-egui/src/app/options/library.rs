@@ -48,8 +48,12 @@ impl MareaderApp {
     fn option_select(&mut self, _key: &str, value: &str) -> Result<(), String> {
         let n: usize = value.parse().map_err(|_| "select: a count of books")?;
         let recent = self.ui.library.model().recent().into_iter().take(n);
-        let picks = recent.map(|b| mareader_library::picks::Pick::Book(b.id)).collect();
-        let pick = mareader_engine::library::Action::Pick(mareader_library::picks::PickAction::Only(picks));
+        let picks = recent
+            .map(|b| mareader_library::picks::Pick::Book(b.id))
+            .collect();
+        let pick = mareader_engine::library::Action::Pick(
+            mareader_library::picks::PickAction::Only(picks),
+        );
         self.queue(Sent::Engine(Command::Library(pick)));
 
         Ok(())
@@ -76,9 +80,9 @@ impl MareaderApp {
             shelves,
             links,
         };
-        self.queue(Sent::Engine(Command::Library(mareader_engine::library::Action::Book(
-            ask,
-        ))));
+        self.queue(Sent::Engine(Command::Library(
+            mareader_engine::library::Action::Book(ask),
+        )));
 
         Ok(())
     }
@@ -187,9 +191,9 @@ impl MareaderApp {
     // Typed into the library's search field.
     fn option_search(&mut self, _key: &str, value: &str) -> Result<(), String> {
         let text = mareader_engine::library::SearchAction::Text(value.to_owned());
-        self.queue(Sent::Engine(Command::Library(mareader_engine::library::Action::Search(
-            text,
-        ))));
+        self.queue(Sent::Engine(Command::Library(
+            mareader_engine::library::Action::Search(text),
+        )));
 
         Ok(())
     }

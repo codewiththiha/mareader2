@@ -119,7 +119,9 @@ impl MareaderApp {
             }
             _ => {
                 self.go(Route::Library);
-                let focus = mareader_engine::library::Action::Search(mareader_engine::library::SearchAction::Focus);
+                let focus = mareader_engine::library::Action::Search(
+                    mareader_engine::library::SearchAction::Focus,
+                );
                 self.apply(ctx, Sent::Engine(Command::Library(focus)));
             }
         }

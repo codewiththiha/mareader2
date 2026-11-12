@@ -123,11 +123,13 @@ impl MareaderApp {
             "find" => self.queue(Sent::Ui(UiCommand::ShowFind)),
             "search" => {
                 let focus = mareader_engine::library::SearchAction::Focus;
-                self.queue(Sent::Engine(Command::Library(mareader_engine::library::Action::Search(
-                    focus,
-                ))));
+                self.queue(Sent::Engine(Command::Library(
+                    mareader_engine::library::Action::Search(focus),
+                )));
             }
-            "add" => self.queue(Sent::Engine(Command::Library(mareader_engine::library::Action::ShowAdd))),
+            "add" => self.queue(Sent::Engine(Command::Library(
+                mareader_engine::library::Action::ShowAdd,
+            ))),
             "add_folder" => {
                 let root = std::path::PathBuf::from("/home/reader/Books");
                 self.queue(Sent::Engine(Command::Library(
@@ -152,14 +154,16 @@ impl MareaderApp {
                     shelves,
                     links,
                 };
-                self.queue(Sent::Engine(Command::Library(mareader_engine::library::Action::Book(
-                    ask,
-                ))));
+                self.queue(Sent::Engine(Command::Library(
+                    mareader_engine::library::Action::Book(ask),
+                )));
             }
             "rename" => {
                 let first = self.ui.library.model().recent().first().map(|b| b.id);
                 let first = first.ok_or("open=rename: no book")?;
-                let ask = mareader_engine::library::Action::AskRename(mareader_engine::library::Named::Book(first));
+                let ask = mareader_engine::library::Action::AskRename(
+                    mareader_engine::library::Named::Book(first),
+                );
                 self.queue(Sent::Engine(Command::Library(ask)));
             }
             // The first missing book's find-again sheet.

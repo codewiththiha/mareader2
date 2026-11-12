@@ -49,7 +49,9 @@ impl MareaderApp {
                         out.push(Sent::Engine(Command::Study(start)));
                     }
                     (false, Some(_)) if text.is_empty() => {
-                        out.push(Sent::Engine(Command::Study(mareader_engine::study::Action::PickAll)));
+                        out.push(Sent::Engine(Command::Study(
+                            mareader_engine::study::Action::PickAll,
+                        )));
                         if pick {
                             egui::Popup::open_id(ctx, egui::Id::new(crate::study::PICK_STYLE));
                         }

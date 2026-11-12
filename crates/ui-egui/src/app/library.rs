@@ -251,7 +251,9 @@ impl MareaderApp {
     ) {
         let import = move |paths| {
             let action = mareader_engine::library::BookAction::Import { paths, to };
-            Sent::Engine(Command::Library(mareader_engine::library::Action::Book(action)))
+            Sent::Engine(Command::Library(mareader_engine::library::Action::Book(
+                action,
+            )))
         };
         self.ui.files.pick_books(ctx, from, import);
     }
@@ -264,7 +266,10 @@ fn library_handles_1(action: &mareader_engine::library::Action) -> bool {
             | A::ShowAdd
             | A::PickFolder
             | A::PickSearchFolder(..)
-            | A::Book(mareader_engine::library::BookAction::PickImport | mareader_engine::library::BookAction::Reveal(_))
+            | A::Book(
+                mareader_engine::library::BookAction::PickImport
+                    | mareader_engine::library::BookAction::Reveal(_)
+            )
             | A::PickFrom(..)
             | A::PickInto(..)
     )

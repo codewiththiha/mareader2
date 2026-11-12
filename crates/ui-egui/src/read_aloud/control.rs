@@ -680,8 +680,11 @@ fn speed(ui: &mut Ui, slot: Rect, settings: &mut ReadAloudSettings, out: &mut Co
                     if !on {
                         settings.rate = rate;
                         out.push(Sent::Ui(UiCommand::Notify(
-                            mareader_engine::toast::Toast::info(format!("Speed {}", rate_label(rate)))
-                                .player(),
+                            mareader_engine::toast::Toast::info(format!(
+                                "Speed {}",
+                                rate_label(rate)
+                            ))
+                            .player(),
                         )));
                     }
                     ui.close();

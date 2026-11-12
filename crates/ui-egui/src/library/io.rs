@@ -269,7 +269,11 @@ fn run(job: Job, store: &mut Option<Store>, post: &mut dyn FnMut(News)) {
             folder,
             sought,
         } => {
-            let found = disk::find_again(&folder, &sought, Limits::new(mareader_engine::library::wall_ms()));
+            let found = disk::find_again(
+                &folder,
+                &sought,
+                Limits::new(mareader_engine::library::wall_ms()),
+            );
             Some(News::Sought {
                 book,
                 folder,

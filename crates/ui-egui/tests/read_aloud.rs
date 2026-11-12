@@ -1421,8 +1421,8 @@ fn player_at_wide_width_minimizes_for_toast_and_restores() {
 #[test]
 fn player_rises_above_the_selection_bar_and_comes_back_down() {
     use egui_kittest::kittest::Queryable as _;
-    use mareader_engine::library::{Pick, PickAction};
     use mareader_engine::library::Action;
+    use mareader_engine::library::{Pick, PickAction};
 
     let mut app = MareaderApp::default();
     app.set_option("workers", "0").ok();
