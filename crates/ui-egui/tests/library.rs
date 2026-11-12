@@ -6,15 +6,13 @@ use std::time::{Duration, SystemTime};
 use egui::accesskit::Role;
 use egui_kittest::Harness;
 use egui_kittest::kittest::{NodeT as _, Queryable as _};
+use mareader_engine::library::{Pick, PickAction};
 use mareader_library::{
     BookId, CoverFit, Format, Home, Layout, Library, LinkId, LinkTo, Move, Origin, ShelfId, SortKey,
 };
 use mareader_settings::Bar;
 use mareader_ui_egui::MareaderApp;
-use mareader_engine::library::{Pick, PickAction};
-use mareader_ui_egui::library::{
-    Action, BookAction, Named, SearchAction, Sheet, ShelfAction,
-};
+use mareader_ui_egui::library::{Action, BookAction, Named, SearchAction, Sheet, ShelfAction};
 use mareader_ui_egui::ui_command::{Command, Sent, UiCommand};
 
 use crate::common::{act, carry, go_to, reader, release};
