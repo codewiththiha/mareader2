@@ -184,12 +184,12 @@ def cache_restore(args) -> int:
     log(f"restored in {time.time() - started:.0f}s; workspace crates edited since "
         f"{meta['sha'][:9]} recompile, dependencies do not")
     try:
-        behind = int(git("rev-list", "--count", f"{meta['sha']}..HEAD"))
+        lag = int(git("rev-list", "--count", f"{meta['sha']}..HEAD"))
     except (subprocess.CalledProcessError, ValueError):
-        behind = -1
+        lag = -1
     # Past this, most crates recompile: a 12-minute first lint here.
-    if behind > STALE or behind < 0:
-        log(f"  stale: {behind if behind >= 0 else '?'} commits behind HEAD. Lint in "
+    if lag > STALE or lag < 0:
+        log(f"  stale: {lag if lag >= 0 else '?'} commits behind HEAD. Lint in "
             "CI (about 1 min) rather than here; a green push refreshes the cache")
     return 0
 
