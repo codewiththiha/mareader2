@@ -166,9 +166,14 @@ the 25 runs on `refactor/engine-g2-reducer`:
 
 The fixes: one quick job whose steps all run; Check saves its cache on
 pushes; Cache GC runs from `main`; and the sandbox cache follows every green
-push. Expected, not yet measured: a warm quick gate in about 6–9 min, and a
-final dominated by the Windows build once its cache is warm. Record the
-medians here after ten runs of each.
+push.
+
+First measurements on the branch, 2026-11-12: the cold quick gate (its first
+push, seeding `linux`) took 20.4 min; the next push, warm, took **5.0 min**,
+inside the 6–9 min estimate. The sandbox cache job took 11.7 min seeded and
+published a 1.61 GiB artifact; restoring it here took 3.9 min (1652 MB at
+8.1 MB/s) and the first scoped clippy after it took 1.1 min. A final on a
+warm Windows cache is still unmeasured.
 
 ## Cache budget
 
