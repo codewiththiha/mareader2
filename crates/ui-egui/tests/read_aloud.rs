@@ -6,7 +6,7 @@ use mareader_speech::Spot;
 use mareader_ui_egui::MareaderApp;
 use mareader_ui_egui::park::PEEK;
 use mareader_ui_egui::read_aloud::{ReadFrom, Span};
-use mareader_ui_egui::ui_command::{Command, Intent, UiCommand};
+use mareader_ui_egui::ui_command::{Command, Sent, UiCommand};
 
 use crate::common::press;
 
@@ -39,7 +39,7 @@ fn reader_sized(pages: usize, size: egui::Vec2) -> Harness<'static, MareaderApp>
 fn start(h: &mut Harness<'static, MareaderApp>, from: ReadFrom) {
     let pane = h.state().active_pane();
     h.state_mut()
-        .queue(Command::Intent(Intent::ReadAloud { pane, from }));
+        .queue(Sent::Engine(Command::ReadAloud { pane, from }));
     step_until(h, |h| lit(h).is_some());
 }
 
@@ -155,7 +155,7 @@ fn the_selection_bar_reads_just_the_selection() {
     let mut h = reader(1);
     let pane = h.state().active_pane();
     let text = "The quick brown fox jumps over the lazy dog.".to_owned();
-    h.state_mut().queue(Command::Intent(Intent::SelectText {
+    h.state_mut().queue(Sent::Engine(Command::SelectText {
         pane,
         page: 0,
         text,
@@ -239,7 +239,7 @@ fn voice_settings(pages: usize) -> Harness<'static, MareaderApp> {
     let mut h = reader(pages);
     let tab = mareader_ui_egui::settings_window::Tab::ReadAloud;
     h.state_mut()
-        .queue(Command::Intent(Intent::OpenSettings(tab)));
+        .queue(Sent::Engine(Command::OpenSettings(tab)));
     h.run_steps(4);
     h
 }
@@ -301,7 +301,7 @@ fn a_preview_says_a_line_and_the_book_waits() {
     // The silent voice ends its line within a few looks.
     step_until(&mut h, |h| !h.state().read_aloud().booth.trying());
     let _ = h.get_by_label("Preview");
-    h.state_mut().queue(Command::Ui(UiCommand::CloseSettings));
+    h.state_mut().queue(Sent::Ui(UiCommand::CloseSettings));
     h.run_steps(2);
     assert!(
         !h.state().read_aloud().booth.is_open(),
@@ -453,10 +453,7 @@ fn the_pin_is_dragged_to_a_word_and_reads_from_there_after_resting() {
     let (quick, from) = word(&h, "quick");
     let (lazy, to) = word(&h, "lazy");
     h.state_mut()
-        .queue(Command::Intent(Intent::PlaceReadMarker {
-            pane,
-            spot: quick,
-        }));
+        .queue(Sent::Engine(Command::PlaceReadMarker { pane, spot: quick }));
     h.run_steps(20);
     let pin = h.get_by_label("Reading starts here").rect();
     let grab = egui::pos2(pin.center().x, pin.min.y + 14.0);
@@ -485,10 +482,7 @@ fn escape_sends_the_pin_away_unread() {
     let pane = h.state().active_pane();
     let (quick, _) = word(&h, "quick");
     h.state_mut()
-        .queue(Command::Intent(Intent::PlaceReadMarker {
-            pane,
-            spot: quick,
-        }));
+        .queue(Sent::Engine(Command::PlaceReadMarker { pane, spot: quick }));
     h.run_steps(5);
     assert_eq!(marker(&h), Some(quick));
     h.key_press(egui::Key::Escape);
@@ -611,7 +605,7 @@ fn a_pin_off_screen_is_brought_into_view_before_it_reads() {
     let pane = h.state().active_pane();
     let spot = Spot { page: 2, char: 0 };
     h.state_mut()
-        .queue(Command::Intent(Intent::PlaceReadMarker { pane, spot }));
+        .queue(Sent::Engine(Command::PlaceReadMarker { pane, spot }));
     h.run_steps(40);
     assert!(lit(&h).is_none(), "it waits its rest first");
     let shown = |h: &Harness<'static, MareaderApp>| {
@@ -732,7 +726,7 @@ fn the_card_shows_over_the_library_and_leads_back_to_the_words() {
     let mut h = reader(3);
     start(&mut h, ReadFrom::default());
     let first = lit(&h);
-    h.state_mut().queue(Command::Ui(UiCommand::ShowLibrary));
+    h.state_mut().queue(Sent::Ui(UiCommand::ShowLibrary));
     h.run_steps(2);
     assert_eq!(h.state().route(), Route::Library);
     assert!(carded(&h), "the library hides the words");
@@ -755,7 +749,7 @@ fn replace_book(h: &mut Harness<'static, MareaderApp>) {
         pane: Some(h.state().active_pane()),
         ..OpenRequest::bytes(pdf, "another.pdf")
     };
-    h.state_mut().queue(Command::Intent(Intent::Open(request)));
+    h.state_mut().queue(Sent::Engine(Command::Open(request)));
     h.run_steps(3);
 }
 
@@ -769,7 +763,7 @@ fn reader_from_file(dir: &std::path::Path) -> (Harness<'static, MareaderApp>, st
         pane: Some(h.state().active_pane()),
         ..OpenRequest::path(path.clone())
     };
-    h.state_mut().queue(Command::Intent(Intent::Open(request)));
+    h.state_mut().queue(Sent::Engine(Command::Open(request)));
     let pane = h.state().active_pane();
     step_until(&mut h, |h| {
         h.state().documents().page_count(pane) == Some(40)
@@ -876,7 +870,7 @@ fn epub_from_file(dir: &std::path::Path) -> (Harness<'static, MareaderApp>, std:
         pane: Some(h.state().active_pane()),
         ..OpenRequest::path(path.clone())
     };
-    h.state_mut().queue(Command::Intent(Intent::Open(request)));
+    h.state_mut().queue(Sent::Engine(Command::Open(request)));
     let pane = h.state().active_pane();
     step_until(&mut h, |h| {
         let docs = h.state().documents();
@@ -990,8 +984,7 @@ fn the_player_wears_its_own_panes_look_and_the_windows_when_away() {
     let pane = (panes.iter().copied())
         .find(|&p| own(&h, p) != window)
         .expect("a pane in a look of its own");
-    h.state_mut()
-        .queue(Command::Intent(Intent::FocusPane(pane)));
+    h.state_mut().queue(Sent::Engine(Command::FocusPane(pane)));
     h.run_steps(2);
     // The book opened there, so it reads in that look.
     replace_book(&mut h);
@@ -1035,7 +1028,7 @@ fn a_voice_not_downloaded_links_to_its_settings() {
     let pane = h.state().active_pane();
     let from = ReadFrom::default();
     h.state_mut()
-        .queue(Command::Intent(Intent::ReadAloud { pane, from }));
+        .queue(Sent::Engine(Command::ReadAloud { pane, from }));
     let link = "Kokoro isn't downloaded · Voice settings";
     step_until(&mut h, |h| h.query_by_label(link).is_some());
     assert!(!h.state().read_aloud().booth.is_open());
@@ -1411,7 +1404,7 @@ fn player_at_wide_width_minimizes_for_toast_and_restores() {
         "minimized for toast: {shrunk:?} vs {bar:?}"
     );
     // Toast cleared: the player eases back to its set width.
-    h.state_mut().queue(Command::Ui(UiCommand::ClearToasts));
+    h.state_mut().queue(Sent::Ui(UiCommand::ClearToasts));
     h.run_steps(30);
     let back = h
         .ctx
@@ -1442,7 +1435,7 @@ fn player_rises_above_the_selection_bar_and_comes_back_down() {
     h.run();
     start(&mut h, ReadFrom::default());
     let book = library(&h).books().next().unwrap().id;
-    h.state_mut().queue(Command::Ui(UiCommand::ShowLibrary));
+    h.state_mut().queue(Sent::Ui(UiCommand::ShowLibrary));
     h.run_steps(40);
     let bar_rect = |h: &Harness<MareaderApp>| {
         h.ctx
@@ -1451,7 +1444,7 @@ fn player_rises_above_the_selection_bar_and_comes_back_down() {
     let low = bar_rect(&h).expect("the player's bar");
     // A pick summons the selection bar along the foot, under the player.
     h.state_mut()
-        .queue(Command::Intent(Intent::Library(Action::Pick(
+        .queue(Sent::Engine(Command::Library(Action::Pick(
             PickAction::Only(vec![Pick::Book(book)]),
         ))));
     h.run_steps(20);
@@ -1748,11 +1741,10 @@ fn a_remembered_skip_belongs_to_one_book_and_can_be_undone() {
     let other_bytes = mareader_epub::sample::epub(8, "Other");
     std::fs::write(&other_path, other_bytes).expect("a second sample file");
     let pane = h.state().active_pane();
-    h.state_mut()
-        .queue(Command::Intent(Intent::Open(OpenRequest {
-            pane: Some(pane),
-            ..OpenRequest::path(other_path)
-        })));
+    h.state_mut().queue(Sent::Engine(Command::Open(OpenRequest {
+        pane: Some(pane),
+        ..OpenRequest::path(other_path)
+    })));
     step_until(&mut h, |h| {
         let docs = h.state().documents();
         docs.path(pane).is_some_and(|p| p.ends_with("Other.epub"))
@@ -1768,11 +1760,10 @@ fn a_remembered_skip_belongs_to_one_book_and_can_be_undone() {
     h.run_steps(5);
 
     // Reopening skips asking; options can undo it.
-    h.state_mut()
-        .queue(Command::Intent(Intent::Open(OpenRequest {
-            pane: Some(pane),
-            ..OpenRequest::path(kept_path)
-        })));
+    h.state_mut().queue(Sent::Engine(Command::Open(OpenRequest {
+        pane: Some(pane),
+        ..OpenRequest::path(kept_path)
+    })));
     step_until(&mut h, |h| {
         let docs = h.state().documents();
         docs.path(pane).is_some_and(|p| p.ends_with("Kept.epub"))

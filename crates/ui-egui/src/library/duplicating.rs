@@ -7,7 +7,7 @@ use mareader_library::{BookId, Copied, Found, Library, LinkTo};
 
 use super::{LibraryState, Pick, wall_ms};
 use crate::toast::Toast;
-use crate::ui_command::{Command, Commands, UiCommand};
+use crate::ui_command::{Commands, Sent, UiCommand};
 
 impl LibraryState {
     /// Copies the books the picks want, then duplicates them.
@@ -70,7 +70,7 @@ impl LibraryState {
         }
         if let Some(note) = report(&landed) {
             self.settle();
-            out.push(Command::Ui(UiCommand::Notify(Toast::info(note))));
+            out.push(Sent::Ui(UiCommand::Notify(Toast::info(note))));
         }
     }
 

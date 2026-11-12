@@ -17,7 +17,7 @@ use super::{Action, LibraryState, Pick, PickAction, Scope};
 use crate::icons::Icon;
 use crate::motion;
 use crate::theme::{self, Tokens};
-use crate::ui_command::{Command, Commands, Intent};
+use crate::ui_command::{Command, Commands, Sent};
 
 /// The field's id: the app asks it whether it holds the keys.
 pub const FIELD: &str = "library-search";
@@ -439,7 +439,7 @@ pub fn focused(ctx: &Context) -> bool {
 }
 
 fn act(out: &mut Commands, action: SearchAction) {
-    out.push(Command::Intent(Intent::Library(Action::Search(action))));
+    out.push(Sent::Engine(Command::Library(Action::Search(action))));
 }
 
 /// The bar's pill in `rect`; arrows, Enter and Escape act before typing.

@@ -7,7 +7,7 @@ use super::asks::{self, Question};
 use super::{Action, Finding, LibraryState, Named, Pick, Sheet, Step};
 use crate::modal::{Dialog, buttons, primary, title};
 use crate::theme::Tokens;
-use crate::ui_command::{Command, Commands, Intent};
+use crate::ui_command::{Command, Commands, Sent};
 
 const WIDTH: f32 = 420.0;
 
@@ -30,7 +30,7 @@ pub fn show(ctx: &Context, library: &LibraryState, out: &mut Commands) {
     {
         let asked = (books.as_slice(), shelves.as_slice(), links.as_slice());
         let act = super::remove_alert::show(ctx, model, asked, &t);
-        out.extend(act.map(|a| Command::Intent(Intent::Library(a))));
+        out.extend(act.map(|a| Sent::Engine(Command::Library(a))));
         return;
     }
     let mut act = None;
@@ -73,7 +73,7 @@ pub fn show(ctx: &Context, library: &LibraryState, out: &mut Commands) {
             None => Action::CancelAsks,
         });
     }
-    out.extend(act.map(|a| Command::Intent(Intent::Library(a))));
+    out.extend(act.map(|a| Sent::Engine(Command::Library(a))));
 }
 
 fn find(

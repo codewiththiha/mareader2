@@ -6,16 +6,16 @@ use mareader_speech::Stage;
 use crate::dict::megabytes;
 use crate::icons::Icon;
 use crate::theme::Tokens;
-use crate::ui_command::{Command, Commands, Download};
+use crate::ui_command::{Commands, Download, Sent};
 use crate::widgets;
 
 /// One download's buttons: labelled "{verb} {name}", each asking `ask`.
-pub(super) struct Buttons<'a, F: Fn(Download) -> Command> {
+pub(super) struct Buttons<'a, F: Fn(Download) -> Sent> {
     pub name: &'a str,
     pub ask: F,
 }
 
-impl<F: Fn(Download) -> Command> Buttons<'_, F> {
+impl<F: Fn(Download) -> Sent> Buttons<'_, F> {
     pub fn press(
         &self,
         ui: &mut Ui,

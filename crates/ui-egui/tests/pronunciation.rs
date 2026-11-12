@@ -8,7 +8,7 @@ use mareader_settings::{Accent, Notation};
 use mareader_speech::{MODELS, PRONUNCIATION};
 use mareader_ui_egui::MareaderApp;
 use mareader_ui_egui::settings_window::Tab;
-use mareader_ui_egui::ui_command::{Command, Intent};
+use mareader_ui_egui::ui_command::{Command, Sent};
 
 type H = Harness<'static, MareaderApp>;
 
@@ -42,7 +42,7 @@ fn reading_with(dir: &Path, voice: &'static str) -> H {
             app
         });
     h.state_mut()
-        .queue(Command::Intent(Intent::OpenSettings(Tab::Vocabulary)));
+        .queue(Sent::Engine(Command::OpenSettings(Tab::Vocabulary)));
     h.run_steps(4);
     h
 }

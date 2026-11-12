@@ -5,7 +5,7 @@ use mareader_library::{LinkId, Move};
 
 use super::{LibraryState, Pick, Sheet, wall_ms};
 use crate::toast::Toast;
-use crate::ui_command::{Command, Commands, UiCommand};
+use crate::ui_command::{Commands, Sent, UiCommand};
 
 pub use mareader_engine::library::BookAction;
 
@@ -46,7 +46,7 @@ impl LibraryState {
                     made.unwrap_or_default(),
                     from.unwrap_or_default()
                 );
-                out.push(Command::Ui(UiCommand::Notify(Toast::info(note))));
+                out.push(Sent::Ui(UiCommand::Notify(Toast::info(note))));
             }
             BookAction::Import { paths, to } => self.import_files(paths, to, out),
             BookAction::ShelveTogether(picks) => {
@@ -75,7 +75,7 @@ impl LibraryState {
             1 => format!("Removed the link “{first}”."),
             n => format!("Removed {n} links."),
         };
-        out.push(Command::Ui(UiCommand::Notify(Toast::info(note))));
+        out.push(Sent::Ui(UiCommand::Notify(Toast::info(note))));
     }
 
     /// A new shelf where the reader is, the picks added to it.

@@ -1,6 +1,6 @@
 use super::*;
 
-use crate::ui_command::{Intent, UiCommand};
+use crate::ui_command::{Command, UiCommand};
 use ui_library::Action as A;
 use ui_library::SearchAction as S;
 
@@ -42,11 +42,11 @@ impl MareaderApp {
             }
             A::ShowAdd => egui::Popup::open_id(ctx, egui::Id::new(ui_library::ADD_MENU)),
             A::PickFolder => {
-                let ask = |root| Command::Intent(Intent::Library(A::AskFolder(root)));
+                let ask = |root| Sent::Engine(Command::Library(A::AskFolder(root)));
                 self.ui.files.pick_folder(ctx, "Import a folder", ask);
             }
             A::PickSearchFolder(book) => {
-                let seek = move |folder| Command::Intent(Intent::Library(A::Seek { book, folder }));
+                let seek = move |folder| Sent::Engine(Command::Library(A::Seek { book, folder }));
                 self.ui.files.pick_folder(ctx, "Search a folder", seek);
             }
             A::Book(ui_library::BookAction::PickImport) => {
@@ -84,7 +84,7 @@ impl MareaderApp {
                 let Some(format) = self.ui.library.model().book(book).map(|b| b.format) else {
                     return;
                 };
-                let relink = move |path| Command::Intent(Intent::Library(A::Relink { book, path }));
+                let relink = move |path| Sent::Engine(Command::Library(A::Relink { book, path }));
                 self.ui.files.pick_book(ctx, format.extensions(), relink);
             }
             A::Organize(picked) => self.organize(picked, false),
@@ -108,7 +108,7 @@ impl MareaderApp {
                         true => "Discarded the shelf plan.",
                         false => "Discarded the paused run.",
                     };
-                    let undo = Intent::Library(A::RestorePaused);
+                    let undo = Command::Library(A::RestorePaused);
                     self.ui.toasts.push(Toast::info(said).undo(undo));
                 }
                 self.ui.library.set_paused(None);
@@ -136,9 +136,9 @@ impl MareaderApp {
                 let mut out = Commands::new();
                 self.ui.library.act(action, ctx.input(|i| i.time), &mut out);
                 if undoable {
-                    let undo = Intent::Library(A::RestorePaused);
+                    let undo = Command::Library(A::RestorePaused);
                     let said = "Discarded the shelf plan.";
-                    out.push(Command::Ui(UiCommand::Notify(Toast::info(said).undo(undo))));
+                    out.push(Sent::Ui(UiCommand::Notify(Toast::info(said).undo(undo))));
                 }
                 for command in out {
                     self.apply(ctx, command);
@@ -250,7 +250,7 @@ impl MareaderApp {
     ) {
         let import = move |paths| {
             let action = ui_library::BookAction::Import { paths, to };
-            Command::Intent(Intent::Library(ui_library::Action::Book(action)))
+            Sent::Engine(Command::Library(ui_library::Action::Book(action)))
         };
         self.ui.files.pick_books(ctx, from, import);
     }

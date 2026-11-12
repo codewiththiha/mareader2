@@ -10,7 +10,7 @@ use mareader_pdf::TextLayer;
 use mareader_session::Anchor;
 use mareader_ui_egui::MareaderApp;
 use mareader_ui_egui::selection::Sheet;
-use mareader_ui_egui::ui_command::{Command, Intent};
+use mareader_ui_egui::ui_command::{Command, Sent};
 
 use crate::common::{ai_reader as reader, find, page};
 
@@ -60,7 +60,7 @@ fn select(h: &mut H, page: usize, text: &str) {
     let pane = h.state().active_pane();
     let text = text.to_owned();
     h.state_mut()
-        .queue(Command::Intent(Intent::SelectText { pane, page, text }));
+        .queue(Sent::Engine(Command::SelectText { pane, page, text }));
     h.run();
 }
 
@@ -108,7 +108,7 @@ fn explain_marks_the_word_and_its_card_comes_back_on_a_click() -> Out {
     assert_eq!(h.state().study().card_word(), Some("quick"));
     // Explaining the same word there again keeps one mark.
     select(&mut h, 0, "quick");
-    h.state_mut().queue(Command::Intent(Intent::Explain(pane)));
+    h.state_mut().queue(Sent::Engine(Command::Explain(pane)));
     h.run();
     assert_eq!(marks(&h).len(), 1);
     Ok(())
@@ -188,7 +188,7 @@ fn a_phrase_is_not_explained_and_nothing_is_marked() -> Out {
     let pane = h.state().active_pane();
     select(&mut h, 0, "quick brown");
     assert!(h.state().documents().selection(pane).is_some());
-    h.state_mut().queue(Command::Intent(Intent::Explain(pane)));
+    h.state_mut().queue(Sent::Engine(Command::Explain(pane)));
     h.run();
     assert!(!h.state().study().card_open());
     assert!(marks(&h).is_empty());
@@ -200,7 +200,7 @@ fn a_failed_answer_says_why_and_offers_a_retry() -> Out {
     let mut h = reader(&[("pdf", "sample:5"), ("explain", "none")]);
     let pane = h.state().active_pane();
     select(&mut h, 0, "quick");
-    h.state_mut().queue(Command::Intent(Intent::Explain(pane)));
+    h.state_mut().queue(Sent::Engine(Command::Explain(pane)));
     h.run();
     assert!(h.state().study().card_open());
     assert!(h.state().study().card_answer().is_none());
@@ -220,9 +220,9 @@ fn a_book_s_mark_is_found_again_after_the_type_changes() -> Out {
     });
     let page = page.ok_or("no customs in the sample")?;
     h.state_mut()
-        .queue(Command::Intent(Intent::GoTo { pane, page }));
+        .queue(Sent::Engine(Command::GoTo { pane, page }));
     h.run();
-    h.state_mut().queue(Command::Intent(Intent::Explain(pane)));
+    h.state_mut().queue(Sent::Engine(Command::Explain(pane)));
     h.run();
     assert_eq!(h.state().study().card_word(), Some("customs"));
     let spots = marks(&h);
@@ -259,7 +259,7 @@ fn a_library_book_keeps_its_marks() -> Out {
     h.run();
     let pane = h.state().active_pane();
     select(&mut h, 0, "quick");
-    h.state_mut().queue(Command::Intent(Intent::Explain(pane)));
+    h.state_mut().queue(Sent::Engine(Command::Explain(pane)));
     h.run();
     let lib = h.state().library();
     let book = lib.books().next().ok_or("not in the library")?.id;
@@ -270,7 +270,7 @@ fn a_library_book_keeps_its_marks() -> Out {
     // Another AI keeps the answer: the card comes back answered, unasked.
     h.state_mut().set_option("explain", "none")?;
     select(&mut h, 0, "quick");
-    h.state_mut().queue(Command::Intent(Intent::Explain(pane)));
+    h.state_mut().queue(Sent::Engine(Command::Explain(pane)));
     h.run();
     assert!(h.state().study().card_answer().is_some());
     Ok(())
@@ -383,7 +383,7 @@ fn the_highlights_tab_sets_colours_the_menu_and_keeps_the_ai_look() {
     let mut h = reader(&[("pdf", "sample")]);
     h.set_size(egui::vec2(1000.0, 1200.0));
     h.state_mut()
-        .queue(Command::Intent(Intent::OpenSettings(Tab::Highlights)));
+        .queue(Sent::Engine(Command::OpenSettings(Tab::Highlights)));
     h.run();
     // The AI marks words with this pen and colour: it can't be picked.
     h.get_by_label("Highlight #a58af0").click();
@@ -434,7 +434,7 @@ fn marks_kept_off_the_pens_show_only_while_in_use() {
     let mut h = reader(&[("pdf", "sample"), ("explain", "none")]);
     h.set_size(egui::vec2(1000.0, 1200.0));
     h.state_mut()
-        .queue(Command::Intent(Intent::OpenSettings(Tab::Highlights)));
+        .queue(Sent::Engine(Command::OpenSettings(Tab::Highlights)));
     h.run();
     // No model answers and no word levels are in: nothing to show.
     assert!(h.query_by_label("Change in AI").is_none());
@@ -448,14 +448,14 @@ fn the_ai_tab_picks_who_explains() {
     use mareader_ui_egui::settings_window::Tab;
     let mut h = reader(&[("pdf", "sample")]);
     h.state_mut()
-        .queue(Command::Intent(Intent::OpenSettings(Tab::Ai)));
+        .queue(Sent::Engine(Command::OpenSettings(Tab::Ai)));
     h.run();
     // With none saved, the AI tab's one button leads to the models.
     if h.query_by_label("Add a model").is_some() {
         h.get_by_label("Add a model").click();
     } else {
         h.state_mut()
-            .queue(Command::Intent(Intent::OpenSettings(Tab::Models)));
+            .queue(Sent::Engine(Command::OpenSettings(Tab::Models)));
     }
     h.run();
     // Tiles show at once while none is saved; else they open on a click.
@@ -484,7 +484,7 @@ fn several_marks_are_picked_and_removed_together() -> Out {
         select(&mut h, 0, word);
         let (pen, color) = (Pen::Full, None);
         h.state_mut()
-            .queue(Command::Intent(Intent::Highlight { pane, pen, color }));
+            .queue(Sent::Engine(Command::Highlight { pane, pen, color }));
         h.run();
     }
     assert_eq!(marks(&h).len(), 2);
@@ -691,7 +691,7 @@ fn a_highlight_is_restyled_from_its_menu_but_never_as_the_ai() -> Out {
     select(&mut h, 0, "quick");
     let (pen, color) = (Pen::Full, None);
     h.state_mut()
-        .queue(Command::Intent(Intent::Highlight { pane, pen, color }));
+        .queue(Sent::Engine(Command::Highlight { pane, pen, color }));
     h.run();
     let (layer, sheet) = page(&h, 0)?;
     let quick = middle(&layer, sheet, find(&layer, "quick")? + 2)?;
@@ -881,7 +881,7 @@ fn picked_highlights_are_restyled_together_where_each_may_be() -> Out {
         select(&mut h, 0, word);
         let color = None;
         h.state_mut()
-            .queue(Command::Intent(Intent::Highlight { pane, pen, color }));
+            .queue(Sent::Engine(Command::Highlight { pane, pen, color }));
         h.run();
     }
     let (layer, sheet) = page(&h, 0)?;

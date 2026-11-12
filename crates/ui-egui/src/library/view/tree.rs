@@ -13,7 +13,7 @@ use crate::icons::Icon;
 use crate::library::shelving::{Carry, ShelfAction};
 use crate::library::{Action, Pick, menus};
 use crate::theme;
-use crate::ui_command::{Command, Intent};
+use crate::ui_command::{Command, Sent};
 
 /// How far each level down sits in.
 const INDENT: f32 = 20.0;
@@ -154,7 +154,7 @@ fn shelf_row(ui: &mut Ui, shelf: &Shelf, indent: f32, cx: &mut Cx<'_>) {
     if button.on_hover_text("Open shelf").clicked() {
         let to = ShelfAction::GoTo(Some(id));
         cx.out
-            .push(Command::Intent(Intent::Library(Action::Shelf(to))));
+            .push(Sent::Engine(Command::Library(Action::Shelf(to))));
     }
     let end = badges(ui, &resp, id, (go.left() - 8.0, mid), cx);
     let p = ui.painter();
@@ -185,5 +185,5 @@ fn dwell(ui: &Ui, resp: &egui::Response, id: ShelfId, open: bool, cx: &mut Cx<'_
     ui.data_mut(|d| d.remove::<f64>(key));
     let unfold = ShelfAction::Unfold(id);
     cx.out
-        .push(Command::Intent(Intent::Library(Action::Shelf(unfold))));
+        .push(Sent::Engine(Command::Library(Action::Shelf(unfold))));
 }

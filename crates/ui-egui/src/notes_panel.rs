@@ -15,7 +15,7 @@ use crate::documents::Reading;
 use crate::icons::Icon;
 use crate::study::Action;
 use crate::theme::{self, Tokens, color};
-use crate::ui_command::{Command, Commands, Intent, UiCommand};
+use crate::ui_command::{Command, Commands, Sent, UiCommand};
 use crate::widgets;
 use mareader_engine::export::{self, Entry, Format, Sheet};
 
@@ -293,7 +293,7 @@ fn share(ui: &mut Ui, reading: &Reading, shown: &[&Row], _t: &Tokens, out: &mut 
             for format in Format::ALL {
                 let label = format!("{} (.{})", format.label(), format.extension());
                 if widgets::menu_row(ui, Icon::Download, &label, None, false).clicked() {
-                    out.push(Command::Intent(Intent::Export {
+                    out.push(Sent::Engine(Command::Export {
                         name: export::file_name(&reading.name, format),
                         format,
                         contents: render(format),
@@ -306,7 +306,7 @@ fn share(ui: &mut Ui, reading: &Reading, shown: &[&Row], _t: &Tokens, out: &mut 
     if widgets::icon_button(ui, Icon::Copy, "Copy all as Markdown", false).clicked() {
         ui.ctx().copy_text(render(Format::Markdown));
         let copied = format!("Copied {tally}");
-        out.push(Command::Ui(UiCommand::Notify(crate::toast::Toast::info(
+        out.push(Sent::Ui(UiCommand::Notify(crate::toast::Toast::info(
             copied,
         ))));
     }
@@ -402,7 +402,7 @@ fn entry(
     if resp.clicked()
         && let Some(page) = page
     {
-        out.push(Command::Intent(Intent::GoTo {
+        out.push(Sent::Engine(Command::GoTo {
             pane: reading.pane,
             page,
         }));
@@ -412,24 +412,24 @@ fn entry(
         let write = if noted { "Edit note" } else { "Add note" };
         if widgets::menu_row(ui, Icon::Note, write, None, false).clicked() {
             if let Some(page) = page {
-                out.push(Command::Intent(Intent::GoTo {
+                out.push(Sent::Engine(Command::GoTo {
                     pane: reading.pane,
                     page,
                 }));
             }
-            out.push(Command::Intent(Intent::Study(Action::WriteNoteIn(
+            out.push(Sent::Engine(Command::Study(Action::WriteNoteIn(
                 reading.pane,
                 row.id,
             ))));
             ui.close();
         }
         if noted && widgets::menu_row(ui, Icon::Remove, "Delete note", None, false).clicked() {
-            out.push(Command::Intent(Intent::Study(Action::DeleteNote(row.id))));
+            out.push(Sent::Engine(Command::Study(Action::DeleteNote(row.id))));
             ui.close();
         }
         widgets::menu_rule(ui);
         if widgets::menu_row_danger(ui, Icon::Remove, "Remove highlight").clicked() {
-            out.push(Command::Intent(Intent::Study(Action::Remove(vec![row.id]))));
+            out.push(Sent::Engine(Command::Study(Action::Remove(vec![row.id]))));
             ui.close();
         }
     });
@@ -514,7 +514,7 @@ fn bookmark(
     }
     let go = |out: &mut Commands| {
         if let Some(page) = page {
-            out.push(Command::Intent(Intent::GoTo {
+            out.push(Sent::Engine(Command::GoTo {
                 pane: reading.pane,
                 page,
             }));
@@ -528,19 +528,19 @@ fn bookmark(
         let write = if noted { "Edit note" } else { "Add note" };
         if widgets::menu_row(ui, Icon::Note, write, None, false).clicked() {
             go(out);
-            out.push(Command::Intent(Intent::Study(Action::WriteNoteIn(
+            out.push(Sent::Engine(Command::Study(Action::WriteNoteIn(
                 reading.pane,
                 row.id,
             ))));
             ui.close();
         }
         if noted && widgets::menu_row(ui, Icon::Remove, "Delete note", None, false).clicked() {
-            out.push(Command::Intent(Intent::Study(Action::DeleteNote(row.id))));
+            out.push(Sent::Engine(Command::Study(Action::DeleteNote(row.id))));
             ui.close();
         }
         widgets::menu_rule(ui);
         if widgets::menu_row_danger(ui, Icon::Remove, "Remove bookmark").clicked() {
-            out.push(Command::Intent(Intent::Study(Action::Remove(vec![row.id]))));
+            out.push(Sent::Engine(Command::Study(Action::Remove(vec![row.id]))));
             ui.close();
         }
     });

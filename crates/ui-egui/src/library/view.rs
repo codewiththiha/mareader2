@@ -24,7 +24,7 @@ use super::{Action, LibraryState, Pick, PickAction, Picks, Scope};
 use crate::icons::Icon;
 use crate::motion;
 use crate::theme::{self, Tokens};
-use crate::ui_command::{Command, Commands, Intent};
+use crate::ui_command::{Command, Commands, Sent};
 use mareader_engine::library::counted;
 
 mod face;
@@ -152,7 +152,7 @@ pub fn show(ui: &mut Ui, library: &mut LibraryState, view: &View, top: f32, out:
     let back = ui.available_rect_before_wrap();
     let back = ui.interact(back, Id::new("library-page"), Sense::CLICK);
     if back.clicked() && picks.active() {
-        out.push(Command::Intent(Intent::Library(Action::Pick(
+        out.push(Sent::Engine(Command::Library(Action::Pick(
             PickAction::Clear,
         ))));
     }
@@ -166,7 +166,7 @@ pub fn show(ui: &mut Ui, library: &mut LibraryState, view: &View, top: f32, out:
     let typing = ui.ctx().egui_wants_keyboard_input();
     let all = KeyboardShortcut::new(Modifiers::COMMAND, Key::A);
     if !typing && ui.input_mut(|i| i.consume_shortcut(&all)) {
-        out.push(Command::Intent(Intent::Library(Action::Pick(
+        out.push(Sent::Engine(Command::Library(Action::Pick(
             PickAction::Only(sequence.to_vec()),
         ))));
     }
@@ -418,7 +418,7 @@ fn hit(ui: &mut Ui, rect: Rect, book: &Book, cx: &mut Cx<'_>) -> egui::Response 
     resp.widget_info(|| egui::WidgetInfo::selected(egui::WidgetType::Button, true, picked, title));
     let held = long_press(ui, &resp, Pick::Book(book.id), cx);
     if resp.clicked() && !held && !picking(ui, Pick::Book(book.id), cx) {
-        cx.out.push(Command::Intent(Intent::OpenBook(book.id)));
+        cx.out.push(Sent::Engine(Command::OpenBook(book.id)));
     }
     let held = cx.held.contains(&book.id);
     if resp.drag_started() && !held {
@@ -470,7 +470,7 @@ fn long_press(ui: &Ui, resp: &egui::Response, pick: Pick, cx: &mut Cx<'_>) -> bo
     if !cx.picks.contains(pick) {
         let action = PickAction::Toggle(pick);
         cx.out
-            .push(Command::Intent(Intent::Library(Action::Pick(action))));
+            .push(Sent::Engine(Command::Library(Action::Pick(action))));
     }
     false
 }
@@ -484,7 +484,7 @@ fn picking(ui: &Ui, pick: Pick, cx: &mut Cx<'_>) -> bool {
         _ => return false,
     };
     cx.out
-        .push(Command::Intent(Intent::Library(Action::Pick(action))));
+        .push(Sent::Engine(Command::Library(Action::Pick(action))));
     true
 }
 
@@ -564,7 +564,7 @@ fn shelf_hit(
     let held = long_press(ui, &resp, Pick::Shelf(id), cx);
     if resp.clicked() && !held && !picking(ui, Pick::Shelf(id), cx) {
         cx.out
-            .push(Command::Intent(Intent::Library(Action::Shelf(click))));
+            .push(Sent::Engine(Command::Library(Action::Shelf(click))));
     }
     if resp.drag_started() {
         lift(&resp, Pick::Shelf(id), cx);
@@ -577,7 +577,7 @@ fn shelf_hit(
     if !edge && let Some(carry) = resp.dnd_release_payload::<Carry>() {
         let action = carry
             .onto(Some(id), keep)
-            .map(|a| Command::Intent(Intent::Library(a)));
+            .map(|a| Sent::Engine(Command::Library(a)));
         cx.out.extend(action);
     }
     // Files from outside, held over it, go onto it.
@@ -1034,7 +1034,7 @@ fn no_match(ui: &mut Ui, text: &str, elsewhere: usize, t: &Tokens, out: &mut Com
     ui.label(egui::RichText::new(note).color(t.muted));
     ui.add_space(10.0);
     ui.horizontal(|ui| {
-        let act = |a| Command::Intent(Intent::Library(Action::Search(a)));
+        let act = |a| Sent::Engine(Command::Library(Action::Search(a)));
         if elsewhere > 0 {
             let all = match elsewhere {
                 1 => "Show the 1 match elsewhere".to_owned(),

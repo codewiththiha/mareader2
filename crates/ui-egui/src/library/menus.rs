@@ -9,7 +9,7 @@ use mareader_library::{Book, BookId, Library, Link, LinkTo, Move, Shelf, ShelfId
 use super::{Action, BookAction, Named, Pick, PickAction, Picks, ShelfAction};
 use crate::icons::Icon;
 use crate::theme::{self, Tokens};
-use crate::ui_command::{Command, Commands, Intent};
+use crate::ui_command::{Command, Commands, Sent};
 use crate::widgets;
 
 const ADD_TO_SHELF: &str = "library-add-to-shelf";
@@ -17,7 +17,7 @@ const ADD_TO_SHELF: &str = "library-add-to-shelf";
 const BAR_H: f32 = 44.0;
 
 fn act(out: &mut Commands, action: Action) {
-    out.push(Command::Intent(Intent::Library(action)));
+    out.push(Sent::Engine(Command::Library(action)));
 }
 
 fn book(out: &mut Commands, action: BookAction) {
@@ -46,7 +46,7 @@ pub fn book_menu(ui: &mut Ui, b: &Book, _t: &Tokens, out: &mut Commands) {
         widgets::menu_row(ui, Icon::Book, "Open", None, false)
     });
     if open.inner.clicked() {
-        out.push(Command::Intent(Intent::OpenBook(id)));
+        out.push(Sent::Engine(Command::OpenBook(id)));
         ui.close();
     }
     if widgets::menu_row(ui, Icon::SelectSeveral, "Select", None, false).clicked() {

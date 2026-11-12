@@ -16,7 +16,7 @@ use crate::settings_window::Tab;
 use crate::shaped;
 use crate::theme::{self, Tokens};
 use crate::toast::Toast;
-use crate::ui_command::{Command, Commands, Intent, UiCommand};
+use crate::ui_command::{Command, Commands, Sent, UiCommand};
 use crate::widgets;
 
 /// The search field's name, for screen readers and tests.
@@ -244,7 +244,7 @@ impl Page {
                 line,
                 Some("Get dictionaries…"),
             ) {
-                out.push(Command::Intent(Intent::OpenSettings(Tab::Dictionary)));
+                out.push(Sent::Engine(Command::OpenSettings(Tab::Dictionary)));
             }
             return;
         }
@@ -283,7 +283,7 @@ impl Page {
             None => {}
         }
         if draft != *s {
-            out.push(Command::Intent(Intent::SetDictionary(Box::new(draft))));
+            out.push(Sent::Engine(Command::SetDictionary(Box::new(draft))));
         }
     }
 
@@ -602,7 +602,7 @@ fn manage(ui: &mut Ui, out: &mut Commands) {
     let size = vec2(GEAR_W, CONTROL);
     let manage = look::icon(ui, Icon::Settings, "Manage dictionaries…", size);
     if manage.clicked() {
-        out.push(Command::Intent(Intent::OpenSettings(Tab::Dictionary)));
+        out.push(Sent::Engine(Command::OpenSettings(Tab::Dictionary)));
     }
 }
 
@@ -833,7 +833,7 @@ fn full_entry(
                     .corner_radius(t.radius);
                 if ui.add(copy).clicked() {
                     ui.ctx().copy_text(e.answer().to_owned());
-                    out.push(Command::Ui(UiCommand::Notify(Toast::info("Copied"))));
+                    out.push(Sent::Ui(UiCommand::Notify(Toast::info("Copied"))));
                 }
                 act = look_again(ui, e, t);
             });

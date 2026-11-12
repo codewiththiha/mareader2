@@ -10,7 +10,7 @@ use mareader_settings::LibraryClick;
 use mareader_ui_egui::MareaderApp;
 use mareader_ui_egui::library::{Action, BookAction};
 use mareader_ui_egui::sidebar::WIDTH;
-use mareader_ui_egui::ui_command::{Command, Intent};
+use mareader_ui_egui::ui_command::{Command, Sent};
 use mareader_workspace::PaneId;
 
 use crate::common::reader;
@@ -38,7 +38,7 @@ fn raven_and_twin(click: &str) -> (Harness<'static, MareaderApp>, BookId, BookId
     let mut h = reader(&options);
     h.run_steps(3);
     let id = library(&h).book_at(&path).expect("recorded");
-    let twin = Command::Intent(Intent::Library(Action::Book(BookAction::Twin(id))));
+    let twin = Sent::Engine(Command::Library(Action::Book(BookAction::Twin(id))));
     h.state_mut().queue(twin);
     h.run();
     h.run();
@@ -185,12 +185,11 @@ fn a_book_dropped_on_a_pane_edge_splits_there() {
 fn a_book_dropped_on_an_empty_pane_opens_in_it() {
     let (mut h, _, twin) = raven_and_twin("replace");
     let first = h.state().active_pane();
-    let split = Command::Intent(Intent::Split(mareader_workspace::SplitAxis::Horizontal));
+    let split = Sent::Engine(Command::Split(mareader_workspace::SplitAxis::Horizontal));
     h.state_mut().queue(split);
     h.run();
     let empty = h.state().active_pane();
-    h.state_mut()
-        .queue(Command::Intent(Intent::FocusPane(first)));
+    h.state_mut().queue(Sent::Engine(Command::FocusPane(first)));
     h.run();
     let from = row(&h, "The Raven (2)").center();
     let to = egui::pos2(700.0, 120.0);
@@ -220,14 +219,14 @@ fn while_split_the_panes_list_as_tabs_that_focus_and_close() {
 #[test]
 fn the_library_page_opens_beside_when_set_to_split() {
     let (mut h, _, twin) = raven_and_twin("split");
-    h.state_mut().queue(Command::Intent(Intent::OpenBook(twin)));
+    h.state_mut().queue(Sent::Engine(Command::OpenBook(twin)));
     h.run();
     h.run_steps(3);
     assert_eq!(h.state().panes().len(), 2);
     assert_eq!(reads(&h, h.state().active_pane()), Some(twin));
     // Do nothing has no meaning on the page: it opens in place.
     let (mut h, _, twin) = raven_and_twin("drag_only");
-    h.state_mut().queue(Command::Intent(Intent::OpenBook(twin)));
+    h.state_mut().queue(Sent::Engine(Command::OpenBook(twin)));
     h.run();
     h.run_steps(3);
     assert_eq!(h.state().panes().len(), 1);
@@ -356,11 +355,10 @@ fn at_four_panes_the_tree_still_moves_books_but_splits_no_more() {
     // Right, then each half down: four roomy panes.
     use mareader_workspace::SplitAxis::{Horizontal, Vertical};
     for (axis, back) in [(Horizontal, false), (Vertical, true), (Vertical, true)] {
-        h.state_mut().queue(Command::Intent(Intent::Split(axis)));
+        h.state_mut().queue(Sent::Engine(Command::Split(axis)));
         h.run();
         if back {
-            h.state_mut()
-                .queue(Command::Intent(Intent::FocusPane(first)));
+            h.state_mut().queue(Sent::Engine(Command::FocusPane(first)));
             h.run();
         }
     }
@@ -376,7 +374,7 @@ fn at_four_panes_the_tree_still_moves_books_but_splits_no_more() {
     assert_eq!(reads(&h, first), Some(id));
     // A new shelf is named in place; the tree files the twin on it.
     let new = Action::Shelf(mareader_ui_egui::library::ShelfAction::NewIn(None));
-    h.state_mut().queue(Command::Intent(Intent::Library(new)));
+    h.state_mut().queue(Sent::Engine(Command::Library(new)));
     h.run_steps(4);
     h.event(egui::Event::Text("Poems".into()));
     h.run();

@@ -11,7 +11,7 @@ use super::page::Page;
 use super::{Action, Voice, Window, bounds};
 use crate::icons::Icon;
 use crate::theme::Tokens;
-use crate::ui_command::{Command, Commands, Intent, UiCommand};
+use crate::ui_command::{Command, Commands, Sent, UiCommand};
 use crate::widgets;
 
 /// The controls' names, for screen readers and tests.
@@ -140,9 +140,9 @@ pub fn show(ctx: &Context, f: Frame<'_>, appear: f32, out: &mut Commands) -> (Re
             rect = home;
             *f.evacuated = None;
             *f.live = None;
-            out.push(Command::Intent(Intent::Dict(Action::Window(
-                Window::Place(bounds(home)),
-            ))));
+            out.push(Sent::Engine(Command::Dict(Action::Window(Window::Place(
+                bounds(home),
+            )))));
             returned = true;
         }
     }
@@ -161,9 +161,9 @@ pub fn show(ctx: &Context, f: Frame<'_>, appear: f32, out: &mut Commands) -> (Re
         parked = None;
         *f.evacuated = None;
         *f.live = None;
-        out.push(Command::Intent(Intent::Dict(Action::Window(
-            Window::Place(bounds(rect)),
-        ))));
+        out.push(Sent::Engine(Command::Dict(Action::Window(Window::Place(
+            bounds(rect),
+        )))));
         returned = true;
     }
     let short = f
@@ -223,11 +223,11 @@ pub fn show(ctx: &Context, f: Frame<'_>, appear: f32, out: &mut Commands) -> (Re
         }
         released |= grab.drag_stopped();
         if folded && grab.clicked() {
-            out.push(Command::Intent(Intent::Dict(Action::Window(
+            out.push(Sent::Engine(Command::Dict(Action::Window(
                 Window::Minimize(false),
             ))));
         } else if !folded && grab.double_clicked() {
-            out.push(Command::Intent(Intent::Dict(Action::Window(
+            out.push(Sent::Engine(Command::Dict(Action::Window(
                 Window::Minimize(true),
             ))));
         }
@@ -282,7 +282,7 @@ pub fn show(ctx: &Context, f: Frame<'_>, appear: f32, out: &mut Commands) -> (Re
             if f.toasts
                 .is_some_and(|toast| shown.intersects(toast) || rect.intersects(toast))
             {
-                out.push(Command::Ui(UiCommand::ClearToasts));
+                out.push(Sent::Ui(UiCommand::ClearToasts));
             }
         }
     });
@@ -364,16 +364,16 @@ pub fn show(ctx: &Context, f: Frame<'_>, appear: f32, out: &mut Commands) -> (Re
             rect = keep(rect);
             *f.live = None;
             *f.evacuated = None;
-            out.push(Command::Intent(Intent::Dict(Action::Window(
-                Window::Place(bounds(rect)),
-            ))));
+            out.push(Sent::Engine(Command::Dict(Action::Window(Window::Place(
+                bounds(rect),
+            )))));
         }
     } else if !returned && turned {
         rect = keep(rect);
         *f.live = None;
-        out.push(Command::Intent(Intent::Dict(Action::Window(
-            Window::Place(bounds(rect)),
-        ))));
+        out.push(Sent::Engine(Command::Dict(Action::Window(Window::Place(
+            bounds(rect),
+        )))));
     } else if parked.is_some() {
         *f.live = None;
     } else if !returned && f.evacuated.is_none() && Some(rect) != saved {
@@ -400,8 +400,8 @@ pub fn show(ctx: &Context, f: Frame<'_>, appear: f32, out: &mut Commands) -> (Re
             })
         });
     let command_interaction = out.iter().skip(command_count).any(|command| match command {
-        Command::Intent(Intent::Dict(Action::Window(Window::Place(_)))) => false,
-        Command::Intent(Intent::Dict(_)) => true,
+        Sent::Engine(Command::Dict(Action::Window(Window::Place(_)))) => false,
+        Sent::Engine(Command::Dict(_)) => true,
         _ => false,
     });
     let interacted = revealed
@@ -689,7 +689,7 @@ fn header(ui: &mut Ui, head: Rect, folded: bool, n: &Named<'_>, t: &Tokens, out:
         ui.spacing_mut().item_spacing.x = 2.0;
         // The title is part of the handle, not text to select.
         ui.style_mut().interaction.selectable_labels = false;
-        let send = |w: Window| Command::Intent(Intent::Dict(Action::Window(w)));
+        let send = |w: Window| Sent::Engine(Command::Dict(Action::Window(w)));
         if widgets::small_icon_button(ui, Icon::Close, CLOSE).clicked() {
             out.push(send(Window::Close));
         }

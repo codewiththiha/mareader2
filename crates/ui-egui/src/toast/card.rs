@@ -11,7 +11,7 @@ use egui::{
 use super::{Live, Tone};
 use crate::icons::Icon;
 use crate::theme::{self, Tokens};
-use crate::ui_command::{Command, Commands, UiCommand};
+use crate::ui_command::{Commands, Sent, UiCommand};
 use crate::widgets;
 
 const PAD_X: f32 = 14.0;
@@ -241,7 +241,7 @@ pub(super) fn content(ui: &mut Ui, rect: Rect, live: &Live, card: &Card, out: &m
         .on_hover_cursor(CursorIcon::PointingHand)
         .clicked()
     {
-        out.push(Command::Ui(UiCommand::CloseToast(live.id)));
+        out.push(Sent::Ui(UiCommand::CloseToast(live.id)));
     }
     let Some(command) = &live.toast.undo else {
         return;
@@ -256,7 +256,7 @@ pub(super) fn content(ui: &mut Ui, rect: Rect, live: &Live, card: &Card, out: &m
         egui::WidgetInfo::labeled(egui::WidgetType::Button, true, live.toast.label)
     });
     if pressed.clicked() {
-        out.push(Command::Intent((**command).clone()));
-        out.push(Command::Ui(UiCommand::CloseToast(live.id)));
+        out.push(Sent::Engine((**command).clone()));
+        out.push(Sent::Ui(UiCommand::CloseToast(live.id)));
     }
 }

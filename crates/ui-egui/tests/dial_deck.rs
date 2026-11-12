@@ -8,7 +8,7 @@ use mareader_appearance::{BaseMode, NoiseMode, TextureMode};
 use mareader_settings::AppearanceMenuStyle;
 use mareader_ui_egui::MareaderApp;
 use mareader_ui_egui::settings_window::Tab;
-use mareader_ui_egui::ui_command::{Command, Intent, UiCommand};
+use mareader_ui_egui::ui_command::{Command, Sent, UiCommand};
 
 fn reader(options: &[(&str, &str)]) -> Harness<'static, MareaderApp> {
     let mut app = MareaderApp::default();
@@ -32,7 +32,7 @@ fn classic_remains_the_default_and_settings_switches_to_dial_deck() {
         h.state().settings().chrome.appearance_menu,
         AppearanceMenuStyle::Classic
     );
-    h.state_mut().queue(Command::Ui(UiCommand::ShowAppearance));
+    h.state_mut().queue(Sent::Ui(UiCommand::ShowAppearance));
     h.run_steps(3);
     assert!(h.query_by_label("Mode & colour").is_some());
     assert!(h.query_by_label("Tint colour and strength").is_none());
@@ -41,7 +41,7 @@ fn classic_remains_the_default_and_settings_switches_to_dial_deck() {
 
     // Switch to Dial deck in Settings -> Appearance while reading a book.
     h.state_mut()
-        .queue(Command::Intent(Intent::OpenSettings(Tab::Appearance)));
+        .queue(Sent::Engine(Command::OpenSettings(Tab::Appearance)));
     h.run_steps(3);
     let pick = h.get_by_label("Dial deck");
     pick.scroll_to_me();
@@ -66,7 +66,7 @@ fn look_tab_controls_mode_wheel_landmarks_reset_and_book_ink() {
         ("pinned", "true"),
         ("appearance_menu", "dial_deck"),
     ]);
-    h.state_mut().queue(Command::Ui(UiCommand::ShowAppearance));
+    h.state_mut().queue(Sent::Ui(UiCommand::ShowAppearance));
     h.run_steps(3);
 
     h.get_by_label("Dim").click();
@@ -101,7 +101,7 @@ fn text_tab_dials_appear_for_books_and_hide_for_pdfs() {
         ("pinned", "true"),
         ("appearance_menu", "dial_deck"),
     ]);
-    h.state_mut().queue(Command::Ui(UiCommand::ShowAppearance));
+    h.state_mut().queue(Sent::Ui(UiCommand::ShowAppearance));
     h.run_steps(3);
     h.get_by_label("Text").click();
     h.run_steps(2);
@@ -123,8 +123,7 @@ fn text_tab_dials_appear_for_books_and_hide_for_pdfs() {
         ("pinned", "true"),
         ("appearance_menu", "dial_deck"),
     ]);
-    pdf.state_mut()
-        .queue(Command::Ui(UiCommand::ShowAppearance));
+    pdf.state_mut().queue(Sent::Ui(UiCommand::ShowAppearance));
     pdf.run_steps(3);
     assert!(pdf.query_by_label("Text").is_none());
     assert!(
@@ -140,7 +139,7 @@ fn page_and_grain_tabs_adapt_to_route_and_keep_fixed_width() {
         ("pinned", "true"),
         ("appearance_menu", "dial_deck"),
     ]);
-    h.state_mut().queue(Command::Ui(UiCommand::ShowAppearance));
+    h.state_mut().queue(Sent::Ui(UiCommand::ShowAppearance));
     h.run_steps(3);
     let id = egui::Id::new(mareader_ui_egui::titlebar::APPEARANCE_POPOVER);
     let width = |h: &Harness<'static, MareaderApp>| {
@@ -167,7 +166,7 @@ fn page_and_grain_tabs_adapt_to_route_and_keep_fixed_width() {
     // In the library there is no page to texture: Grain replaces Page.
     h.key_press(Key::Escape);
     h.run_steps(2);
-    h.state_mut().queue(Command::Ui(UiCommand::ShowLibrary));
+    h.state_mut().queue(Sent::Ui(UiCommand::ShowLibrary));
     h.run_steps(2);
     h.get_by_label("Appearance").click();
     h.run_steps(3);
@@ -189,7 +188,7 @@ fn presets_tab_applies_saves_and_deletes_looks_and_pins_split_switches() {
         ("pinned", "true"),
         ("appearance_menu", "dial_deck"),
     ]);
-    h.state_mut().queue(Command::Ui(UiCommand::ShowAppearance));
+    h.state_mut().queue(Sent::Ui(UiCommand::ShowAppearance));
     h.run_steps(3);
     assert!(
         h.query_by_role_and_label(Role::CheckBox, "Theme per pane")

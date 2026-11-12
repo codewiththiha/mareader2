@@ -4,7 +4,7 @@ use mareader_library::{BookId, Item, Move, ShelfId};
 
 use super::{Action, LibraryState, Scope, wall_ms};
 use crate::toast::Toast;
-use crate::ui_command::{Command, Commands, Intent, UiCommand};
+use crate::ui_command::{Command, Commands, Sent, UiCommand};
 
 pub use mareader_engine::library::{Carry, CopyAnswer, NEW_SHELF, ShelfAction};
 
@@ -147,9 +147,9 @@ impl LibraryState {
             true => format!("Watching {ground} for new books."),
             false => format!("{ground} is no longer watched for new books."),
         };
-        out.push(Command::Ui(UiCommand::Notify(Toast::info(note))));
+        out.push(Sent::Ui(UiCommand::Notify(Toast::info(note))));
         if on {
-            out.push(Command::Intent(Intent::Library(Action::Rescan)));
+            out.push(Sent::Engine(Command::Library(Action::Rescan)));
         }
     }
 

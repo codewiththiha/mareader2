@@ -98,7 +98,7 @@ impl MareaderApp {
             || self.ui.library.sheet_up();
         let pane = self.ui.pane_rects.iter().find(|(_, r)| r.contains(at));
         if let Some((id, _)) = pane.filter(|(id, _)| !modal && *id != self.active()) {
-            out.push(Command::Intent(Intent::FocusPane(*id)));
+            out.push(Sent::Engine(Command::FocusPane(*id)));
         }
     }
 
@@ -156,7 +156,7 @@ impl MareaderApp {
     ///
     /// The recency list is the engine's, so this goes through its door.
     pub(super) fn note_focus(&mut self) {
-        self.send(Intent::FocusPane(self.active()));
+        self.send(Command::FocusPane(self.active()));
     }
 }
 

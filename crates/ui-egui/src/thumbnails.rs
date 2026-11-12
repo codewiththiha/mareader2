@@ -19,7 +19,7 @@ use crate::motion;
 use crate::pages::Lookup;
 use crate::pdf_view::{Sinks, Urgency, paint_page};
 use crate::theme::Tokens;
-use crate::ui_command::{Command, Commands, Intent};
+use crate::ui_command::{Command, Commands, Sent};
 pub use picks::Offer;
 use picks::Picks;
 
@@ -221,7 +221,7 @@ pub fn show(
                 });
                 let held = picks::long_press(ui, &r, page, &mut state.picks);
                 if r.clicked() && !held && !picks::click(ui, page, &mut state.picks) {
-                    out.push(Command::Intent(Intent::GoTo {
+                    out.push(Sent::Engine(Command::GoTo {
                         pane: reading.pane,
                         page,
                     }));

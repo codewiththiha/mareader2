@@ -5,7 +5,7 @@ use egui_kittest::kittest::{NodeT as _, Queryable as _};
 use mareader_speech::{Build, Gender, Knob, Model, ModelFile, ModelVoice};
 use mareader_ui_egui::MareaderApp;
 use mareader_ui_egui::settings_window::Tab;
-use mareader_ui_egui::ui_command::{Command, Intent};
+use mareader_ui_egui::ui_command::{Command, Sent};
 
 use crate::common::press;
 
@@ -164,7 +164,7 @@ fn settings(dir: &std::path::Path) -> Harness<'static, MareaderApp> {
             app
         });
     h.state_mut()
-        .queue(Command::Intent(Intent::OpenSettings(Tab::ReadAloud)));
+        .queue(Sent::Engine(Command::OpenSettings(Tab::ReadAloud)));
     h.run_steps(4);
     h
 }
@@ -249,7 +249,7 @@ fn a_voice_picked_in_the_model_tab_is_kept_for_its_engine() {
     let mut h = settings(dir.path());
     let model = TINY.first().unwrap();
     h.state_mut()
-        .queue(Command::Intent(Intent::OpenSettings(Tab::Model(model))));
+        .queue(Sent::Engine(Command::OpenSettings(Tab::Model(model))));
     h.run_steps(3);
     assert!(h.query_by_label("Download Bo").is_none());
     press(&mut h, "British English");
@@ -288,7 +288,7 @@ fn a_second_build_is_picked_for_its_model_then_removed_alone() {
     let mut h = settings(dir.path());
     let model = TINY.first().unwrap();
     h.state_mut()
-        .queue(Command::Intent(Intent::OpenSettings(Tab::Model(model))));
+        .queue(Sent::Engine(Command::OpenSettings(Tab::Model(model))));
     h.run_steps(3);
     press(&mut h, "Use Lite");
     h.run_steps(2);
@@ -392,7 +392,7 @@ fn voices_inside_the_builds_need_no_download_and_builds_share_their_file() {
     let mut h = settings(dir.path());
     let model = TINY.get(2).unwrap();
     h.state_mut()
-        .queue(Command::Intent(Intent::OpenSettings(Tab::Model(model))));
+        .queue(Sent::Engine(Command::OpenSettings(Tab::Model(model))));
     h.run_steps(3);
     assert!(h.query_by_label("All voices").is_none(), "nothing to fetch");
     assert!(h.query_by_label("Download Max").is_none());

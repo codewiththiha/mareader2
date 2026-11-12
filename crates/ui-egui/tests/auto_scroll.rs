@@ -5,7 +5,7 @@ use egui_kittest::Harness;
 use mareader_ui_egui::MareaderApp;
 use mareader_ui_egui::layout::ViewMode;
 use mareader_ui_egui::pdf_view::AUTO_SPEED;
-use mareader_ui_egui::ui_command::{Command, Intent};
+use mareader_ui_egui::ui_command::{Command, Sent};
 
 use crate::common::reader;
 
@@ -48,7 +48,7 @@ fn shift_a_drifts_at_its_pace_whatever_the_steps() {
 fn paged_modes_refuse_it_and_say_why() {
     let mut h = reader(&[("pdf", "sample:40")]);
     h.state_mut()
-        .queue(Command::Intent(Intent::View(ViewMode::Single)));
+        .queue(Sent::Engine(Command::View(ViewMode::Single)));
     h.run_steps(5);
     toggle(&mut h);
     assert!(!drifting(&h), "no drift in a paged mode");
@@ -67,7 +67,7 @@ fn escape_and_a_paged_mode_stop_it() {
     toggle(&mut h);
     assert!(drifting(&h));
     h.state_mut()
-        .queue(Command::Intent(Intent::View(ViewMode::Single)));
+        .queue(Sent::Engine(Command::View(ViewMode::Single)));
     h.run_steps(5);
     assert!(!drifting(&h), "a paged mode stops it");
 }
@@ -75,7 +75,7 @@ fn escape_and_a_paged_mode_stop_it() {
 #[test]
 fn it_stops_at_the_strips_end() {
     let mut h = reader(&[("pdf", "sample:3")]);
-    h.state_mut().queue(Command::Intent(Intent::LastPage));
+    h.state_mut().queue(Sent::Engine(Command::LastPage));
     h.run_steps(120);
     toggle(&mut h);
     assert!(drifting(&h), "on above the end");

@@ -33,7 +33,7 @@ pub use mareader_engine::study::words::Asked;
 
 use crate::theme::Tokens;
 use crate::toast::Toast;
-use crate::ui_command::{Command, Commands, Intent, UiCommand};
+use crate::ui_command::{Command, Commands, Sent, UiCommand};
 
 /// How long Undo stays offered after a removal.
 ///
@@ -861,9 +861,9 @@ impl Study {
                 };
                 let toast = match n {
                     0 => Toast::info(message),
-                    _ => Toast::info(message).undo(Intent::Study(Action::Unstyle(before))),
+                    _ => Toast::info(message).undo(Command::Study(Action::Unstyle(before))),
                 };
-                out.push(Command::Ui(UiCommand::Notify(toast)));
+                out.push(Sent::Ui(UiCommand::Notify(toast)));
             }
             Action::Unstyle(looks) => {
                 for (id, style) in looks {
@@ -944,10 +944,8 @@ impl Study {
                 1 => format!("Removed {what}"),
                 n => format!("Removed {n} {what}s"),
             };
-            let undo = Intent::Study(Action::Restore(ids));
-            out.push(Command::Ui(UiCommand::Notify(
-                Toast::info(message).undo(undo),
-            )));
+            let undo = Command::Study(Action::Restore(ids));
+            out.push(Sent::Ui(UiCommand::Notify(Toast::info(message).undo(undo))));
         }
     }
 
@@ -989,8 +987,8 @@ impl Study {
             self.loose.set_note(id, None, wall);
         }
         if let Some(text) = was {
-            let undo = Intent::Study(Action::RestoreNote(id, text));
-            out.push(Command::Ui(UiCommand::Notify(
+            let undo = Command::Study(Action::RestoreNote(id, text));
+            out.push(Sent::Ui(UiCommand::Notify(
                 Toast::info("Deleted note").undo(undo),
             )));
         }
@@ -1094,7 +1092,7 @@ impl Study {
             && (outside(self.note_rect) || room(n.pane).is_none() || !n.seen)
         {
             match n.draft {
-                Some(_) => out.push(Command::Intent(Intent::Study(Action::SaveNote(n.mark.id)))),
+                Some(_) => out.push(Sent::Engine(Command::Study(Action::SaveNote(n.mark.id)))),
                 None => self.note = None,
             }
         }

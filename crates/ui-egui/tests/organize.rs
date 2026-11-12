@@ -7,7 +7,7 @@ use mareader_ui_egui::MareaderApp;
 use mareader_ui_egui::library::organizing::{Heard, Paused};
 use mareader_ui_egui::library::{Action, ShelfAction};
 use mareader_ui_egui::toast::Toast;
-use mareader_ui_egui::ui_command::{Command, Commands, Intent, UiCommand};
+use mareader_ui_egui::ui_command::{Command, Commands, Sent, UiCommand};
 
 /// Frames enough for a run's card to show; its ring keeps asking for more.
 const FRAMES: usize = 40;
@@ -28,8 +28,7 @@ fn page(options: &[(&str, &str)]) -> Harness<'static, MareaderApp> {
 }
 
 fn act(h: &mut Harness<'static, MareaderApp>, action: Action) {
-    h.state_mut()
-        .queue(Command::Intent(Intent::Library(action)));
+    h.state_mut().queue(Sent::Engine(Command::Library(action)));
     h.run_steps(4);
 }
 
@@ -197,10 +196,10 @@ fn a_finished_plan_waits_for_review_and_a_failure_offers_resume() {
     };
     library.set_paused(Some(paused));
     library.heard(Heard::Failed(Toast::error("Couldn't organize.")), &mut out);
-    let Some(Command::Ui(UiCommand::Notify(failed))) = out.first() else {
+    let Some(Sent::Ui(UiCommand::Notify(failed))) = out.first() else {
         panic!("a toast")
     };
     assert_eq!(failed.label, "Resume");
-    let resume = Intent::Library(Action::ResumeOrganizing);
+    let resume = Command::Library(Action::ResumeOrganizing);
     assert_eq!(failed.undo.as_deref(), Some(&resume));
 }

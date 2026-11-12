@@ -15,7 +15,7 @@ use crate::appearance_menu::MenuContext;
 use crate::gpu::{Anchor, Gpu, GrainCallback, PagesCallback, Quad, crawl_offset};
 use crate::icons::Icon;
 use crate::theme::{self, Tokens};
-use crate::ui_command::{Command, Commands, Intent};
+use crate::ui_command::{Command, Commands, Sent};
 use crate::widgets;
 
 const DRAFT_ID: &str = "dial-deck-preset-draft";
@@ -228,7 +228,7 @@ fn draft_card(
             }
         });
         if named && (save || enter) {
-            out.push(Command::Intent(Intent::SavePreset {
+            out.push(Sent::Engine(Command::SavePreset {
                 name: d.name.trim().to_owned(),
                 group: d.group.trim().to_owned(),
                 look: *look,
@@ -320,7 +320,7 @@ fn preset_card(
     if own {
         let del = delete_badge(ui, page, p, hot, t);
         if del.clicked() {
-            out.push(Command::Intent(Intent::DeletePreset(p.id.clone())));
+            out.push(Sent::Engine(Command::DeletePreset(p.id.clone())));
             return;
         }
     }

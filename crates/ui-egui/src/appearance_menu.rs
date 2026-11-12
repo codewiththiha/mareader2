@@ -18,7 +18,7 @@ use crate::dial_deck::labels::{mode_icon, noise_label, strength_percent};
 use crate::gpu::{Anchor, Gpu, GrainCallback, PagesCallback, Quad, crawl_offset};
 use crate::icons::Icon;
 use crate::theme::Tokens;
-use crate::ui_command::{Command, Commands, Independence, Intent};
+use crate::ui_command::{Command, Commands, Independence, Sent};
 use crate::widgets;
 
 pub const WIDTH: f32 = 300.0;
@@ -133,15 +133,15 @@ pub fn show(ui: &mut Ui, cx: &MenuContext<'_>, out: &mut Commands) {
     if split != cx.independence
         && let Some(i) = split
     {
-        out.push(Command::Intent(Intent::SetIndependence(i)));
+        out.push(Sent::Engine(Command::SetIndependence(i)));
     }
     if a != *cx.current {
-        out.push(Command::Intent(Intent::SetAppearance(a)));
+        out.push(Sent::Engine(Command::SetAppearance(a)));
     }
     if text != cx.text
         && let Some(q) = text
     {
-        out.push(Command::Intent(Intent::SetQuickText(q)));
+        out.push(Sent::Engine(Command::SetQuickText(q)));
     }
 }
 
@@ -454,7 +454,7 @@ fn ink_dial(ui: &mut Ui, ink: f32, out: &mut Commands) {
     let mut value = shown;
     slider(ui, "Text ink", &mut value, lo as u8..=hi as u8);
     if value != shown {
-        out.push(Command::Intent(Intent::SetInkContrast(f32::from(value))));
+        out.push(Sent::Engine(Command::SetInkContrast(f32::from(value))));
     }
 }
 
@@ -716,7 +716,7 @@ fn card(
     resp.widget_info(|| WidgetInfo::selected(WidgetType::Button, true, selected, &label));
     let own = cx.user.iter().any(|u| u.id == p.id);
     if own && hot && delete_button(ui, page, p).clicked() {
-        out.push(Command::Intent(Intent::DeletePreset(p.id.clone())));
+        out.push(Sent::Engine(Command::DeletePreset(p.id.clone())));
     } else if resp.on_hover_text(&p.name).clicked() {
         *a = p.appearance;
     }
@@ -855,7 +855,7 @@ fn draft_form(ui: &mut Ui, user: &[Preset], look: &Appearance, d: &mut Draft, ou
             }
         });
         if named && (save || enter) {
-            out.push(Command::Intent(Intent::SavePreset {
+            out.push(Sent::Engine(Command::SavePreset {
                 name: d.name.trim().to_owned(),
                 group: d.group.trim().to_owned(),
                 look: *look,

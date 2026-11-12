@@ -1,9 +1,9 @@
 //! The registry as a script sees it: ids a ledger can cite, and a row for
-//! every intent there is.
+//! every command there is.
 
 use mareader_appearance::Appearance;
 use mareader_engine::appearance_menu::QuickText;
-use mareader_engine::command::{Independence, Intent};
+use mareader_engine::command::{Command, Independence};
 use mareader_engine::command_spec::SPECS;
 use mareader_engine::dict::{Action as DictAction, Download};
 use mareader_engine::export::Format;
@@ -57,63 +57,63 @@ fn every_variant_has_a_row() {
 }
 
 /// What lands in a pane, what leaves one, and the library that fills them.
-fn pane_intents() -> Vec<Intent> {
+fn pane_intents() -> Vec<Command> {
     let pane = PaneId(1);
     let book = BookId(1);
     vec![
-        Intent::Split(SplitAxis::Horizontal),
-        Intent::FocusPane(pane),
-        Intent::CyclePane { forward: true },
-        Intent::ClosePane(pane),
-        Intent::SetRatio(vec![], 0.5),
-        Intent::Zoom(ZoomCommand::Step(Step::In)),
-        Intent::View(ViewMode::Single),
-        Intent::Open(mareader_engine::documents::OpenRequest::bytes(
+        Command::Split(SplitAxis::Horizontal),
+        Command::FocusPane(pane),
+        Command::CyclePane { forward: true },
+        Command::ClosePane(pane),
+        Command::SetRatio(vec![], 0.5),
+        Command::Zoom(ZoomCommand::Step(Step::In)),
+        Command::View(ViewMode::Single),
+        Command::Open(mareader_engine::documents::OpenRequest::bytes(
             vec![],
             "a.pdf",
         )),
-        Intent::OpenBook(book),
-        Intent::PlaceBook {
+        Command::OpenBook(book),
+        Command::PlaceBook {
             book,
             pane: Some(pane),
             placement: mareader_engine::documents::Placement::Into,
         },
-        Intent::ForgetPositions {
+        Command::ForgetPositions {
             books: vec![],
             paths: vec![],
         },
-        Intent::CopyPages {
+        Command::CopyPages {
             pane,
             pages: vec![],
         },
-        Intent::Export {
+        Command::Export {
             name: String::new(),
             format: Format::Markdown,
             contents: String::new(),
         },
-        Intent::Library(mareader_engine::library::Action::ShowAdd),
+        Command::Library(mareader_engine::library::Action::ShowAdd),
     ]
 }
 
 /// What moves the page a pane shows.
-fn page_intents() -> Vec<Intent> {
+fn page_intents() -> Vec<Command> {
     let pane = PaneId(1);
     vec![
-        Intent::Arrow(Arrow::Left),
-        Intent::Page { forward: true },
-        Intent::AutoScroll,
-        Intent::FirstPage,
-        Intent::LastPage,
-        Intent::GoTo { pane, page: 0 },
-        Intent::Turn {
+        Command::Arrow(Arrow::Left),
+        Command::Page { forward: true },
+        Command::AutoScroll,
+        Command::FirstPage,
+        Command::LastPage,
+        Command::GoTo { pane, page: 0 },
+        Command::Turn {
             pane,
             forward: true,
         },
-        Intent::WordList {
+        Command::WordList {
             pane,
             pages: vec![],
         },
-        Intent::WordListWindow {
+        Command::WordListWindow {
             pane,
             pages: vec![],
         },
@@ -121,90 +121,90 @@ fn page_intents() -> Vec<Intent> {
 }
 
 /// What the reader marks, and what a marked word is asked.
-fn mark_intents() -> Vec<Intent> {
+fn mark_intents() -> Vec<Command> {
     let pane = PaneId(1);
     vec![
-        Intent::Bookmark(Some(pane)),
-        Intent::Highlight {
+        Command::Bookmark(Some(pane)),
+        Command::Highlight {
             pane,
             pen: Pen::default(),
             color: None,
         },
-        Intent::Note(pane),
-        Intent::SelectText {
+        Command::Note(pane),
+        Command::SelectText {
             pane,
             page: 0,
             text: String::new(),
         },
-        Intent::Explain(pane),
-        Intent::LookUp(pane),
-        Intent::Study(StudyAction::Close),
-        Intent::Dict(DictAction::CloseCard),
-        Intent::Vocab(Download::Start),
-        Intent::Pronunciation(Download::Start),
+        Command::Explain(pane),
+        Command::LookUp(pane),
+        Command::Study(StudyAction::Close),
+        Command::Dict(DictAction::CloseCard),
+        Command::Vocab(Download::Start),
+        Command::Pronunciation(Download::Start),
     ]
 }
 
 /// What is heard, and where the voice that says it comes from.
-fn reading_intents() -> Vec<Intent> {
+fn reading_intents() -> Vec<Command> {
     let pane = PaneId(1);
     // A const, so the borrow is 'static as `RevealVoice` needs.
     let model: &'static mareader_speech::Model = &KOKORO;
     vec![
-        Intent::ReadAloud {
+        Command::ReadAloud {
             pane,
             from: ReadFrom::default(),
         },
-        Intent::ToggleReadAloud,
-        Intent::StopReadAloud,
-        Intent::PlaceReadMarker {
+        Command::ToggleReadAloud,
+        Command::StopReadAloud,
+        Command::PlaceReadMarker {
             pane,
             spot: Spot::default(),
         },
-        Intent::SayWord(String::new()),
-        Intent::SayWordWith {
+        Command::SayWord(String::new()),
+        Command::SayWordWith {
             word: String::new(),
             voice: String::new(),
         },
-        Intent::StopSaying,
-        Intent::TryVoice,
-        Intent::TryVoiceOf(String::new()),
-        Intent::StopVoiceTry,
-        Intent::RevealVoice(model, "en"),
-        Intent::VoiceModel(Item::Model("kokoro"), Download::Start),
+        Command::StopSaying,
+        Command::TryVoice,
+        Command::TryVoiceOf(String::new()),
+        Command::StopVoiceTry,
+        Command::RevealVoice(model, "en"),
+        Command::VoiceModel(Item::Model("kokoro"), Download::Start),
     ]
 }
 
 /// What is kept between launches, and the AI's own asks.
-fn settings_intents() -> Vec<Intent> {
+fn settings_intents() -> Vec<Command> {
     let pane = PaneId(1);
     let quick = QuickText::of(&mareader_settings::TextSettings::default());
     vec![
-        Intent::OpenSettings(Tab::Appearance),
-        Intent::SetSettings(Box::default()),
-        Intent::SetField {
+        Command::OpenSettings(Tab::Appearance),
+        Command::SetSettings(Box::default()),
+        Command::SetField {
             path: String::new(),
             value: String::new(),
         },
-        Intent::SetAppearance(Appearance::default()),
-        Intent::SetQuickText(quick),
-        Intent::SetInkContrast(1.0),
-        Intent::SetIndependence(Independence {
+        Command::SetAppearance(Appearance::default()),
+        Command::SetQuickText(quick),
+        Command::SetInkContrast(1.0),
+        Command::SetIndependence(Independence {
             themes: false,
             textures: false,
         }),
-        Intent::SavePreset {
+        Command::SavePreset {
             name: String::new(),
             group: String::new(),
             look: Appearance::default(),
         },
-        Intent::DeletePreset(String::new()),
-        Intent::SetDictionary(Box::default()),
-        Intent::SetLibraryView(View::default()),
-        Intent::SetSidebarOverlay(false),
-        Intent::SetTitlebarPinned(false),
-        Intent::PageAi(PageAiAction::StopFollow(pane)),
+        Command::DeletePreset(String::new()),
+        Command::SetDictionary(Box::default()),
+        Command::SetLibraryView(View::default()),
+        Command::SetSidebarOverlay(false),
+        Command::SetTitlebarPinned(false),
+        Command::PageAi(PageAiAction::StopFollow(pane)),
         #[cfg(not(target_arch = "wasm32"))]
-        Intent::Ai(mareader_settings::Job::Probe),
+        Command::Ai(mareader_settings::Job::Probe),
     ]
 }

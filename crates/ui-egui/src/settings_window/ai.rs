@@ -11,7 +11,7 @@ use super::highlights::{palette, preview};
 use super::{ROW_H, Tab, choices, divider, group, note, row, section};
 use crate::icons::Icon;
 use crate::theme::Tokens;
-use crate::ui_command::{Command, Commands, Intent};
+use crate::ui_command::{Command, Commands, Sent};
 use crate::widgets;
 
 const PICK_W: f32 = 240.0;
@@ -44,7 +44,7 @@ pub fn tab(
 /// Asks once whether Apple Intelligence is on this Mac.
 pub(super) fn probe(board: Option<&Board>, out: &mut Commands) {
     if cfg!(target_os = "macos") && board.is_some_and(|b| b.apple == Load::Idle) {
-        out.push(Command::Intent(Intent::Ai(Job::Probe)));
+        out.push(Sent::Engine(Command::Ai(Job::Probe)));
     }
 }
 
@@ -66,7 +66,7 @@ fn no_models(ui: &mut Ui, out: &mut Commands) {
         row(ui, "No AI models yet", hint, |ui| {
             let button = widgets::primary_button(ui, Some(Icon::Chip), "Add a model", t.accent, &t);
             if ui.add(button).clicked() {
-                out.push(Command::Intent(Intent::OpenSettings(Tab::Models)));
+                out.push(Sent::Engine(Command::OpenSettings(Tab::Models)));
             }
         });
     });

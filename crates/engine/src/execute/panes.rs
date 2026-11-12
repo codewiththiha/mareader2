@@ -4,55 +4,55 @@ use mareader_settings::EdgeParking;
 use mareader_workspace::{Edge, PaneId, SplitAxis};
 
 use super::note;
-use crate::command::Intent;
+use crate::command::Command;
 use crate::desk::Desk;
 use crate::documents::{OpenRequest, Placement};
 use crate::event::Event;
 use crate::route::Route;
 use crate::toast::Toast;
 
-pub(super) fn run(desk: &mut dyn Desk, intent: Intent, now: f64) {
+pub(super) fn run(desk: &mut dyn Desk, intent: Command, now: f64) {
     match intent {
-        Intent::Split(axis) => split(desk, axis),
-        Intent::FocusPane(id) => desk.session().focus(id),
-        Intent::CyclePane { forward } => cycle(desk, forward),
-        Intent::ClosePane(id) => {
+        Command::Split(axis) => split(desk, axis),
+        Command::FocusPane(id) => desk.session().focus(id),
+        Command::CyclePane { forward } => cycle(desk, forward),
+        Command::ClosePane(id) => {
             if desk.session().close(id) {
                 desk.close_pane(id);
             }
         }
-        Intent::SetRatio(..) => {
+        Command::SetRatio(..) => {
             desk.session().apply(intent);
         }
-        Intent::Open(request) => open(desk, request),
-        Intent::Export {
+        Command::Open(request) => open(desk, request),
+        Command::Export {
             name,
             format,
             contents,
         } => desk.save(name, format, contents),
-        Intent::CopyPages { pane, pages } => desk.copy_pages(pane, pages),
+        Command::CopyPages { pane, pages } => desk.copy_pages(pane, pages),
         other => pages(desk, other, now),
     }
 }
 
 /// What moves the page a pane shows; most act on the focused pane.
-fn pages(desk: &mut dyn Desk, intent: Intent, now: f64) {
+fn pages(desk: &mut dyn Desk, intent: Command, now: f64) {
     let active = desk.session().active();
     match intent {
-        Intent::Zoom(zoom) => desk.zoom(active, zoom, now),
-        Intent::View(mode) => desk.set_mode(active, mode, now),
-        Intent::Arrow(arrow) => desk.arrow(active, arrow, now),
-        Intent::Page { forward } => desk.page_key(active, forward),
-        Intent::AutoScroll => {
+        Command::Zoom(zoom) => desk.zoom(active, zoom, now),
+        Command::View(mode) => desk.set_mode(active, mode, now),
+        Command::Arrow(arrow) => desk.arrow(active, arrow, now),
+        Command::Page { forward } => desk.page_key(active, forward),
+        Command::AutoScroll => {
             if !desk.toggle_drift(active, now) {
                 let why = "Auto-scroll runs in the scrolling views";
                 note(desk, Toast::info(why));
             }
         }
-        Intent::FirstPage => desk.go_to(active, 0),
-        Intent::LastPage => desk.go_to(active, usize::MAX),
-        Intent::GoTo { pane, page } => desk.go_to(pane, page),
-        Intent::Turn { pane, forward } => desk.turn(pane, forward),
+        Command::FirstPage => desk.go_to(active, 0),
+        Command::LastPage => desk.go_to(active, usize::MAX),
+        Command::GoTo { pane, page } => desk.go_to(pane, page),
+        Command::Turn { pane, forward } => desk.turn(pane, forward),
         _ => {}
     }
 }

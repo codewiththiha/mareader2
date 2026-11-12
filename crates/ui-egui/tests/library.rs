@@ -14,7 +14,7 @@ use mareader_ui_egui::MareaderApp;
 use mareader_ui_egui::library::{
     Action, BookAction, Named, Pick, PickAction, SearchAction, Sheet, ShelfAction,
 };
-use mareader_ui_egui::ui_command::{Command, Intent, UiCommand};
+use mareader_ui_egui::ui_command::{Command, Sent, UiCommand};
 
 use crate::common::{act, carry, go_to, reader, release};
 
@@ -112,7 +112,7 @@ fn the_library_page_opens_a_book_where_it_was_left() {
     let mut h = reader(&[("epub", path.to_str().unwrap())]);
     go_to(&mut h, 3);
     open(&mut h, "pdf", "sample:5");
-    h.state_mut().queue(Command::Ui(UiCommand::ShowLibrary));
+    h.state_mut().queue(Sent::Ui(UiCommand::ShowLibrary));
     h.run();
     assert!(h.state().library_showing());
     assert!(h.query_by_label("1 book").is_some(), "{}", state(&h));
@@ -133,7 +133,7 @@ fn escape_leaves_the_library_only_for_something_to_read() {
     assert!(h.state().library_showing(), "nothing open to go back to");
     open(&mut h, "pdf", "sample:5");
     assert!(!h.state().library_showing(), "an open shows the reader");
-    h.state_mut().queue(Command::Ui(UiCommand::ShowLibrary));
+    h.state_mut().queue(Sent::Ui(UiCommand::ShowLibrary));
     h.run();
     h.key_press(egui::Key::Escape);
     h.run();
@@ -264,7 +264,7 @@ fn a_book_with_a_cover_shows_it_in_the_library() {
     std::fs::write(&path, mareader_epub::sample::epub(2, "Covered")).unwrap();
     let mut h = reader(&[("epub", path.to_str().unwrap())]);
     assert_eq!(h.state().covers_shown(), 0, "none until the page shows");
-    h.state_mut().queue(Command::Ui(UiCommand::ShowLibrary));
+    h.state_mut().queue(Sent::Ui(UiCommand::ShowLibrary));
     h.run();
     assert!(h.query_by_label("Covered").is_some(), "{}", state(&h));
     assert_eq!(h.state().covers_shown(), 1, "{}", state(&h));
@@ -280,18 +280,18 @@ fn the_library_keeps_its_own_title_bar_pin() {
         (c.pinned(Bar::Reader), c.pinned(Bar::Library))
     };
     assert!(!h.state().pinned());
-    h.state_mut().queue(Command::Ui(UiCommand::ShowLibrary));
+    h.state_mut().queue(Sent::Ui(UiCommand::ShowLibrary));
     h.run();
     assert!(h.state().pinned(), "the library pins by default");
     h.state_mut()
-        .queue(Command::Intent(Intent::SetTitlebarPinned(false)));
+        .queue(Sent::Engine(Command::SetTitlebarPinned(false)));
     h.run();
     assert_eq!(chrome(&h), (false, false));
-    h.state_mut().queue(Command::Ui(UiCommand::ShowLibrary));
+    h.state_mut().queue(Sent::Ui(UiCommand::ShowLibrary));
     h.run();
     assert!(!h.state().library_showing());
     h.state_mut()
-        .queue(Command::Intent(Intent::SetTitlebarPinned(true)));
+        .queue(Sent::Engine(Command::SetTitlebarPinned(true)));
     h.run();
     assert_eq!(chrome(&h), (true, false), "the reader's pin alone");
     assert!(h.state().pinned());
@@ -301,7 +301,7 @@ fn the_library_keeps_its_own_title_bar_pin() {
 fn the_library_shows_no_rail_and_only_its_own_bar_tools() {
     let mut h = reader(&[("pdf", "sample:5"), ("sidebar", "outline")]);
     assert!(h.query_by_label("Close sidebar").is_some());
-    h.state_mut().queue(Command::Ui(UiCommand::ShowLibrary));
+    h.state_mut().queue(Sent::Ui(UiCommand::ShowLibrary));
     h.run();
     // The library's bar starts pinned, so all of it is on show.
     let reader_only = ["Close sidebar", "Toggle sidebar", "Search", "View & tools"];
@@ -324,7 +324,7 @@ fn the_library_settings_list_only_what_it_uses() {
     let listed =
         |h: &Harness<'static, MareaderApp>, tab: &str| h.query_all_by_label(tab).count() > 0;
     let mut h = reader(&[("pdf", "sample:5")]);
-    h.state_mut().queue(Command::Ui(UiCommand::ShowLibrary));
+    h.state_mut().queue(Sent::Ui(UiCommand::ShowLibrary));
     h.run();
     h.get_by_label("Settings").click();
     h.run();
@@ -337,10 +337,10 @@ fn the_library_settings_list_only_what_it_uses() {
         assert!(!listed(&h, gone), "{gone} in the library");
     }
     // Back with the books, every tab.
-    h.state_mut().queue(Command::Ui(UiCommand::CloseSettings));
-    h.state_mut().queue(Command::Ui(UiCommand::ShowLibrary));
+    h.state_mut().queue(Sent::Ui(UiCommand::CloseSettings));
+    h.state_mut().queue(Sent::Ui(UiCommand::ShowLibrary));
     h.run();
-    h.state_mut().queue(Command::Ui(UiCommand::ShowSettings));
+    h.state_mut().queue(Sent::Ui(UiCommand::ShowSettings));
     h.run();
     for tab in ["Layout", "Panes", "Motion"] {
         assert!(listed(&h, tab), "{tab} missing in the reader");
@@ -357,19 +357,19 @@ fn an_empty_library_offers_no_way_back() {
 #[test]
 fn reader_commands_and_keys_do_nothing_in_the_library() {
     let mut h = reader(&[("pdf", "sample:5")]);
-    h.state_mut().queue(Command::Ui(UiCommand::ShowFind));
+    h.state_mut().queue(Sent::Ui(UiCommand::ShowFind));
     h.run();
     assert!(h.state().find().is_open());
-    h.state_mut().queue(Command::Ui(UiCommand::ShowLibrary));
+    h.state_mut().queue(Sent::Ui(UiCommand::ShowLibrary));
     h.run();
     assert!(
         !h.state().find().is_open(),
         "the find bar ends with the panes"
     );
     for c in [
-        Command::Intent(Intent::Split(mareader_workspace::SplitAxis::Horizontal)),
-        Command::Ui(UiCommand::ToggleSidebar),
-        Command::Intent(Intent::LastPage),
+        Sent::Engine(Command::Split(mareader_workspace::SplitAxis::Horizontal)),
+        Sent::Ui(UiCommand::ToggleSidebar),
+        Sent::Engine(Command::LastPage),
     ] {
         h.state_mut().queue(c);
     }
@@ -378,7 +378,7 @@ fn reader_commands_and_keys_do_nothing_in_the_library() {
     assert!(h.state().library_showing());
     assert_eq!(h.state().panes().len(), 1);
     assert!(!h.state().sidebar().is_open());
-    h.state_mut().queue(Command::Ui(UiCommand::ShowLibrary));
+    h.state_mut().queue(Sent::Ui(UiCommand::ShowLibrary));
     h.run();
     let app = h.state();
     let page = app.documents().current(app.active_pane());
@@ -393,7 +393,7 @@ fn the_library_appearance_menu_has_no_page_texture() {
     assert!(h.query_by_label("Page texture").is_some());
     h.key_press(egui::Key::Escape);
     h.run();
-    h.state_mut().queue(Command::Ui(UiCommand::ShowLibrary));
+    h.state_mut().queue(Sent::Ui(UiCommand::ShowLibrary));
     h.run();
     h.get_by_label("Appearance").click();
     h.run();
@@ -407,7 +407,7 @@ fn the_library_appearance_menu_has_no_page_texture() {
 #[test]
 fn the_view_menu_key_opens_the_librarys_own_menu() {
     let mut h = reader(&[("library", "show"), ("books", "3")]);
-    h.state_mut().queue(Command::Ui(UiCommand::ShowViewMenu));
+    h.state_mut().queue(Sent::Ui(UiCommand::ShowViewMenu));
     h.run();
     assert!(h.query_by_label("Sort by").is_some());
     assert!(
@@ -508,7 +508,7 @@ fn a_file_moved_within_a_folder_keeps_its_book_and_place() {
     let mut h = reader(&[("library", "show")]);
     act(&mut h, read_in(dir.path()));
     let id = library(&h).book_at(&raven).unwrap();
-    h.state_mut().queue(Command::Intent(Intent::OpenBook(id)));
+    h.state_mut().queue(Sent::Engine(Command::OpenBook(id)));
     h.run();
     go_to(&mut h, 2);
     let now = moved(&raven, &dir.path().join("read/The Raven.epub"));
@@ -1182,13 +1182,13 @@ fn erasing_a_position_restarts_an_open_book_before_it_returns() {
     let content = library(&h).book(id).unwrap().content;
     let folder = library(&h).folder_at(&root, true).unwrap();
 
-    h.state_mut().queue(Command::Intent(Intent::OpenBook(id)));
+    h.state_mut().queue(Sent::Engine(Command::OpenBook(id)));
     h.run();
     h.run_steps(3);
     go_to(&mut h, 4);
     h.run_steps(3);
     assert_eq!(library(&h).position(id).map(|p| p.page), Some(4));
-    h.state_mut().queue(Command::Ui(UiCommand::ShowLibrary));
+    h.state_mut().queue(Sent::Ui(UiCommand::ShowLibrary));
     h.run();
 
     book(
@@ -1233,7 +1233,7 @@ fn read_separately_keeps_a_second_place_in_the_same_file() {
         .map(|b| b.id)
         .unwrap_or_else(|| panic!("{}", state(&h)));
     assert_eq!(library(&h).book(twin).unwrap().title.value, "The Raven (2)");
-    h.state_mut().queue(Command::Intent(Intent::OpenBook(twin)));
+    h.state_mut().queue(Sent::Engine(Command::OpenBook(twin)));
     h.run();
     h.run_steps(3);
     assert_eq!(page(&h), 0, "a twin starts at its own place");
@@ -1243,7 +1243,7 @@ fn read_separately_keeps_a_second_place_in_the_same_file() {
     h.run_steps(3);
     assert_eq!(library(&h).position(twin).map(|p| p.page), Some(1));
     assert_eq!(library(&h).position(id).map(|p| p.page), Some(2));
-    h.state_mut().queue(Command::Intent(Intent::OpenBook(id)));
+    h.state_mut().queue(Sent::Engine(Command::OpenBook(id)));
     h.run();
     h.run_steps(3);
     assert_eq!(page(&h), 2, "the original kept its place");
@@ -1271,7 +1271,7 @@ fn a_failed_open_leaves_the_next_open_as_the_files_own_book() {
     // Shown nowhere, then unreadable: opening the twin fails.
     open(&mut h, "pdf", "sample:3");
     std::fs::write(&path, b"not a book").unwrap();
-    h.state_mut().queue(Command::Intent(Intent::OpenBook(twin)));
+    h.state_mut().queue(Sent::Engine(Command::OpenBook(twin)));
     h.run();
     h.run_steps(3);
     assert!(toast(&h).starts_with("Couldn't open"), "{}", state(&h));
@@ -1297,10 +1297,10 @@ fn a_twin_opened_beside_its_original_leaves_that_pane_alone() {
     let mut h = reader(&[("epub", path.to_str().unwrap())]);
     let first = h.state().active_pane();
     let (id, twin) = raven_and_twin(&mut h, &path);
-    let split = Command::Intent(Intent::Split(mareader_workspace::SplitAxis::Horizontal));
+    let split = Sent::Engine(Command::Split(mareader_workspace::SplitAxis::Horizontal));
     h.state_mut().queue(split);
     h.run();
-    h.state_mut().queue(Command::Intent(Intent::OpenBook(twin)));
+    h.state_mut().queue(Sent::Engine(Command::OpenBook(twin)));
     h.run();
     h.run_steps(3);
     let beside = h.state().active_pane();
@@ -1311,8 +1311,7 @@ fn a_twin_opened_beside_its_original_leaves_that_pane_alone() {
         None,
         "still the original"
     );
-    h.state_mut()
-        .queue(Command::Intent(Intent::FocusPane(first)));
+    h.state_mut().queue(Sent::Engine(Command::FocusPane(first)));
     h.run();
     go_to(&mut h, 3);
     h.run_steps(3);

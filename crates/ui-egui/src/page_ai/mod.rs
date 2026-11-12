@@ -22,7 +22,7 @@ use mareader_workspace::PaneId;
 use crate::documents::{AiView, Documents};
 use crate::gpu::Gpu;
 use crate::toast::Toast;
-use crate::ui_command::{Command, Commands, UiCommand};
+use crate::ui_command::{Commands, Sent, UiCommand};
 pub use follow::Around;
 use mareader_engine::page_ai::extract::{self, Source};
 use mareader_engine::stable_hash::hash;
@@ -506,7 +506,7 @@ impl PageAi {
     ) -> Option<u64> {
         let view = asked.documents.ai_view(asked.pane)?;
         let page = view.document.to_base(asked.page);
-        let note = |s: &str| Command::Ui(UiCommand::Notify(Toast::info(s.to_owned())));
+        let note = |s: &str| Sent::Ui(UiCommand::Notify(Toast::info(s.to_owned())));
         let found = match source_of(&view, asked.documents, page) {
             Ok(found) => found,
             Err("loading") => {
@@ -617,7 +617,7 @@ impl PageAi {
                         if batch.is_some_and(|b| b.waiting_any()) {
                             said.push_str(" The pages left weren't asked.");
                         }
-                        out.push(Command::Ui(UiCommand::Notify(Toast::info(said.clone()))));
+                        out.push(Sent::Ui(UiCommand::Notify(Toast::info(said.clone()))));
                         run.failed = Some(said);
                     }
                 }

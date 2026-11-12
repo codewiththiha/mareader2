@@ -32,7 +32,7 @@ pub struct Independence {
 }
 
 #[derive(Clone, Debug, PartialEq)]
-pub enum Intent {
+pub enum Command {
     /// Background work for the AI settings: keys, models, a trial.
     #[cfg(not(target_arch = "wasm32"))]
     Ai(mareader_settings::Job),

@@ -7,7 +7,7 @@ use mareader_workspace::PaneId;
 
 use super::{Action, restyle};
 use crate::theme::Tokens;
-use crate::ui_command::{Command, Commands, Intent};
+use crate::ui_command::{Command, Commands, Sent};
 
 /// The Style… popover's id, for shots to open it.
 pub const STYLE_ID: &str = "study-picking-style";
@@ -77,8 +77,7 @@ pub fn bar(
                     ui.horizontal(|ui| {
                         ui.label(RichText::new(format!("{n} selected")).color(t.ink));
                         ui.separator();
-                        let act =
-                            |out: &mut Commands, a| out.push(Command::Intent(Intent::Study(a)));
+                        let act = |out: &mut Commands, a| out.push(Sent::Engine(Command::Study(a)));
                         if ui.button("This page").clicked() {
                             act(out, Action::PickPage);
                         }

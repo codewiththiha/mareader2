@@ -1,5 +1,5 @@
 use super::*;
-use crate::ui_command::{Intent, UiCommand};
+use crate::ui_command::{Command, UiCommand};
 
 impl MareaderApp {
     pub(super) fn prepare(
@@ -102,11 +102,11 @@ impl MareaderApp {
         let floats = self.settings().dictionary.opens == DictionaryOpens::Window;
         if route == Route::Reader && floats && win.open && !win.minimized && !self.ui.dict.typing()
         {
-            let focus = Command::Intent(Intent::Dict(crate::dict::Action::Window(
+            let focus = Sent::Engine(Command::Dict(crate::dict::Action::Window(
                 crate::dict::Window::Focus,
             )));
             for c in commands.iter_mut().skip(read) {
-                if matches!(c, Command::Ui(UiCommand::ShowDictionary)) {
+                if matches!(c, Sent::Ui(UiCommand::ShowDictionary)) {
                     *c = focus.clone();
                 }
             }
@@ -136,14 +136,14 @@ impl MareaderApp {
         // The library page lets go of a selection, else goes back to reading.
         if free && route == Route::Library {
             if !self.ui.library.escape() {
-                commands.push(Command::Ui(UiCommand::ShowLibrary));
+                commands.push(Sent::Ui(UiCommand::ShowLibrary));
             }
             free = false;
         }
         // The dictionary clears its search, else goes back.
         if free && route == Route::Dictionary {
             if !self.ui.dict.page_escape() {
-                commands.push(Command::Ui(UiCommand::ShowDictionary));
+                commands.push(Sent::Ui(UiCommand::ShowDictionary));
             }
             free = false;
         }
@@ -151,7 +151,7 @@ impl MareaderApp {
         let window = self.settings().dictionary.window.open && route == Route::Reader;
         if free && window && self.ui.dict.typing() {
             if !self.ui.dict.page_escape() {
-                commands.push(Command::Intent(Intent::Dict(crate::dict::Action::Window(
+                commands.push(Sent::Engine(Command::Dict(crate::dict::Action::Window(
                     crate::dict::Window::Close,
                 ))));
             }
@@ -180,9 +180,9 @@ impl MareaderApp {
         let grid = self.ui.sidebar.is_open() && self.ui.sidebar.panel() == Panel::Thumbnails;
         if free && !selection && !(grid && self.ui.thumbs.clear_picks()) {
             if self.ui.sidebar.is_open() {
-                commands.push(Command::Ui(UiCommand::CloseSidebar));
+                commands.push(Sent::Ui(UiCommand::CloseSidebar));
             } else if self.ui.chromeless {
-                commands.push(Command::Ui(UiCommand::Chromeless));
+                commands.push(Sent::Ui(UiCommand::Chromeless));
             }
         }
         drop_target

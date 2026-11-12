@@ -13,7 +13,7 @@ use crate::icons::Icon;
 use crate::read_aloud::{SAY, STOP_SAYING};
 use crate::shaped;
 use crate::theme::{self, Tokens};
-use crate::ui_command::{Command, Commands, Intent};
+use crate::ui_command::{Command, Commands, Sent};
 
 /// A search field: a pill whose ring lights while it has the keys.
 pub struct Field<'a> {
@@ -303,7 +303,7 @@ pub fn say(
     }
     let speaker = voice.speaker(language).and_then(|s| s.voice.as_deref());
     out.push(match saying {
-        true => Command::Intent(Intent::StopSaying),
+        true => Sent::Engine(Command::StopSaying),
         false => crate::read_aloud::say(word, speaker),
     });
 }
@@ -353,7 +353,7 @@ pub fn offer(ui: &mut Ui, offer: Offer, out: &mut Commands) {
         offer.model.name
     );
     if r.on_hover_text(tip).clicked() {
-        out.push(Command::Intent(Intent::RevealVoice(offer.model, offer.tag)));
+        out.push(Sent::Engine(Command::RevealVoice(offer.model, offer.tag)));
     }
 }
 

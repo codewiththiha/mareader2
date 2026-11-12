@@ -12,7 +12,7 @@ use super::{
 use crate::dict::megabytes;
 use crate::icons::Icon;
 use crate::read_aloud::Booth;
-use crate::ui_command::{Command, Commands, Download, Intent};
+use crate::ui_command::{Command, Commands, Download, Sent};
 use crate::widgets;
 
 pub fn tab(
@@ -251,7 +251,7 @@ fn every_voice(
         if widgets::icon_button(ui, Icon::Download, label, false).clicked() {
             for v in &missing {
                 let item = Item::Voice(model.id, v.id);
-                out.push(Command::Intent(Intent::VoiceModel(item, Download::Start)));
+                out.push(Sent::Engine(Command::VoiceModel(item, Download::Start)));
             }
         }
         let bytes = shelf.to_fetch(model, &missing);
@@ -299,11 +299,11 @@ fn preview(ui: &mut Ui, room: &Room<'_>, voice: &'static ModelVoice, out: &mut C
     let here = booth.engine() == room.model.id;
     let saying = here && booth.trying_voice() == Some(voice.id);
     let (icon, verb, command) = match saying {
-        true => (Icon::Stop, "Stop", Command::Intent(Intent::StopVoiceTry)),
+        true => (Icon::Stop, "Stop", Sent::Engine(Command::StopVoiceTry)),
         false => (
             Icon::Try,
             "Preview",
-            Command::Intent(Intent::TryVoiceOf(voice.id.to_owned())),
+            Sent::Engine(Command::TryVoiceOf(voice.id.to_owned())),
         ),
     };
     let label = format!("{verb} {}", voice.name);
@@ -319,10 +319,10 @@ fn preview(ui: &mut Ui, room: &Room<'_>, voice: &'static ModelVoice, out: &mut C
 }
 
 /// The buttons of the voice-model download `item`, called `name`.
-pub(super) fn buttons(item: Item, name: &str) -> Buttons<'_, impl Fn(Download) -> Command> {
+pub(super) fn buttons(item: Item, name: &str) -> Buttons<'_, impl Fn(Download) -> Sent> {
     Buttons {
         name,
-        ask: move |what| Command::Intent(Intent::VoiceModel(item, what)),
+        ask: move |what| Sent::Engine(Command::VoiceModel(item, what)),
     }
 }
 

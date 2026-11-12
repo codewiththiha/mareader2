@@ -16,7 +16,7 @@ use crate::library::{Crumb, Field, crumbs, search};
 use crate::motion;
 use crate::platform::Platform;
 use crate::theme::{self, TITLE_BAR_H, Tokens};
-use crate::ui_command::{Command, Commands, Independence, UiCommand, WindowCommand};
+use crate::ui_command::{Commands, Independence, Sent, UiCommand, WindowCommand};
 use crate::view_menu::{self, MenuContext, Tool};
 use crate::widgets::{self, CaptionStyle};
 use crate::zoom::ZoomState;
@@ -124,7 +124,7 @@ fn tools() -> [Tool; 1] {
     [Tool {
         icon: Icon::Search,
         label: "Search",
-        command: Command::Ui(UiCommand::ShowSearch),
+        command: Sent::Ui(UiCommand::ShowSearch),
     }]
 }
 
@@ -151,7 +151,7 @@ fn dictionary_tool() -> Tool {
     Tool {
         icon: Icon::Dictionary,
         label: "Dictionary",
-        command: Command::Ui(UiCommand::ShowDictionary),
+        command: Sent::Ui(UiCommand::ShowDictionary),
     }
 }
 
@@ -269,11 +269,9 @@ impl TitleBar {
                 // Registered before the buttons so they win the pointer.
                 let drag = ui.interact(band, Id::new("titlebar-drag"), Sense::CLICK | Sense::DRAG);
                 if visible && drag.double_clicked() {
-                    out.push(Command::Ui(UiCommand::Window(
-                        WindowCommand::ToggleMaximize,
-                    )));
+                    out.push(Sent::Ui(UiCommand::Window(WindowCommand::ToggleMaximize)));
                 } else if visible && drag.drag_started() {
-                    out.push(Command::Ui(UiCommand::Window(WindowCommand::StartDrag)));
+                    out.push(Sent::Ui(UiCommand::Window(WindowCommand::StartDrag)));
                 }
                 let live = visible;
                 let mut row = band;
@@ -328,7 +326,7 @@ impl TitleBar {
     }
 }
 
-fn clicked(r: egui::Response, c: Command) -> Option<Command> {
+fn clicked(r: egui::Response, c: Sent) -> Option<Sent> {
     r.clicked().then_some(c)
 }
 
@@ -341,26 +339,26 @@ fn leading(
 ) -> (f32, Commands) {
     ui.spacing_mut().item_spacing.x = 4.0;
     let mut out = Commands::new();
-    let keys = keymap::hint(bar.platform, &Command::Ui(UiCommand::ShowDictionary));
+    let keys = keymap::hint(bar.platform, &Sent::Ui(UiCommand::ShowDictionary));
     let dictionary = |ui: &mut egui::Ui, label: &str, on: bool| {
         let r = widgets::icon_button_keyed(ui, Icon::Dictionary, label, on, keys.as_deref());
-        clicked(r, Command::Ui(UiCommand::ShowDictionary))
+        clicked(r, Sent::Ui(UiCommand::ShowDictionary))
     };
     match &bar.page {
         BarPage::Reader(reader) => {
             if reader.sidebar_toggle {
                 let r = widgets::icon_button(ui, Icon::Sidebar, "Toggle sidebar", false);
-                out.extend(clicked(r, Command::Ui(UiCommand::ToggleSidebar)));
+                out.extend(clicked(r, Sent::Ui(UiCommand::ToggleSidebar)));
             }
             let r = widgets::icon_button(ui, Icon::Library, "Library", false);
-            out.extend(clicked(r, Command::Ui(UiCommand::ShowLibrary)));
+            out.extend(clicked(r, Sent::Ui(UiCommand::ShowLibrary)));
             if fitting(bar, reader, width).0 {
                 out.extend(dictionary(ui, "Dictionary", reader.dictionary));
             }
         }
         BarPage::Dictionary(page) => {
             let r = widgets::icon_button(ui, Icon::Library, "Library", false);
-            out.extend(clicked(r, Command::Ui(UiCommand::ShowLibrary)));
+            out.extend(clicked(r, Sent::Ui(UiCommand::ShowLibrary)));
             // Pressed, it undoes itself, as the library's does.
             out.extend(dictionary(ui, page.back, true));
         }
@@ -368,7 +366,7 @@ fn leading(
             // Pressed, it undoes itself; with nothing open there's no way back.
             if library.can_return {
                 let r = widgets::icon_button(ui, Icon::Library, "Back to reading", true);
-                out.extend(clicked(r, Command::Ui(UiCommand::ShowLibrary)));
+                out.extend(clicked(r, Sent::Ui(UiCommand::ShowLibrary)));
             }
             out.extend(dictionary(ui, "Dictionary", false));
             // The crumbs leave the search field its narrowest width.
@@ -394,7 +392,7 @@ fn trailing(ui: &mut egui::Ui, bar: &BarContext<'_>, pinned: bool, width: f32) -
                 ui.spacing_mut().item_spacing.x = gap;
                 widgets::captions(ui, style, bar.maximized)
             });
-        out.extend(caption.inner.map(|w| Command::Ui(UiCommand::Window(w))));
+        out.extend(caption.inner.map(|w| Sent::Ui(UiCommand::Window(w))));
         ui.add_space(4.0);
     }
     let tools = tools();
@@ -436,9 +434,9 @@ fn trailing(ui: &mut egui::Ui, bar: &BarContext<'_>, pinned: bool, width: f32) -
     appearance_button(ui, bar, &mut out);
     if !matches!(bar.page, BarPage::Reader(_)) {
         // The reader's sits in its menu; these pages have no other way.
-        let keys = keymap::hint(bar.platform, &Command::Ui(UiCommand::ShowSettings));
+        let keys = keymap::hint(bar.platform, &Sent::Ui(UiCommand::ShowSettings));
         let r = widgets::icon_button_keyed(ui, Icon::Settings, "Settings", false, keys.as_deref());
-        out.extend(clicked(r, Command::Ui(UiCommand::ShowSettings)));
+        out.extend(clicked(r, Sent::Ui(UiCommand::ShowSettings)));
         return (ui.min_rect().left(), out);
     }
     for tool in shown {

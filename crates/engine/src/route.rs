@@ -1,8 +1,8 @@
-//! Which page fills the window, and which intents each one takes.
+//! Which page fills the window, and which commands each one takes.
 
 use mareader_settings::Bar;
 
-use crate::command::Intent;
+use crate::command::Command;
 
 /// The page in the window: the panes being read, the library, or the
 /// dictionary.
@@ -31,18 +31,18 @@ impl Route {
 }
 
 impl Route {
-    /// Whether `intent` means anything on this page. The rest are dropped.
+    /// Whether `command` means anything on this page. The rest are dropped.
     ///
-    /// `reads` is exhaustive over `Intent`, so a variant added there has to
+    /// `reads` is exhaustive over `Command`, so a variant added there has to
     /// say which pages it belongs to.
-    pub fn takes(self, intent: &Intent) -> bool {
+    pub fn takes(self, intent: &Command) -> bool {
         self == Route::Reader || !self.reads(intent)
     }
 
-    /// Whether `intent` acts on what only the reader shows: panes, pages,
+    /// Whether `command` acts on what only the reader shows: panes, pages,
     /// a book being read, or the pixels of one.
-    fn reads(self, intent: &Intent) -> bool {
-        use Intent as I;
+    fn reads(self, intent: &Command) -> bool {
+        use Command as I;
         match intent {
             I::Zoom(_) | I::View(_) | I::Arrow(_) | I::Page { .. } => true,
             I::FirstPage | I::LastPage | I::AutoScroll => true,
@@ -78,23 +78,23 @@ mod tests {
 
     #[test]
     fn the_library_drops_what_acts_on_panes() {
-        assert!(!Route::Library.takes(&Intent::View(crate::pane::ViewMode::Single)));
-        assert!(!Route::Library.takes(&Intent::FirstPage));
-        assert!(Route::Library.takes(&Intent::OpenSettings(crate::settings::Tab::Panes)));
-        assert!(Route::Reader.takes(&Intent::FirstPage));
+        assert!(!Route::Library.takes(&Command::View(crate::pane::ViewMode::Single)));
+        assert!(!Route::Library.takes(&Command::FirstPage));
+        assert!(Route::Library.takes(&Command::OpenSettings(crate::settings::Tab::Panes)));
+        assert!(Route::Reader.takes(&Command::FirstPage));
     }
 
     #[test]
     fn the_dictionary_keeps_its_settings_and_drops_reading() {
-        assert!(!Route::Dictionary.takes(&Intent::Bookmark(None)));
-        assert!(Route::Dictionary.takes(&Intent::OpenBook(mareader_library::BookId(1))));
+        assert!(!Route::Dictionary.takes(&Command::Bookmark(None)));
+        assert!(Route::Dictionary.takes(&Command::OpenBook(mareader_library::BookId(1))));
         assert!(!Route::Dictionary.has_rail());
     }
 
     #[cfg(not(target_arch = "wasm32"))]
     #[test]
     fn key_and_model_work_finishes_on_any_page() {
-        let job = || Intent::Ai(mareader_settings::Job::Probe);
+        let job = || Command::Ai(mareader_settings::Job::Probe);
         assert!(Route::Library.takes(&job()));
         assert!(Route::Dictionary.takes(&job()));
     }

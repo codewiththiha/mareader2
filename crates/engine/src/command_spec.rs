@@ -1,12 +1,12 @@
-//! Every intent, named and described once, so a window and a terminal can
+//! Every command, named and described once, so a window and a terminal can
 //! list the same set.
 //!
 //! The table is the registry `mareader-cli commands` prints and the parity
 //! ledger cites by id.
 
-use crate::command::Intent;
+use crate::command::Command;
 
-/// One intent: its stable id, and what it does.
+/// One command: its stable id, and what it does.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct CommandSpec {
     /// Dotted and stable: `pane.split`, the id a ledger or a script names.
@@ -15,7 +15,7 @@ pub struct CommandSpec {
     pub summary: &'static str,
 }
 
-/// Every intent there is, one row each.
+/// Every command there is, one row each.
 pub const SPECS: &[CommandSpec] = &[
     #[cfg(not(target_arch = "wasm32"))]
     CommandSpec {
@@ -260,75 +260,75 @@ pub const SPECS: &[CommandSpec] = &[
     },
 ];
 
-impl Intent {
-    /// This intent's stable id.
+impl Command {
+    /// This command's stable id.
     pub fn id(&self) -> &'static str {
         match self {
             #[cfg(not(target_arch = "wasm32"))]
-            Intent::Ai(..) => "ai.job",
-            Intent::Arrow(..) => "page.arrow",
-            Intent::AutoScroll => "page.autoscroll",
-            Intent::Bookmark(..) => "mark.bookmark",
-            Intent::ClosePane(..) => "pane.close",
-            Intent::CopyPages { .. } => "page.copy",
-            Intent::CyclePane { .. } => "pane.cycle",
-            Intent::DeletePreset(..) => "settings.preset-delete",
-            Intent::Dict(..) => "dict.act",
-            Intent::Explain(..) => "word.explain",
-            Intent::Export { .. } => "export.write",
-            Intent::FirstPage => "page.first",
-            Intent::FocusPane(..) => "pane.focus",
-            Intent::ForgetPositions { .. } => "library.forget",
-            Intent::GoTo { .. } => "page.go",
-            Intent::Highlight { .. } => "mark.highlight",
-            Intent::LastPage => "page.last",
-            Intent::Library(..) => "library.act",
-            Intent::LookUp(..) => "word.lookup",
-            Intent::Note(..) => "mark.note",
-            Intent::Open(..) => "reader.open",
-            Intent::OpenBook(..) => "reader.open-book",
-            Intent::OpenSettings(..) => "settings.open",
-            Intent::Page { .. } => "page.step",
-            Intent::PageAi(..) => "ai.page",
-            Intent::PlaceBook { .. } => "reader.place-book",
-            Intent::PlaceReadMarker { .. } => "read.marker",
-            Intent::Pronunciation(..) => "dict.pronunciation",
-            Intent::ReadAloud { .. } => "read.start",
-            Intent::RevealVoice(..) => "voice.reveal",
-            Intent::SavePreset { .. } => "settings.preset-save",
-            Intent::SayWord(..) => "word.say",
-            Intent::SayWordWith { .. } => "word.say-with",
-            Intent::SelectText { .. } => "mark.select",
-            Intent::SetAppearance(..) => "settings.appearance",
-            Intent::SetDictionary(..) => "dict.settings",
-            Intent::SetIndependence(..) => "settings.independence",
-            Intent::SetInkContrast(..) => "settings.ink",
-            Intent::SetLibraryView(..) => "library.view",
-            Intent::SetQuickText(..) => "settings.quick-text",
-            Intent::SetRatio(..) => "pane.ratio",
-            Intent::SetSettings(..) => "settings.write",
-            Intent::SetField { .. } => "settings.set",
-            Intent::SetSidebarOverlay(..) => "settings.sidebar-overlay",
-            Intent::SetTitlebarPinned(..) => "settings.titlebar-pin",
-            Intent::Split(..) => "pane.split",
-            Intent::StopReadAloud => "read.stop",
-            Intent::StopSaying => "word.stop",
-            Intent::StopVoiceTry => "voice.stop-try",
-            Intent::Study(..) => "study.act",
-            Intent::ToggleReadAloud => "read.toggle",
-            Intent::TryVoice => "voice.try",
-            Intent::TryVoiceOf(..) => "voice.try-of",
-            Intent::Turn { .. } => "page.turn",
-            Intent::View(..) => "pane.view",
-            Intent::Vocab(..) => "vocab.download",
-            Intent::VoiceModel(..) => "voice.model",
-            Intent::WordList { .. } => "word.list",
-            Intent::WordListWindow { .. } => "word.list-window",
-            Intent::Zoom(..) => "pane.zoom",
+            Command::Ai(..) => "ai.job",
+            Command::Arrow(..) => "page.arrow",
+            Command::AutoScroll => "page.autoscroll",
+            Command::Bookmark(..) => "mark.bookmark",
+            Command::ClosePane(..) => "pane.close",
+            Command::CopyPages { .. } => "page.copy",
+            Command::CyclePane { .. } => "pane.cycle",
+            Command::DeletePreset(..) => "settings.preset-delete",
+            Command::Dict(..) => "dict.act",
+            Command::Explain(..) => "word.explain",
+            Command::Export { .. } => "export.write",
+            Command::FirstPage => "page.first",
+            Command::FocusPane(..) => "pane.focus",
+            Command::ForgetPositions { .. } => "library.forget",
+            Command::GoTo { .. } => "page.go",
+            Command::Highlight { .. } => "mark.highlight",
+            Command::LastPage => "page.last",
+            Command::Library(..) => "library.act",
+            Command::LookUp(..) => "word.lookup",
+            Command::Note(..) => "mark.note",
+            Command::Open(..) => "reader.open",
+            Command::OpenBook(..) => "reader.open-book",
+            Command::OpenSettings(..) => "settings.open",
+            Command::Page { .. } => "page.step",
+            Command::PageAi(..) => "ai.page",
+            Command::PlaceBook { .. } => "reader.place-book",
+            Command::PlaceReadMarker { .. } => "read.marker",
+            Command::Pronunciation(..) => "dict.pronunciation",
+            Command::ReadAloud { .. } => "read.start",
+            Command::RevealVoice(..) => "voice.reveal",
+            Command::SavePreset { .. } => "settings.preset-save",
+            Command::SayWord(..) => "word.say",
+            Command::SayWordWith { .. } => "word.say-with",
+            Command::SelectText { .. } => "mark.select",
+            Command::SetAppearance(..) => "settings.appearance",
+            Command::SetDictionary(..) => "dict.settings",
+            Command::SetIndependence(..) => "settings.independence",
+            Command::SetInkContrast(..) => "settings.ink",
+            Command::SetLibraryView(..) => "library.view",
+            Command::SetQuickText(..) => "settings.quick-text",
+            Command::SetRatio(..) => "pane.ratio",
+            Command::SetSettings(..) => "settings.write",
+            Command::SetField { .. } => "settings.set",
+            Command::SetSidebarOverlay(..) => "settings.sidebar-overlay",
+            Command::SetTitlebarPinned(..) => "settings.titlebar-pin",
+            Command::Split(..) => "pane.split",
+            Command::StopReadAloud => "read.stop",
+            Command::StopSaying => "word.stop",
+            Command::StopVoiceTry => "voice.stop-try",
+            Command::Study(..) => "study.act",
+            Command::ToggleReadAloud => "read.toggle",
+            Command::TryVoice => "voice.try",
+            Command::TryVoiceOf(..) => "voice.try-of",
+            Command::Turn { .. } => "page.turn",
+            Command::View(..) => "pane.view",
+            Command::Vocab(..) => "vocab.download",
+            Command::VoiceModel(..) => "voice.model",
+            Command::WordList { .. } => "word.list",
+            Command::WordListWindow { .. } => "word.list-window",
+            Command::Zoom(..) => "pane.zoom",
         }
     }
 
-    /// This intent's row in [`SPECS`], when it has one.
+    /// This command's row in [`SPECS`], when it has one.
     ///
     /// A `None` is a missing row, which `tests/specs.rs` fails on; the
     /// lookup does not pretend otherwise.

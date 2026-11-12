@@ -12,7 +12,7 @@ use mareader_workspace::PaneId;
 use crate::documents::Reading;
 use crate::motion;
 use crate::theme::{self, Tokens};
-use crate::ui_command::{Command, Commands, Intent};
+use crate::ui_command::{Command, Commands, Sent};
 use crate::widgets;
 
 const ROW_H: f32 = 28.0;
@@ -85,7 +85,7 @@ pub fn show(
                 let on = active == Some(i);
                 if entry_row(ui, row(i), entry, on, (reading.pane, i), &t) {
                     state.clicked = Some((reading.pane, reading.doc, i));
-                    out.push(Command::Intent(Intent::GoTo {
+                    out.push(Sent::Engine(Command::GoTo {
                         pane: reading.pane,
                         page: entry.page,
                     }));

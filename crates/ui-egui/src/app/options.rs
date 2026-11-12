@@ -41,9 +41,9 @@ pub(super) fn shot_toast(value: &str) -> Toast {
         "error" => Toast::error(message),
         "warning" => Toast::warning(message),
         "player" => Toast::info(message).player(),
-        "undo" => Toast::info(message).undo(Intent::Study(StudyAction::Restore(Vec::new()))),
+        "undo" => Toast::info(message).undo(Command::Study(StudyAction::Restore(Vec::new()))),
         "action" => {
-            Toast::info(message).action("Resume", Intent::Study(StudyAction::Restore(Vec::new())))
+            Toast::info(message).action("Resume", Command::Study(StudyAction::Restore(Vec::new())))
         }
         _ => Toast::info(words.as_str()),
     }

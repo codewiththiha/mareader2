@@ -10,7 +10,7 @@ use super::card::{self, Body, Card};
 use super::{Exit, Live, Toasts};
 use crate::icons::Icon;
 use crate::theme::Tokens;
-use crate::ui_command::{Command, Commands, UiCommand};
+use crate::ui_command::{Commands, Sent, UiCommand};
 use crate::widgets;
 
 /// Where the stack sits and the clock it runs on.
@@ -318,7 +318,7 @@ pub(super) fn closed(
                         )
                         .clicked()
                     {
-                        out.push(Command::Ui(UiCommand::ClearToasts));
+                        out.push(Sent::Ui(UiCommand::ClearToasts));
                     }
                     row.label(
                         RichText::new(format!("{up} notifications · paused"))
@@ -435,7 +435,7 @@ fn header(ui: &mut Ui, up: usize, toasts: &mut Toasts, t: &Tokens, out: &mut Com
             )
             .frame_when_inactive(false);
             if ui.add(clear).clicked() {
-                out.push(Command::Ui(UiCommand::ClearToasts));
+                out.push(Sent::Ui(UiCommand::ClearToasts));
             }
         });
     });

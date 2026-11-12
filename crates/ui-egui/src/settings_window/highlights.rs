@@ -8,7 +8,7 @@ use super::{Tab, choice_row, divider, group, note, row, section};
 use crate::icons::Icon;
 use crate::study::marks::pen_area;
 use crate::theme::{self, Tokens};
-use crate::ui_command::{Command, Commands, Intent};
+use crate::ui_command::{Command, Commands, Sent};
 use crate::widgets;
 
 const DOT: f32 = 22.0;
@@ -113,7 +113,7 @@ fn other_marks(ui: &mut Ui, h: &HighlightSettings, marks: Marks, out: &mut Comma
 /// A link to the tab where a mark's look is set.
 fn change(ui: &mut Ui, (text, tab): (&str, Tab), out: &mut Commands) {
     if ui.link(text).clicked() {
-        out.push(Command::Intent(Intent::OpenSettings(tab)));
+        out.push(Sent::Engine(Command::OpenSettings(tab)));
     }
     ui.add_space(8.0);
 }

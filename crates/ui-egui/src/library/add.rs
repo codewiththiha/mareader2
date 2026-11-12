@@ -9,7 +9,7 @@ use mareader_library::{FolderId, Library, Recovered, ShelfId, dir_of_rung, human
 use super::{Action, BookAction, ShelfAction};
 use crate::icons::Icon;
 use crate::theme::{self, Tokens};
-use crate::ui_command::{Command, Commands, Intent};
+use crate::ui_command::{Command, Commands, Sent};
 
 pub const ADD_MENU: &str = "library-add";
 const WIDTH: f32 = 300.0;
@@ -98,13 +98,13 @@ fn contents(ui: &mut Ui, here: Here<'_>, t: &Tokens, out: &mut Commands) {
         None => "Copies the files into your library",
     };
     if entry(ui, Icon::Import, "Choose files…", onto, t).clicked() {
-        out.push(Command::Intent(Intent::Library(Action::Book(
+        out.push(Sent::Engine(Command::Library(Action::Book(
             BookAction::PickImport,
         ))));
     }
     let folder = "Copy it in, or read it where it is";
     if entry(ui, Icon::FolderPlus, "Choose a folder…", folder, t).clicked() {
-        out.push(Command::Intent(Intent::Library(Action::PickFolder)));
+        out.push(Sent::Engine(Command::Library(Action::PickFolder)));
     }
     // A folder's shelf offers its own files, and what left it.
     let shelf = here.at.and_then(|id| here.model.shelf(id));
@@ -114,7 +114,7 @@ fn contents(ui: &mut Ui, here: Here<'_>, t: &Tokens, out: &mut Commands) {
         let dir = dir_of_rung(&folder.root, key);
         let from = "Choose files from this folder";
         if entry(ui, Icon::Folder, from, &folder.rung_name(key), t).clicked() {
-            out.push(Command::Intent(Intent::Library(Action::PickFrom(dir))));
+            out.push(Sent::Engine(Command::Library(Action::PickFrom(dir))));
         }
     }
     ui.separator();
@@ -123,7 +123,7 @@ fn contents(ui: &mut Ui, here: Here<'_>, t: &Tokens, out: &mut Commands) {
         None => ("New shelf", "Drag books onto it to file them"),
     };
     if entry(ui, Icon::Shelf, label, detail, t).clicked() {
-        out.push(Command::Intent(Intent::Library(Action::Shelf(
+        out.push(Sent::Engine(Command::Library(Action::Shelf(
             ShelfAction::New,
         ))));
     }
@@ -158,7 +158,7 @@ fn restore(ui: &mut Ui, model: &Library, folder: FolderId, t: &Tokens, out: &mut
                 let hint = "Add this file back, even if it doesn't match the folder's filters";
                 if resp.inner.on_hover_text(hint).clicked() {
                     let content = stone.content;
-                    out.push(Command::Intent(Intent::Library(Action::Restore {
+                    out.push(Sent::Engine(Command::Library(Action::Restore {
                         folder,
                         content,
                     })));
@@ -176,7 +176,7 @@ fn restore(ui: &mut Ui, model: &Library, folder: FolderId, t: &Tokens, out: &mut
                     .on_hover_text("This book moved to another shelf")
                     .clicked()
                 {
-                    out.push(Command::Intent(Intent::Library(Action::AskMoved {
+                    out.push(Sent::Engine(Command::Library(Action::AskMoved {
                         folder,
                         book,
                     })));

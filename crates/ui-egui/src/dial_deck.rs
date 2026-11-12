@@ -15,7 +15,7 @@ use crate::appearance_menu::{MenuContext, QuickText};
 use crate::icons::Icon;
 use crate::icons::anim::{self, Act};
 use crate::theme::{self, Tokens};
-use crate::ui_command::{Command, Commands, Independence, Intent};
+use crate::ui_command::{Command, Commands, Independence, Sent};
 use crate::widgets;
 use labels::{mode_icon, noise_label, strength_percent};
 
@@ -94,17 +94,17 @@ pub fn show(ui: &mut Ui, cx: &MenuContext<'_>, out: &mut Commands) {
         });
 
     if a != *cx.current {
-        out.push(Command::Intent(Intent::SetAppearance(a)));
+        out.push(Sent::Engine(Command::SetAppearance(a)));
     }
     if text != cx.text
         && let Some(q) = text
     {
-        out.push(Command::Intent(Intent::SetQuickText(q)));
+        out.push(Sent::Engine(Command::SetQuickText(q)));
     }
     if split != cx.independence
         && let Some(ind) = split
     {
-        out.push(Command::Intent(Intent::SetIndependence(ind)));
+        out.push(Sent::Engine(Command::SetIndependence(ind)));
     }
 }
 
@@ -324,7 +324,7 @@ fn look_side_with_ink(
         shown: format!("{val:.0}%"),
     };
     if dials::inline_knob(ui, width, &spec, &mut val) && (val - shown_ink).abs() > 0.1 {
-        out.push(Command::Intent(Intent::SetInkContrast(val)));
+        out.push(Sent::Engine(Command::SetInkContrast(val)));
     }
 }
 

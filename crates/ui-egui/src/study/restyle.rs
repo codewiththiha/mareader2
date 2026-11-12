@@ -8,7 +8,7 @@ use mareader_settings::{HighlightSettings, Reserved};
 use super::Action;
 use super::bar::pen_icon;
 use crate::theme::{Tokens, color};
-use crate::ui_command::{Command, Commands, Intent};
+use crate::ui_command::{Command, Commands, Sent};
 use crate::widgets;
 
 const SWATCH: f32 = 22.0;
@@ -142,7 +142,7 @@ pub fn section(
         _ => None,
     };
     if let Some(next) = next.filter(|n| *n != now) {
-        out.push(Command::Intent(Intent::Study(Action::Restyle(mark, next))));
+        out.push(Sent::Engine(Command::Study(Action::Restyle(mark, next))));
     }
 }
 
@@ -175,7 +175,7 @@ pub fn group(
         }
     }
     if !changes.is_empty() || skipped > 0 {
-        out.push(Command::Intent(Intent::Study(Action::RestyleAll(
+        out.push(Sent::Engine(Command::Study(Action::RestyleAll(
             changes, skipped,
         ))));
     }

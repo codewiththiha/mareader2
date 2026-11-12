@@ -11,7 +11,7 @@ use super::{
 };
 use crate::dict::{Action, Dict, count, megabytes};
 use crate::icons::Icon;
-use crate::ui_command::{Command, Commands, Download, Intent};
+use crate::ui_command::{Command, Commands, Download, Sent};
 use crate::widgets;
 
 /// The fold of packs not on this device, beside some that are.
@@ -116,7 +116,7 @@ fn pack_row(ui: &mut Ui, pack: &'static Pack, dict: &Dict, out: &mut Commands) {
     let buttons = Buttons {
         name: &label,
         ask: |what| {
-            Command::Intent(Intent::Dict(match what {
+            Sent::Engine(Command::Dict(match what {
                 Download::Start => Action::Download(id),
                 Download::Pause => Action::Pause(id),
                 Download::Cancel => Action::Cancel(id),

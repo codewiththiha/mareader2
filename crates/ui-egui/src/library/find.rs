@@ -7,7 +7,7 @@ use mareader_library::{BookId, Format, Measure, RelinkError};
 
 use super::io::{Job, Relink};
 use super::{Action, LibraryState, Sheet};
-use crate::ui_command::{Command, Commands, Intent};
+use crate::ui_command::{Command, Commands, Sent};
 
 pub use mareader_engine::library::{Finding, Step};
 
@@ -144,7 +144,7 @@ impl LibraryState {
         let note = match done {
             Ok(()) => {
                 self.folders.sheet = None;
-                out.push(Command::Intent(Intent::OpenBook(book)));
+                out.push(Sent::Engine(Command::OpenBook(book)));
                 return;
             }
             Err(RelinkError::Removed) => {

@@ -15,7 +15,7 @@ use crate::icons::anim::{self, Act};
 use crate::page_ai::Action;
 use crate::settings_window::Tab;
 use crate::theme::{self, Tokens};
-use crate::ui_command::{Command, Commands, Intent};
+use crate::ui_command::{Command, Commands, Sent};
 use crate::widgets::{self, menu_row};
 
 /// What the page AI and vocabulary tools offer picked pages this frame.
@@ -283,14 +283,14 @@ pub fn picks_menu(
         ui.spacing_mut().item_spacing.x = 5.0;
         let width = ((ui.available_width() - 10.0) / 3.0).max(1.0);
         if tile(ui, Icon::Copy, "Copy text", width, t).clicked() {
-            out.push(Command::Intent(Intent::CopyPages {
+            out.push(Sent::Engine(Command::CopyPages {
                 pane,
                 pages: picks.pages(),
             }));
             ui.close();
         }
         if tile(ui, Icon::Note, "Word list", width, t).clicked() {
-            out.push(Command::Intent(Intent::WordListWindow {
+            out.push(Sent::Engine(Command::WordListWindow {
                 pane,
                 pages: picks.pages(),
             }));
@@ -314,14 +314,14 @@ pub fn picks_menu(
         .on_hover_text("The words above your level, with their dictionary meanings")
         .clicked()
     {
-        out.push(Command::Intent(Intent::WordList {
+        out.push(Sent::Engine(Command::WordList {
             pane,
             pages: picks.pages(),
         }));
         ui.close();
     }
     if menu_row(ui, Icon::ViewOptions, "Word list…", None, false).clicked() {
-        out.push(Command::Intent(Intent::WordListWindow {
+        out.push(Sent::Engine(Command::WordListWindow {
             pane,
             pages: picks.pages(),
         }));
@@ -444,14 +444,14 @@ fn tile(ui: &mut Ui, icon: Icon, label: &str, width: f32, t: &Tokens) -> Respons
 fn ai_rows(ui: &mut Ui, (pane, offer): (PaneId, &Offer), picks: &Picks, out: &mut Commands) {
     if !offer.any {
         if menu_row(ui, Icon::Settings, "Set up AI…", None, false).clicked() {
-            out.push(Command::Intent(Intent::OpenSettings(Tab::Ai)));
+            out.push(Sent::Engine(Command::OpenSettings(Tab::Ai)));
             ui.close();
         }
         return;
     }
     let run = |task, tag| {
         let pages = picks.pages();
-        Command::Intent(Intent::PageAi(Action::RunPages {
+        Sent::Engine(Command::PageAi(Action::RunPages {
             pane,
             pages,
             task,
@@ -487,7 +487,7 @@ fn ai_rows(ui: &mut Ui, (pane, offer): (PaneId, &Offer), picks: &Picks, out: &mu
             if menu_row(ui, Icon::Translate, "More languages…", None, false).clicked() {
                 let (at, pages) = (ui.max_rect().right_top(), picks.pages());
                 let at = [at.x, at.y];
-                out.push(Command::Intent(Intent::PageAi(Action::PagesMenu {
+                out.push(Sent::Engine(Command::PageAi(Action::PagesMenu {
                     pane,
                     pages,
                     at,
@@ -510,7 +510,7 @@ fn ai_rows(ui: &mut Ui, (pane, offer): (PaneId, &Offer), picks: &Picks, out: &mu
 pub fn page_menu(ui: &mut Ui, pane: PaneId, page: usize, picks: &mut Picks, out: &mut Commands) {
     if menu_row(ui, Icon::Copy, "Copy page text", None, false).clicked() {
         let pages = vec![page];
-        out.push(Command::Intent(Intent::CopyPages { pane, pages }));
+        out.push(Sent::Engine(Command::CopyPages { pane, pages }));
         ui.close();
     }
     if menu_row(ui, Icon::SelectSeveral, "Select", None, false).clicked() {

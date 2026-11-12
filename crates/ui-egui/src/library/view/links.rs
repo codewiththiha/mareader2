@@ -10,7 +10,7 @@ use super::{
 use crate::icons::Icon;
 use crate::library::{Action, Pick, menus};
 use crate::theme::{self, Tokens};
-use crate::ui_command::{Command, Intent};
+use crate::ui_command::{Command, Sent};
 
 /// The line under a link's name.
 fn says(link: &Link) -> &'static str {
@@ -50,9 +50,7 @@ fn hit(ui: &mut Ui, rect: Rect, link: &Link, cx: &mut Cx<'_>) -> egui::Response 
     let held = long_press(ui, &resp, pick, cx);
     if resp.clicked() && !held && !picking(ui, pick, cx) {
         cx.out
-            .push(Command::Intent(Intent::Library(Action::Reveal(target(
-                link,
-            )))));
+            .push(Sent::Engine(Command::Library(Action::Reveal(target(link)))));
     }
     if resp.drag_started() {
         lift(&resp, pick, cx);

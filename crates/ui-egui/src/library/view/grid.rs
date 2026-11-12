@@ -17,7 +17,7 @@ use super::{
 use super::{grid_card, links, shelf_card};
 use crate::motion;
 use crate::theme;
-use crate::ui_command::{Command, Intent};
+use crate::ui_command::{Command, Sent};
 
 /// The cards in rows; a carried card opens a hole the rest move around.
 pub(super) fn show(ui: &mut Ui, items: &[Item<'_>], columns: u8, cx: &mut Cx<'_>) {
@@ -236,7 +236,7 @@ fn carry_over(ui: &Ui, fill: &Fill<'_, '_>, carry: &Carry, cx: &mut Cx<'_>) {
             Rested::Open(shelf) => {
                 let go = ShelfAction::GoTo(Some(shelf));
                 cx.out
-                    .push(Command::Intent(Intent::Library(Action::Shelf(go))));
+                    .push(Sent::Engine(Command::Library(Action::Shelf(go))));
             }
             Rested::Nothing => {}
         }
@@ -267,7 +267,7 @@ fn stack(onto: BookId, carry: &Carry, keep: bool, cx: &mut Cx<'_>) {
         keep,
     };
     cx.out
-        .push(Command::Intent(Intent::Library(Action::Shelf(action))));
+        .push(Sent::Engine(Command::Library(Action::Shelf(action))));
 }
 
 /// Lands what's carried at rest index `at`, joining this level first.
@@ -281,7 +281,7 @@ fn land(fill: &Fill<'_, '_>, (at, keep): (Option<usize>, bool), carry: &Carry, c
     if !lift.native() {
         let join = carry.onto(arranging.level, keep);
         cx.out
-            .extend(join.map(|a| Command::Intent(Intent::Library(a))));
+            .extend(join.map(|a| Sent::Engine(Command::Library(a))));
     }
     let next = fill.rest.get(at).and_then(|&n| fill.items.get(n));
     let action = ShelfAction::Arrange {
@@ -290,12 +290,12 @@ fn land(fill: &Fill<'_, '_>, (at, keep): (Option<usize>, bool), carry: &Carry, c
         before: next.map(|i| i.pick()),
     };
     cx.out
-        .push(Command::Intent(Intent::Library(Action::Shelf(action))));
+        .push(Sent::Engine(Command::Library(Action::Shelf(action))));
     // Dropped while sorted, the page shows the order just made.
     cx.out.extend(
         arranging
             .switch
-            .map(|v| Command::Intent(Intent::SetLibraryView(v))),
+            .map(|v| Sent::Engine(Command::SetLibraryView(v))),
     );
 }
 

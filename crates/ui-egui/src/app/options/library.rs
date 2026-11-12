@@ -1,5 +1,5 @@
 use super::*;
-use crate::ui_command::{Intent, UiCommand};
+use crate::ui_command::{Command, UiCommand};
 
 pub(super) fn set(app: &mut MareaderApp, key: &str, value: &str) -> Option<Result<(), String>> {
     match key {
@@ -33,9 +33,9 @@ impl MareaderApp {
                     .ui
                     .queued
                     .iter()
-                    .any(|c| matches!(c, Command::Intent(Intent::Open(_)))) =>
+                    .any(|c| matches!(c, Sent::Engine(Command::Open(_)))) =>
             {
-                self.queue(Command::Ui(UiCommand::ShowLibrary));
+                self.queue(Sent::Ui(UiCommand::ShowLibrary));
             }
             "show" => self.go(Route::Library),
             _ => self.go(Route::Reader),
@@ -49,7 +49,7 @@ impl MareaderApp {
         let recent = self.ui.library.model().recent().into_iter().take(n);
         let picks = recent.map(|b| ui_library::Pick::Book(b.id)).collect();
         let pick = ui_library::Action::Pick(ui_library::PickAction::Only(picks));
-        self.queue(Command::Intent(Intent::Library(pick)));
+        self.queue(Sent::Engine(Command::Library(pick)));
 
         Ok(())
     }
@@ -75,7 +75,7 @@ impl MareaderApp {
             shelves,
             links,
         };
-        self.queue(Command::Intent(Intent::Library(ui_library::Action::Book(
+        self.queue(Sent::Engine(Command::Library(ui_library::Action::Book(
             ask,
         ))));
 
@@ -85,7 +85,7 @@ impl MareaderApp {
     // The import sheet for a folder, as Add ▸ Folder… asks.
     fn option_import(&mut self, _key: &str, value: &str) -> Result<(), String> {
         let ask = ui_library::Action::AskFolder(std::path::PathBuf::from(value));
-        self.queue(Command::Intent(Intent::Library(ask)));
+        self.queue(Sent::Engine(Command::Library(ask)));
 
         Ok(())
     }
@@ -100,7 +100,7 @@ impl MareaderApp {
             ..mareader_library::Options::default()
         };
         let import = ui_library::Action::ImportFolder { root, opts };
-        self.queue(Command::Intent(Intent::Library(import)));
+        self.queue(Sent::Engine(Command::Library(import)));
 
         Ok(())
     }
@@ -186,9 +186,9 @@ impl MareaderApp {
     // Typed into the library's search field.
     fn option_search(&mut self, _key: &str, value: &str) -> Result<(), String> {
         let text = ui_library::SearchAction::Text(value.to_owned());
-        self.queue(Command::Intent(Intent::Library(
-            ui_library::Action::Search(text),
-        )));
+        self.queue(Sent::Engine(Command::Library(ui_library::Action::Search(
+            text,
+        ))));
 
         Ok(())
     }

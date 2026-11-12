@@ -27,7 +27,7 @@ use crate::study::{Asked, Gloss};
 use crate::theme::Tokens;
 use crate::thumbnails::{self, ThumbState};
 use crate::toast::Toast;
-use crate::ui_command::{Command, Commands, UiCommand};
+use crate::ui_command::{Commands, Sent, UiCommand};
 use crate::zoom::{ZoomCommand, ZoomState};
 use mareader_engine::paper::Papers;
 use mareader_engine::reading::Place;
@@ -803,9 +803,7 @@ impl Documents {
                     let name = session
                         .get(doc)
                         .map_or_else(|| "document".to_string(), |e| e.name.clone());
-                    out.push(Command::Ui(UiCommand::Notify(open_incomplete(
-                        &name, &error,
-                    ))));
+                    out.push(Sent::Ui(UiCommand::Notify(open_incomplete(&name, &error))));
                 }
                 Event::Opened { ticket, result } if self.reloads.has(&ticket) => {
                     if let Some((old, path, again)) = self.reloads.finish(&ticket) {
@@ -841,7 +839,7 @@ impl Documents {
                         (Some((pane, name, target, book)), Ok(doc)) => {
                             let entry = session.get(doc);
                             if entry.is_some_and(|e| e.doc.cut_short()) {
-                                out.push(Command::Ui(UiCommand::Notify(cut_short(&name))));
+                                out.push(Sent::Ui(UiCommand::Notify(cut_short(&name))));
                             }
                             let count = entry.map_or(0, |e| e.doc.page_count());
                             let page = landing(entry.map(|e| &*e.doc), &target);
@@ -863,7 +861,7 @@ impl Documents {
                         }
                         (Some((pane, name, _, _)), Err(e)) => {
                             self.panes.remove(&pane);
-                            out.push(Command::Ui(UiCommand::Notify(open_failed(&name, &e))));
+                            out.push(Sent::Ui(UiCommand::Notify(open_failed(&name, &e))));
                         }
                         // The pane closed or moved on while this opened.
                         (None, Ok(doc)) => session.close(doc),

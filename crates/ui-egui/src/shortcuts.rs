@@ -10,7 +10,7 @@ use crate::keymap::{self, Entry, Section};
 use crate::modal::Dialog;
 use crate::platform::Platform;
 use crate::theme::Tokens;
-use crate::ui_command::{Command, UiCommand};
+use crate::ui_command::{Sent, UiCommand};
 use crate::widgets;
 
 const OPEN: &str = "shortcut-sheet-open";
@@ -116,7 +116,7 @@ fn header(ui: &mut Ui, platform: Platform) -> bool {
         ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
             let label = "Close keyboard shortcuts";
             let shut = widgets::small_icon_button(ui, Icon::Close, label).clicked();
-            if let Some(keys) = keymap::hint(platform, &Command::Ui(UiCommand::ShowShortcuts)) {
+            if let Some(keys) = keymap::hint(platform, &Sent::Ui(UiCommand::ShowShortcuts)) {
                 let hint = format!("{keys} opens this anywhere");
                 ui.label(RichText::new(hint).size(t.text_small).color(t.muted));
             }

@@ -1,10 +1,10 @@
-//! What a view can ask for: the engine's intents, and chrome.
+//! What a view can ask for: the engine's commands, and chrome.
 //!
-//! `Intent` is what means something with no window on screen; `UiCommand`
-//! only moves what is on it. A view pushes `Command`; the app hands an
-//! intent to the engine and carries a `UiCommand` out itself, in egui.
+//! `Command` is what means something with no window on screen; `UiCommand`
+//! only moves what is on it. A view pushes `Sent`; the app hands an
+//! command to the engine and carries a `UiCommand` out itself, in egui.
 
-pub use mareader_engine::command::{Independence, Intent};
+pub use mareader_engine::command::{Command, Independence};
 pub use mareader_engine::dict::Download;
 pub use mareader_engine::route::Route;
 
@@ -44,22 +44,22 @@ impl WindowCommand {
     }
 }
 
-/// Everything a view can ask for: the engine's intents, and chrome.
+/// Everything a view can ask for: the engine's commands, and chrome.
 #[derive(Clone, Debug, PartialEq)]
-pub enum Command {
+pub enum Sent {
     /// Changes something beyond this window: routed to the engine.
-    Intent(Intent),
+    Engine(Command),
     /// Moves something on screen only.
     Ui(UiCommand),
 }
 
-impl From<Intent> for Command {
-    fn from(intent: Intent) -> Self {
-        Self::Intent(intent)
+impl From<Command> for Sent {
+    fn from(command: Command) -> Self {
+        Self::Engine(command)
     }
 }
 
-impl From<UiCommand> for Command {
+impl From<UiCommand> for Sent {
     fn from(ui: UiCommand) -> Self {
         Self::Ui(ui)
     }
@@ -108,19 +108,19 @@ pub enum UiCommand {
 }
 
 /// The frame's command queue, handed to every view.
-pub type Commands = Vec<Command>;
+pub type Commands = Vec<Sent>;
 
 /// Which commands each page takes: chrome's view of `Route`.
 pub trait Allows {
     /// Whether `command` means anything here; the rest are dropped.
-    fn allows(self, command: &Command) -> bool;
+    fn allows(self, command: &Sent) -> bool;
 }
 
 impl Allows for Route {
-    fn allows(self, command: &Command) -> bool {
+    fn allows(self, command: &Sent) -> bool {
         match command {
-            Command::Intent(intent) => self.takes(intent),
-            Command::Ui(ui) => self == Route::Reader || !chrome_reads(ui),
+            Sent::Engine(intent) => self.takes(intent),
+            Sent::Ui(ui) => self == Route::Reader || !chrome_reads(ui),
         }
     }
 }
@@ -161,24 +161,24 @@ mod tests {
     #[test]
     fn the_library_drops_what_acts_on_panes() {
         let lib = Route::Library;
-        assert!(!lib.allows(&Command::Ui(UiCommand::ToggleSidebar)));
-        assert!(lib.allows(&Command::Ui(UiCommand::ShowSettings)));
-        assert!(!lib.allows(&Command::Intent(Intent::View(ViewMode::Single))));
-        assert!(!lib.allows(&Command::Intent(Intent::FirstPage)));
-        assert!(lib.allows(&Command::Ui(UiCommand::ShowLibrary)));
-        assert!(lib.allows(&Command::Ui(UiCommand::ShowViewMenu)));
-        assert!(lib.allows(&Command::Ui(UiCommand::Window(WindowCommand::Close))));
-        assert!(Route::Reader.allows(&Command::Ui(UiCommand::ToggleSidebar)));
+        assert!(!lib.allows(&Sent::Ui(UiCommand::ToggleSidebar)));
+        assert!(lib.allows(&Sent::Ui(UiCommand::ShowSettings)));
+        assert!(!lib.allows(&Sent::Engine(Command::View(ViewMode::Single))));
+        assert!(!lib.allows(&Sent::Engine(Command::FirstPage)));
+        assert!(lib.allows(&Sent::Ui(UiCommand::ShowLibrary)));
+        assert!(lib.allows(&Sent::Ui(UiCommand::ShowViewMenu)));
+        assert!(lib.allows(&Sent::Ui(UiCommand::Window(WindowCommand::Close))));
+        assert!(Route::Reader.allows(&Sent::Ui(UiCommand::ToggleSidebar)));
     }
 
     #[test]
     fn the_dictionary_keeps_its_settings_and_drops_reading() {
         let page = Route::Dictionary;
-        assert!(page.allows(&Command::Ui(UiCommand::ShowSettings)));
-        assert!(page.allows(&Command::Ui(UiCommand::ShowDictionary)));
-        assert!(page.allows(&Command::Ui(UiCommand::ShowLibrary)));
-        assert!(!page.allows(&Command::Ui(UiCommand::ToggleSidebar)));
-        assert!(!page.allows(&Command::Intent(Intent::Bookmark(None))));
+        assert!(page.allows(&Sent::Ui(UiCommand::ShowSettings)));
+        assert!(page.allows(&Sent::Ui(UiCommand::ShowDictionary)));
+        assert!(page.allows(&Sent::Ui(UiCommand::ShowLibrary)));
+        assert!(!page.allows(&Sent::Ui(UiCommand::ToggleSidebar)));
+        assert!(!page.allows(&Sent::Engine(Command::Bookmark(None))));
         assert!(!page.has_rail());
     }
 }

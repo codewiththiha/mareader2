@@ -1,5 +1,5 @@
 use super::*;
-use crate::ui_command::{Intent, UiCommand};
+use crate::ui_command::{Command, UiCommand};
 
 pub(super) fn set(app: &mut MareaderApp, key: &str, value: &str) -> Option<Result<(), String>> {
     match key {
@@ -69,9 +69,9 @@ impl MareaderApp {
             .ui
             .queued
             .iter()
-            .any(|c| matches!(c, Command::Intent(Intent::Open(_))))
+            .any(|c| matches!(c, Sent::Engine(Command::Open(_))))
         {
-            true => self.queue(Command::Ui(UiCommand::ShowDictionary)),
+            true => self.queue(Sent::Ui(UiCommand::ShowDictionary)),
             false => self.go(Route::Dictionary),
         }
         if value != "show" {

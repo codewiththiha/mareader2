@@ -18,7 +18,7 @@ use crate::motion;
 use crate::selection::Pages;
 use crate::sounds::EnglishVoice;
 use crate::theme::Tokens;
-use crate::ui_command::{Command, Commands, Download, Intent, UiCommand};
+use crate::ui_command::{Command, Commands, Download, Sent, UiCommand};
 use crate::widgets;
 use mareader_engine::read_aloud::parts;
 
@@ -1440,13 +1440,13 @@ impl ReadAloud {
                 Some(Resize::To(w)) => {
                     shape.dragged = Some(w);
                     if stage.toasts.is_some_and(|t| rect.intersects(t)) {
-                        out.push(Command::Ui(UiCommand::ClearToasts));
+                        out.push(Sent::Ui(UiCommand::ClearToasts));
                     }
                 }
                 Some(Resize::Set(w)) => {
                     (shape.dragged, settings.player_width) = (None, Some(w));
                     if stage.toasts.is_some_and(|t| rect.intersects(t)) {
-                        out.push(Command::Ui(UiCommand::ClearToasts));
+                        out.push(Sent::Ui(UiCommand::ClearToasts));
                     }
                 }
                 Some(Resize::Reset) => {
@@ -1458,7 +1458,7 @@ impl ReadAloud {
         });
         match act {
             Some(Act::Card(to)) => shape.chosen = Some(to),
-            Some(Act::Reveal) => out.push(Command::Ui(UiCommand::ShowReading)),
+            Some(Act::Reveal) => out.push(Sent::Ui(UiCommand::ShowReading)),
             Some(act) if s.act(act) => self.session = None,
             _ => {}
         }
@@ -1688,7 +1688,7 @@ pub fn say_button(
         return;
     }
     let (label, command) = match saying {
-        true => (STOP_SAYING, Command::Intent(Intent::StopSaying)),
+        true => (STOP_SAYING, Sent::Engine(Command::StopSaying)),
         false => (SAY, say(word, voice)),
     };
     let accent = Tokens::get(ui.ctx()).accent;
@@ -1704,14 +1704,14 @@ pub fn say_button(
 }
 
 /// Says `word`, in `voice` when it isn't the one picked.
-pub fn say(word: &str, voice: Option<&str>) -> Command {
+pub fn say(word: &str, voice: Option<&str>) -> Sent {
     let word = word.to_owned();
     match voice {
-        Some(voice) => Command::Intent(Intent::SayWordWith {
+        Some(voice) => Sent::Engine(Command::SayWordWith {
             word,
             voice: voice.to_owned(),
         }),
-        None => Command::Intent(Intent::SayWord(word)),
+        None => Sent::Engine(Command::SayWord(word)),
     }
 }
 

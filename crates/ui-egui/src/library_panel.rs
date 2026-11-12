@@ -17,7 +17,7 @@ use crate::documents::Placement;
 use crate::icons::Icon;
 use crate::library::{Action, BookAction, Carry, Named, Organizer, ShelfAction};
 use crate::theme::{self, Tokens};
-use crate::ui_command::{Command, Commands, Intent, UiCommand};
+use crate::ui_command::{Command, Commands, Sent, UiCommand};
 use crate::widgets;
 
 const ROW_H: f32 = 28.0;
@@ -536,7 +536,7 @@ fn tree_drop(
         DragAndDrop::clear_payload(ctx);
         state.spring = None;
         if let Some(action) = action {
-            out.push(Command::Intent(Intent::Library(action)));
+            out.push(Sent::Engine(Command::Library(action)));
         }
     }
 }
@@ -574,7 +574,7 @@ fn row_actions(
             *named = Some((line.named(), line.name().to_owned()));
         }
         if delete {
-            out.push(Command::Intent(Intent::Library(Action::Book(ask_remove(
+            out.push(Sent::Engine(Command::Library(Action::Book(ask_remove(
                 line.named(),
             )))));
         }
@@ -594,7 +594,7 @@ fn row_menu(
 ) {
     let mut show_library = false;
     let mut act = |ui: &mut Ui, action: Action| {
-        out.push(Command::Intent(Intent::Library(action)));
+        out.push(Sent::Engine(Command::Library(action)));
         ui.close();
     };
     if let Line::Shelf { id, .. } = line {
@@ -635,7 +635,7 @@ fn row_menu(
         act(ui, Action::Book(ask_remove(line.named())));
     }
     if show_library {
-        out.push(Command::Ui(UiCommand::ShowLibrary));
+        out.push(Sent::Ui(UiCommand::ShowLibrary));
     }
 }
 
@@ -658,7 +658,7 @@ fn ask_remove(named: Named) -> BookAction {
 fn library_menu(ui: &mut Ui, organizer: Organizer<'_>, out: &mut Commands) {
     widgets::menu_style(ui, widgets::MENU_W);
     let mut act = |ui: &mut Ui, action: Action| {
-        out.push(Command::Intent(Intent::Library(action)));
+        out.push(Sent::Engine(Command::Library(action)));
         ui.close();
     };
     if widgets::menu_row(ui, Icon::FolderPlus, "New shelf", None, false).clicked() {
@@ -765,7 +765,7 @@ fn finish_rename(state: &mut PanelState, model: &Library, keep: bool, out: &mut 
     };
     let name = r.text.trim();
     if keep && !name.is_empty() && now.is_some_and(|n| n != name) {
-        out.push(Command::Intent(Intent::Library(Action::Rename(
+        out.push(Sent::Engine(Command::Library(Action::Rename(
             r.named,
             name.to_owned(),
         ))));
@@ -825,9 +825,9 @@ fn tab_row(ui: &mut Ui, tab: &PaneTab, active: bool, t: &Tokens, out: &mut Comma
         Icon::Close.paint(ui, close.shrink(5.0), t.muted);
     }
     if x.clicked() {
-        out.push(Command::Intent(Intent::ClosePane(tab.pane)));
+        out.push(Sent::Engine(Command::ClosePane(tab.pane)));
     } else if resp.clicked() {
-        out.push(Command::Intent(Intent::FocusPane(tab.pane)));
+        out.push(Sent::Engine(Command::FocusPane(tab.pane)));
     }
 }
 
@@ -1016,7 +1016,7 @@ fn book_row(
         LibraryClick::DragOnly if keyboard => Placement::Beside,
         LibraryClick::DragOnly => return resp,
     };
-    out.push(Command::Intent(Intent::PlaceBook {
+    out.push(Sent::Engine(Command::PlaceBook {
         book: *id,
         pane: None,
         placement,
@@ -1152,7 +1152,7 @@ pub fn drop_overlay(
             DropTarget::Here { .. } => Placement::Into,
             DropTarget::Split { edge, .. } => Placement::Edge(edge),
         };
-        out.push(Command::Intent(Intent::PlaceBook {
+        out.push(Sent::Engine(Command::PlaceBook {
             book,
             pane: Some(target.pane()),
             placement,

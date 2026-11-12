@@ -5,7 +5,7 @@
 use std::path::PathBuf;
 use std::time::Duration;
 
-use mareader_ui_egui::ui_command::{Command, Intent};
+use mareader_ui_egui::ui_command::{Command, Sent};
 use mareader_ui_egui::{MareaderApp, OpenRequest};
 
 use inbox::Inbox;
@@ -29,7 +29,7 @@ fn open_latest(app: &mut MareaderApp, paths: Vec<PathBuf>) -> bool {
     let Some(path) = paths.into_iter().last() else {
         return false;
     };
-    app.queue(Command::Intent(Intent::Open(OpenRequest::path(path))));
+    app.queue(Sent::Engine(Command::Open(OpenRequest::path(path))));
     true
 }
 

@@ -6,7 +6,7 @@ use egui::{Event, Modifiers, PointerButton, Pos2, ViewportCommand, ViewportId, p
 use egui_kittest::Harness;
 use egui_kittest::kittest::{NodeT as _, Queryable as _};
 use mareader_ui_egui::MareaderApp;
-use mareader_ui_egui::ui_command::{Command, UiCommand};
+use mareader_ui_egui::ui_command::{Sent, UiCommand};
 
 const SIZE: egui::Vec2 = egui::vec2(1200.0, 800.0);
 
@@ -165,7 +165,7 @@ fn a_narrow_bar_folds_dictionary_into_the_menu() {
     let pinned = [("pdf", "sample:3"), ("pinned", "true")];
     let mut h = with(&pinned, egui::vec2(380.0, 600.0));
     assert!(h.query_by_label("Dictionary").is_none(), "no room for it");
-    h.state_mut().queue(Command::Ui(UiCommand::ShowViewMenu));
+    h.state_mut().queue(Sent::Ui(UiCommand::ShowViewMenu));
     h.run();
     h.get_by_label("Dictionary").click();
     h.run();
@@ -228,13 +228,13 @@ fn a_popover_closes_on_escape_and_on_a_press_outside() {
         egui::Popup::is_id_open(&h.ctx, id)
     };
     let mut h = with(&[("pdf", "sample:3")], SIZE);
-    h.state_mut().queue(Command::Ui(UiCommand::ShowAppearance));
+    h.state_mut().queue(Sent::Ui(UiCommand::ShowAppearance));
     h.run_steps(4);
     assert!(open(&h), "the popover opens");
     h.key_press(egui::Key::Escape);
     h.run_steps(3);
     assert!(!open(&h), "Escape closes it");
-    h.state_mut().queue(Command::Ui(UiCommand::ShowAppearance));
+    h.state_mut().queue(Sent::Ui(UiCommand::ShowAppearance));
     h.run_steps(4);
     assert!(open(&h));
     let away = pos2(300.0, 600.0);
@@ -333,11 +333,11 @@ fn distraction_free_hides_every_bar_until_escape_or_its_key() {
 fn distraction_free_leaves_the_library_its_bar() {
     let mut h = with(&[("pdf", "sample:3"), ("chromeless", "true")], SIZE);
     assert_eq!(bars(&mut h), (false, false));
-    h.state_mut().queue(Command::Ui(UiCommand::ShowLibrary));
+    h.state_mut().queue(Sent::Ui(UiCommand::ShowLibrary));
     h.run_steps(4);
     assert!(bars(&mut h).0, "the library has no other way out");
     // Back to reading, the bars hide again.
-    h.state_mut().queue(Command::Ui(UiCommand::ShowLibrary));
+    h.state_mut().queue(Sent::Ui(UiCommand::ShowLibrary));
     h.run_steps(4);
     assert_eq!(bars(&mut h), (false, false));
 }

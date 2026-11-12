@@ -67,7 +67,7 @@ impl MareaderApp {
             placement,
             ..OpenRequest::path(path)
         };
-        self.apply(ctx, Command::Intent(Intent::Open(request)));
+        self.apply(ctx, Sent::Engine(Command::Open(request)));
     }
 
     /// The read-aloud player, on any page: a card when the words are away.

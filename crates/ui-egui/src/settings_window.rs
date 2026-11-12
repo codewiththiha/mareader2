@@ -15,7 +15,7 @@ use crate::icons::Icon;
 use crate::icons::anim::{self, Act};
 use crate::modal::Dialog;
 use crate::theme::{self, Tokens};
-use crate::ui_command::{Command, Commands, Intent, UiCommand};
+use crate::ui_command::{Command, Commands, Sent, UiCommand};
 use crate::widgets;
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -165,10 +165,10 @@ impl SettingsWindow {
             });
         });
         if close || modal.should_close() {
-            out.push(Command::Ui(UiCommand::CloseSettings));
+            out.push(Sent::Ui(UiCommand::CloseSettings));
         }
         if draft != *current {
-            out.push(Command::Intent(Intent::SetSettings(Box::new(draft))));
+            out.push(Sent::Engine(Command::SetSettings(Box::new(draft))));
         }
     }
 
@@ -527,8 +527,8 @@ pub(super) fn colours_row(ui: &mut Ui, out: &mut Commands) {
         let t = Tokens::get(ui.ctx());
         let text = RichText::new("Open Appearance").color(t.accent);
         if ui.add(Button::new(text).fill(t.accent_soft)).clicked() {
-            out.push(Command::Ui(UiCommand::CloseSettings));
-            out.push(Command::Ui(UiCommand::ShowAppearance));
+            out.push(Sent::Ui(UiCommand::CloseSettings));
+            out.push(Sent::Ui(UiCommand::ShowAppearance));
         }
     });
 }

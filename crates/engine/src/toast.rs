@@ -1,6 +1,6 @@
 //! What a toast says, and what its button sends: the data, not the drawing.
 
-use crate::command::Intent;
+use crate::command::Command;
 
 /// How long a note or a result stays up.
 pub const SHOW_FOR: f64 = 3.5;
@@ -24,7 +24,7 @@ pub struct Toast {
     pub message: String,
     pub tone: Tone,
     /// A button, Undo unless said, and what it sends; it lasts longer.
-    pub undo: Option<Box<Intent>>,
+    pub undo: Option<Box<Command>>,
     pub label: &'static str,
     pub player: bool,
 }
@@ -60,7 +60,7 @@ impl Toast {
     }
 
     /// With an Undo button that sends `command`.
-    pub fn undo(self, intent: Intent) -> Self {
+    pub fn undo(self, intent: Command) -> Self {
         Self {
             undo: Some(Box::new(intent)),
             ..self
@@ -68,7 +68,7 @@ impl Toast {
     }
 
     /// With a button `label` that sends `command`, as Resume.
-    pub fn action(self, label: &'static str, intent: Intent) -> Self {
+    pub fn action(self, label: &'static str, intent: Command) -> Self {
         Self {
             undo: Some(Box::new(intent)),
             label,

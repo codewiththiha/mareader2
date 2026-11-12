@@ -7,20 +7,20 @@ use mareader_engine::session::Session;
 mod desk;
 
 impl MareaderApp {
-    /// An intent goes to the engine; chrome is carried out here.
-    pub(super) fn apply(&mut self, ctx: &Context, command: Command) {
+    /// An command goes to the engine; chrome is carried out here.
+    pub(super) fn apply(&mut self, ctx: &Context, command: Sent) {
         if !self.route().allows(&command) {
             return;
         }
         // Text edits must reach the pane focused when they were made.
         self.reconcile_texts();
         match command {
-            Command::Intent(intent) => {
+            Sent::Engine(intent) => {
                 let now = ctx.input(|i| i.time);
                 Session::execute(&mut desk::Front { app: self, ctx }, intent, now);
                 self.drain(ctx);
             }
-            Command::Ui(ui) => self.chrome(ctx, ui),
+            Sent::Ui(ui) => self.chrome(ctx, ui),
         }
     }
 
@@ -81,7 +81,7 @@ impl MareaderApp {
         self.ui.chromeless = !self.ui.chromeless;
         if self.ui.chromeless {
             self.ui.sidebar.close();
-            let keys = keymap::hint(self.ui.platform, &Command::Ui(UiCommand::Chromeless));
+            let keys = keymap::hint(self.ui.platform, &Sent::Ui(UiCommand::Chromeless));
             let keys = keys.map_or(String::new(), |k| format!(" or {k}"));
             let how = format!("Distraction-free. Press Esc{keys} to leave.");
             self.ui.toasts.push(Toast::info(how));
@@ -120,7 +120,7 @@ impl MareaderApp {
             _ => {
                 self.go(Route::Library);
                 let focus = ui_library::Action::Search(ui_library::SearchAction::Focus);
-                self.apply(ctx, Command::Intent(Intent::Library(focus)));
+                self.apply(ctx, Sent::Engine(Command::Library(focus)));
             }
         }
     }

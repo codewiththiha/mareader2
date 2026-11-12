@@ -2,9 +2,9 @@
 //!
 //! The session owns the settings, the panes and the route. Documents, the
 //! library, study marks, speech and the AI are still run by controllers in
-//! the front end, so an intent that lands on one is finished through this
+//! the front end, so an command that lands on one is finished through this
 //! trait. Every method names one controller call with its arguments already
-//! decided here; none of them chooses what an intent means.
+//! decided here; none of them chooses what an command means.
 //!
 //! A controller that moves below the line takes its methods with it, and the
 //! trait ends when the last one has gone. Tests implement it without a
@@ -42,7 +42,7 @@ pub struct EdgeTab {
 
 /// The front end's controllers, as the reducer calls them.
 pub trait Desk {
-    /// The state the reducer changes; lent for the length of one intent.
+    /// The state the reducer changes; lent for the length of one command.
     fn session(&mut self) -> &mut Session;
 
     /// The room the panes share, in points: a split measures against it.

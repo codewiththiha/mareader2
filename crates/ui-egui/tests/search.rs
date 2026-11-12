@@ -6,7 +6,7 @@ use egui_kittest::kittest::Queryable as _;
 use mareader_ui_egui::MareaderApp;
 use mareader_ui_egui::library::search::LABEL;
 use mareader_ui_egui::library::{Action, Pick, SearchAction, ShelfAction};
-use mareader_ui_egui::ui_command::{Command, Intent};
+use mareader_ui_egui::ui_command::{Command, Sent};
 
 use crate::common::reader;
 
@@ -239,7 +239,7 @@ fn going_into_a_shelf_the_search_found_ends_the_search() {
     let options = [("books", "10"), ("shelves", "demo"), ("library", "show")];
     let mut h = reader(&options);
     let act = |h: &mut Harness<'static, MareaderApp>, a| {
-        h.state_mut().queue(Command::Intent(Intent::Library(a)));
+        h.state_mut().queue(Sent::Engine(Command::Library(a)));
         h.run();
     };
     act(&mut h, Action::Search(SearchAction::Text("fict".into())));

@@ -61,7 +61,7 @@ use crate::thumbnails::ThumbState;
 use crate::titlebar::{self, BarContext, BarPage, DictionaryBar, LibraryBar, ReaderBar, TitleBar};
 use crate::toast::{Toast, Toasts};
 use crate::ui_command::{Allows, Route};
-use crate::ui_command::{Command, Commands, Independence, Intent};
+use crate::ui_command::{Command, Commands, Independence, Sent};
 use crate::{keymap, motion, resize, theme};
 use mareader_engine::pane_texts::PaneTexts;
 use mareader_engine::session::Session;

@@ -12,7 +12,7 @@ use crate::icons::Icon;
 use crate::icons::anim::{self, Act as IconAct};
 use crate::motion;
 use crate::theme::{self, Tokens};
-use crate::ui_command::{Command, Commands, Intent, UiCommand};
+use crate::ui_command::{Command, Commands, Sent, UiCommand};
 use crate::widgets;
 use mareader_engine::read_aloud::parts::Kind;
 
@@ -184,7 +184,7 @@ pub(super) fn show(
             // A voice that won't speak is fixed in its settings.
             if note(ui, middle, text, *bad, *bad && !view.narrated) {
                 let tab = crate::settings_window::Tab::ReadAloud;
-                out.push(Command::Intent(Intent::OpenSettings(tab)));
+                out.push(Sent::Engine(Command::OpenSettings(tab)));
             }
         }
         None => {
@@ -678,7 +678,7 @@ fn speed(ui: &mut Ui, slot: Rect, settings: &mut ReadAloudSettings, out: &mut Co
                 if ui.selectable_label(on, rate_label(rate)).clicked() {
                     if !on {
                         settings.rate = rate;
-                        out.push(Command::Ui(UiCommand::Notify(
+                        out.push(Sent::Ui(UiCommand::Notify(
                             crate::toast::Toast::info(format!("Speed {}", rate_label(rate)))
                                 .player(),
                         )));
@@ -814,7 +814,7 @@ fn choices(
         .tint(t.muted)
         .paint_at(ui, at);
     if row.clicked() {
-        out.push(Command::Intent(Intent::OpenSettings(
+        out.push(Sent::Engine(Command::OpenSettings(
             crate::settings_window::Tab::ReadAloud,
         )));
         ui.close();

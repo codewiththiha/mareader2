@@ -39,7 +39,7 @@ use mareader_workspace::PaneId;
 
 use crate::documents::{Documents, OpenRequest};
 use crate::toast::Toast;
-use crate::ui_command::{Command, Commands, Intent, UiCommand};
+use crate::ui_command::{Command, Commands, Sent, UiCommand};
 pub use actions::{Action, Named, Scope, Sheet};
 pub use add::ADD_MENU;
 pub use books::BookAction;
@@ -229,9 +229,9 @@ impl LibraryState {
                         false => Status::ReadOnly,
                     };
                     let notes = loaded.notes.into_iter().map(Toast::error);
-                    out.extend(notes.map(|t| Command::Ui(UiCommand::Notify(t))));
+                    out.extend(notes.map(|t| Sent::Ui(UiCommand::Notify(t))));
                     let held = self.waiting.drain(..);
-                    out.extend(held.map(|r| Command::Intent(Intent::Open(r))));
+                    out.extend(held.map(|r| Sent::Engine(Command::Open(r))));
                     // Gone files and new books, found where they're kept.
                     self.rescan(now);
                 }
@@ -245,7 +245,7 @@ impl LibraryState {
                     };
                     self.model.record_open_as(opened, wall_ms(), probe.book);
                 }
-                News::WriteFailed(e) => out.push(Command::Ui(UiCommand::Notify(Toast::error(e)))),
+                News::WriteFailed(e) => out.push(Sent::Ui(UiCommand::Notify(Toast::error(e)))),
                 News::Walked(done) => self.walked(*done, now, out),
                 News::Files(done) => self.measured(*done, now, out),
                 News::Copied(done) => self.copied(*done, now, out),

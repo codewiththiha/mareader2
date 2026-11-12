@@ -21,7 +21,7 @@ use super::super::*;
 /// The Dictionary's tab parked on the window's edge.
 pub(super) const EDGE_TAB: &str = "dict-edge-tab-button";
 
-/// The app and the frame's context, lent to the engine for one intent.
+/// The app and the frame's context, lent to the engine for one command.
 pub(super) struct Front<'a> {
     pub app: &'a mut MareaderApp,
     pub ctx: &'a Context,

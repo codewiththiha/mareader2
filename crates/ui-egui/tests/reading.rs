@@ -6,7 +6,7 @@ use egui_kittest::Harness;
 use egui_kittest::kittest::Queryable as _;
 use mareader_ui_egui::app::LAST_DOCUMENT_KEY;
 use mareader_ui_egui::documents::Placement;
-use mareader_ui_egui::ui_command::{Command, Intent, UiCommand};
+use mareader_ui_egui::ui_command::{Command, Sent, UiCommand};
 use mareader_ui_egui::{MareaderApp, OpenRequest};
 
 use crate::common::reader_200 as reader;
@@ -66,7 +66,7 @@ fn closing_the_last_pane_on_a_book_frees_its_textures() {
     h.run();
     assert!(textures(&h) > baseline, "pages were uploaded");
     h.state_mut()
-        .queue(Command::Intent(Intent::ClosePane(second)));
+        .queue(Sent::Engine(Command::ClosePane(second)));
     h.run();
     assert_eq!(h.state().active_pane(), first);
     // Nothing of it is left: no document, raster, text layer or job.
@@ -79,7 +79,7 @@ fn closing_the_last_pane_on_a_book_frees_its_textures() {
 fn a_broken_file_says_why_and_leaves_the_pane_empty() {
     let mut h = reader(&[]);
     let junk = OpenRequest::bytes(b"%PDF-1.7 nonsense".to_vec(), "Notes.pdf");
-    h.state_mut().queue(Command::Intent(Intent::Open(junk)));
+    h.state_mut().queue(Sent::Engine(Command::Open(junk)));
     h.run();
     let toast = h.state().toast().map(|t| t.message.clone());
     let cut = "Couldn't open Notes: the PDF is cut short. \
@@ -93,7 +93,7 @@ fn a_damaged_file_and_a_web_page_are_told_apart() {
     let mut h = reader(&[]);
     let broken = b"%PDF-1.7\nnonsense\n%%EOF\n".to_vec();
     h.state_mut()
-        .queue(Command::Intent(Intent::Open(OpenRequest::bytes(
+        .queue(Sent::Engine(Command::Open(OpenRequest::bytes(
             broken, "Deed.pdf",
         ))));
     h.run();
@@ -105,7 +105,7 @@ fn a_damaged_file_and_a_web_page_are_told_apart() {
     );
     let page = b"<html><body>Sign in</body></html>".to_vec();
     h.state_mut()
-        .queue(Command::Intent(Intent::Open(OpenRequest::bytes(
+        .queue(Sent::Engine(Command::Open(OpenRequest::bytes(
             page, "Bill.pdf",
         ))));
     h.run();
@@ -123,7 +123,7 @@ fn a_cut_short_file_opens_with_a_warning() {
     let mut bytes = mareader_pdf::sample::pdf(3, "Partial");
     bytes.truncate(bytes.len() - "%%EOF\n".len());
     h.state_mut()
-        .queue(Command::Intent(Intent::Open(OpenRequest::bytes(
+        .queue(Sent::Engine(Command::Open(OpenRequest::bytes(
             bytes,
             "Partial.pdf",
         ))));
@@ -153,7 +153,7 @@ fn an_epub_opens_titled_with_its_pages_drawn() {
 fn a_broken_epub_says_why() {
     let mut h = reader(&[]);
     let book = OpenRequest::bytes(b"PK\x03\x04 not really".to_vec(), "Dune.epub");
-    h.state_mut().queue(Command::Intent(Intent::Open(book)));
+    h.state_mut().queue(Sent::Engine(Command::Open(book)));
     h.run_steps(3);
     let toast = h.state().toast().map(|t| t.message.clone());
     assert!(
@@ -167,13 +167,13 @@ fn bigger_type_sets_an_open_book_again_at_the_page_read() {
     let mut h = reader(&[("epub", "sample:6")]);
     let pane = h.state().active_pane();
     let view = mareader_ui_egui::layout::ViewMode::Single;
-    h.state_mut().queue(Command::Intent(Intent::View(view)));
+    h.state_mut().queue(Sent::Engine(Command::View(view)));
     // A single page takes the pane's size: the book is set again first.
     h.run();
     let before = h.state().documents().page_count(pane).unwrap_or(0);
     let read = before / 2;
     h.state_mut()
-        .queue(Command::Intent(Intent::GoTo { pane, page: read }));
+        .queue(Sent::Engine(Command::GoTo { pane, page: read }));
     h.run();
     let document = |h: &Harness<'static, MareaderApp>| {
         let reading = h.state().documents().reading(pane);
@@ -211,7 +211,7 @@ fn a_book_s_vertical_strip_streams_one_column_edge_to_edge() {
     assert_eq!(h.state().documents().mode(pane), vertical);
     for _ in 0..8 {
         h.state_mut()
-            .queue(Command::Intent(Intent::Zoom(ZoomCommand::Step(Step::Out))));
+            .queue(Sent::Engine(Command::Zoom(ZoomCommand::Step(Step::Out))));
     }
     h.run();
     // Each page's column, and where its band ends, on screen.
@@ -310,7 +310,7 @@ fn open_beside_splits_and_opens_in_the_new_pane() {
         placement: Placement::Beside,
         ..sample(5)
     };
-    h.state_mut().queue(Command::Intent(Intent::Open(request)));
+    h.state_mut().queue(Sent::Engine(Command::Open(request)));
     h.run();
     let panes = h.state().panes();
     assert_eq!(panes.len(), 2);
@@ -444,7 +444,7 @@ fn a_pinch_zooms_about_the_pointer() {
 fn the_menu_fits_the_page() {
     use mareader_ui_egui::zoom::Fit;
     let mut h = reader(&[("pdf", "sample:5")]);
-    h.state_mut().queue(Command::Ui(UiCommand::ShowViewMenu));
+    h.state_mut().queue(Sent::Ui(UiCommand::ShowViewMenu));
     h.run();
     h.get_by_label("Fit page").click();
     h.run();
@@ -530,7 +530,7 @@ fn a_note_saved_elsewhere_reloads_where_it_is_read() -> Result<(), String> {
     let file = File(std::env::temp_dir().join(name));
     std::fs::write(&file.0, "# Trip\n\nThe old words.\n").map_err(|e| e.to_string())?;
     let mut app = MareaderApp::default();
-    app.queue(Command::Intent(Intent::Open(OpenRequest::path(
+    app.queue(Sent::Engine(Command::Open(OpenRequest::path(
         file.0.clone(),
     ))));
     let mut h = launched(app);
@@ -567,13 +567,13 @@ fn settle(
 fn a_pdf_saved_elsewhere_reloads_on_its_page_and_waits_out_a_bad_save() -> Result<(), String> {
     let file = File::sample(6, "live-pdf")?;
     let mut app = MareaderApp::default();
-    app.queue(Command::Intent(Intent::Open(OpenRequest::path(
+    app.queue(Sent::Engine(Command::Open(OpenRequest::path(
         file.0.clone(),
     ))));
     let mut h = launched(app);
     let pane = h.state().active_pane();
     h.state_mut()
-        .queue(Command::Intent(Intent::GoTo { pane, page: 3 }));
+        .queue(Sent::Engine(Command::GoTo { pane, page: 3 }));
     h.run_steps(30);
     assert_eq!(h.state().documents().current(pane), Some(3));
     let doc =
@@ -611,7 +611,7 @@ fn a_book_keeps_its_own_design_over_the_setting() -> Result<(), String> {
     use mareader_reflow::Design as Set;
     let file = File::book(2, "design")?;
     let mut app = MareaderApp::default();
-    app.queue(Command::Intent(Intent::Open(OpenRequest::path(
+    app.queue(Sent::Engine(Command::Open(OpenRequest::path(
         file.0.clone(),
     ))));
     let mut h = launched(app);
@@ -627,8 +627,7 @@ fn a_book_keeps_its_own_design_over_the_setting() -> Result<(), String> {
     h.run_steps(3);
     assert!(h.query_by_label("This book").is_some());
     let choose = mareader_ui_egui::library::Action::Design(book, Some(Design::Off));
-    h.state_mut()
-        .queue(Command::Intent(Intent::Library(choose)));
+    h.state_mut().queue(Sent::Engine(Command::Library(choose)));
     h.run();
     let own = h.state().library().book(book).and_then(|b| b.design.value);
     assert_eq!(own, Some(Design::Off));
@@ -642,8 +641,7 @@ fn a_book_keeps_its_own_design_over_the_setting() -> Result<(), String> {
     );
     assert_eq!(design(&h), Some(Set::Off));
     let follow = mareader_ui_egui::library::Action::Design(book, None);
-    h.state_mut()
-        .queue(Command::Intent(Intent::Library(follow)));
+    h.state_mut().queue(Sent::Engine(Command::Library(follow)));
     h.run();
     assert_eq!(design(&h), Some(Set::On));
     Ok(())
@@ -657,7 +655,7 @@ fn the_book_read_at_exit_reopens_on_its_page() -> Result<(), String> {
         page: 12,
         ..OpenRequest::path(file.0.clone())
     };
-    app.queue(Command::Intent(Intent::Open(request)));
+    app.queue(Sent::Engine(Command::Open(request)));
     let mut h = launched(app);
     let mut disk = Memory::default();
     h.state_mut().save(&mut disk);
@@ -687,7 +685,7 @@ fn a_book_read_at_exit_reopens_at_its_place_in_new_type() -> Result<(), String> 
         page: 8,
         ..OpenRequest::path(file.0.clone())
     };
-    app.queue(Command::Intent(Intent::Open(request)));
+    app.queue(Sent::Engine(Command::Open(request)));
     let mut h = launched(app);
     let pane = h.state().active_pane();
     assert_eq!(h.state().documents().current(pane), Some(8));
@@ -721,8 +719,7 @@ fn a_dropped_book_or_an_empty_window_leaves_nothing_to_reopen() {
     h.state_mut().save(&mut disk);
     assert_eq!(disk.get_string(LAST_DOCUMENT_KEY).as_deref(), Some("null"));
     // Bytes, such as a browser's drop, have no file to come back to.
-    h.state_mut()
-        .queue(Command::Intent(Intent::Open(sample(3))));
+    h.state_mut().queue(Sent::Engine(Command::Open(sample(3))));
     h.run();
     assert_eq!(h.state().last_document(), None);
     let mut app = MareaderApp::from_storage(Some(&disk));
@@ -739,7 +736,7 @@ fn one_file_in_two_panes_is_read_once_and_drawn_once() -> Result<(), String> {
             pane: Some(*pane),
             ..OpenRequest::path(file.0.clone())
         };
-        h.state_mut().queue(Command::Intent(Intent::Open(request)));
+        h.state_mut().queue(Sent::Engine(Command::Open(request)));
         h.run();
     }
     let meter = h.state().documents().meter();
@@ -748,7 +745,7 @@ fn one_file_in_two_panes_is_read_once_and_drawn_once() -> Result<(), String> {
     let shown = h.state().documents().visible(panes[0]).unwrap_or(0..0);
     assert_eq!(meter.pages, shown.len() + 1, "one set of pages");
     h.state_mut()
-        .queue(Command::Intent(Intent::ClosePane(panes[1])));
+        .queue(Sent::Engine(Command::ClosePane(panes[1])));
     h.run();
     assert_eq!(h.state().documents().meter().documents, 1, "still read");
     Ok(())
@@ -801,7 +798,7 @@ fn a_books_page_and_column_rows_follow_its_view() {
     // The vertical stream keeps a column of its own.
     assert!(shows(&h, "Column width") && !shows(&h, "Longest line"));
     let single = mareader_ui_egui::layout::ViewMode::Single;
-    h.state_mut().queue(Command::Intent(Intent::View(single)));
+    h.state_mut().queue(Sent::Engine(Command::View(single)));
     h.run();
     assert!(shows(&h, "Longest line") && !shows(&h, "Column width"));
     // A PDF has neither, nor a book's overrides.
@@ -816,7 +813,7 @@ fn a_books_page_and_column_rows_follow_its_view() {
 fn the_appearance_popover_offers_a_books_text_dials() {
     let switch = "Override book layout";
     let mut h = reader(&[("epub", "sample:2")]);
-    h.state_mut().queue(Command::Ui(UiCommand::ShowAppearance));
+    h.state_mut().queue(Sent::Ui(UiCommand::ShowAppearance));
     h.run_steps(3);
     h.get_by_role_and_label(Role::CheckBox, switch)
         .scroll_to_me();
@@ -826,7 +823,7 @@ fn the_appearance_popover_offers_a_books_text_dials() {
     assert!(h.state().settings().text.override_layout);
     // A PDF's page has no book type to dial.
     let mut h = reader(&[("pdf", "sample:3")]);
-    h.state_mut().queue(Command::Ui(UiCommand::ShowAppearance));
+    h.state_mut().queue(Sent::Ui(UiCommand::ShowAppearance));
     h.run_steps(3);
     assert!(!shows(&h, switch));
 }
@@ -857,7 +854,7 @@ fn layout_rows_follow_the_focused_document() {
     assert!(shows(&h, "Page margin"));
     // Its single pages have gaps and shadows again.
     let single = mareader_ui_egui::layout::ViewMode::Single;
-    h.state_mut().queue(Command::Intent(Intent::View(single)));
+    h.state_mut().queue(Sent::Engine(Command::View(single)));
     h.run();
     assert!(shows(&h, "No gap") && shows(&h, "Page shadow"));
     assert!(!shows(&h, "Scale my zoom with the pane"));
@@ -981,7 +978,7 @@ fn a_book_set_anew_keeps_the_line_read_on_top() {
         pane: Some(pane),
         ..OpenRequest::path(raven())
     };
-    h.state_mut().queue(Command::Intent(Intent::Open(open)));
+    h.state_mut().queue(Sent::Engine(Command::Open(open)));
     h.run();
     let book =
         |h: &Harness<'static, MareaderApp>| h.state().documents().reading(pane).expect("a book");
@@ -1034,7 +1031,7 @@ fn independent_text_sets_each_pane_in_its_own_type() {
             pane: Some(pane),
             ..OpenRequest::path(raven())
         };
-        h.state_mut().queue(Command::Intent(Intent::Open(open)));
+        h.state_mut().queue(Sent::Engine(Command::Open(open)));
         h.run();
     }
     let doc =

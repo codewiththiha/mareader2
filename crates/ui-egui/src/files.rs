@@ -10,7 +10,7 @@ use mareader_workspace::PaneId;
 
 use crate::documents::{OpenRequest, Placement};
 use crate::toast::Toast;
-use crate::ui_command::{Command, Commands, Intent, UiCommand};
+use crate::ui_command::{Command, Commands, Sent, UiCommand};
 
 /// What the open dialog admits.
 /// Markdown and plain text open converted to books.
@@ -31,7 +31,7 @@ impl Files {
         out.append(&mut inbox);
     }
 
-    fn deliver(&self, ctx: &Context, command: Command) {
+    fn deliver(&self, ctx: &Context, command: Sent) {
         let mut inbox = self.inbox.lock().unwrap_or_else(PoisonError::into_inner);
         inbox.push(command);
         ctx.request_repaint();
@@ -49,7 +49,7 @@ impl Files {
             if let Some(request) = request {
                 files.deliver(
                     &ctx,
-                    Command::Intent(Intent::Open(OpenRequest {
+                    Sent::Engine(Command::Open(OpenRequest {
                         placement,
                         ..request
                     })),
@@ -66,7 +66,7 @@ impl Files {
         &self,
         ctx: &Context,
         title: &str,
-        then: impl FnOnce(PathBuf) -> Command + Send + 'static,
+        then: impl FnOnce(PathBuf) -> Sent + Send + 'static,
     ) {
         let title = title.to_owned();
         let make = move || rfd::AsyncFileDialog::new().set_title(title);
@@ -78,7 +78,7 @@ impl Files {
         &self,
         ctx: &Context,
         extensions: &'static [&'static str],
-        then: impl FnOnce(PathBuf) -> Command + Send + 'static,
+        then: impl FnOnce(PathBuf) -> Sent + Send + 'static,
     ) {
         let make = move || {
             books()
@@ -93,7 +93,7 @@ impl Files {
         &self,
         ctx: &Context,
         from: Option<PathBuf>,
-        then: impl FnOnce(Vec<PathBuf>) -> Command + Send + 'static,
+        then: impl FnOnce(Vec<PathBuf>) -> Sent + Send + 'static,
     ) {
         let make = move || {
             let dialog = books().set_title("Import books into the library");
@@ -111,7 +111,7 @@ impl Files {
         ctx: &Context,
         make: impl FnOnce() -> rfd::AsyncFileDialog + Send + 'static,
         kind: Kind,
-        then: impl FnOnce(Vec<PathBuf>) -> Option<Command> + Send + 'static,
+        then: impl FnOnce(Vec<PathBuf>) -> Option<Sent> + Send + 'static,
     ) {
         if self.picking.swap(true, Ordering::AcqRel) {
             return;
@@ -130,7 +130,7 @@ impl Files {
                 false => "The file dialog couldn't open.",
             };
             let toast = crate::toast::Toast::error(why);
-            self.deliver(ctx, Command::Ui(UiCommand::Notify(toast)));
+            self.deliver(ctx, Sent::Ui(UiCommand::Notify(toast)));
         }
     }
 
@@ -175,12 +175,12 @@ impl Files {
                 Ok(()) => Toast::info(format!("Exported to {name}")),
                 Err(e) => Toast::error(format!("Couldn't export to {name}: {e}")),
             };
-            files.deliver(&cx, Command::Ui(UiCommand::Notify(toast)));
+            files.deliver(&cx, Sent::Ui(UiCommand::Notify(toast)));
         };
         if !dialog::save(make, done) {
             self.picking.store(false, Ordering::Release);
             let toast = Toast::error("Exporting needs the desktop app.");
-            self.deliver(ctx, Command::Ui(UiCommand::Notify(toast)));
+            self.deliver(ctx, Sent::Ui(UiCommand::Notify(toast)));
         }
     }
 
@@ -204,8 +204,8 @@ enum Kind {
 
 /// A command from a dialog's one pick; cancelling gives none.
 fn first(
-    then: impl FnOnce(PathBuf) -> Command + Send + 'static,
-) -> impl FnOnce(Vec<PathBuf>) -> Option<Command> + Send + 'static {
+    then: impl FnOnce(PathBuf) -> Sent + Send + 'static,
+) -> impl FnOnce(Vec<PathBuf>) -> Option<Sent> + Send + 'static {
     move |paths| paths.into_iter().next().map(then)
 }
 
@@ -273,7 +273,7 @@ mod dialog {
         place: impl FnOnce(OpenRequest) -> OpenRequest,
     ) {
         let request = place(OpenRequest::path(file.path().to_path_buf()));
-        files.deliver(ctx, Command::Intent(Intent::Open(request)));
+        files.deliver(ctx, Sent::Engine(Command::Open(request)));
     }
 }
 
@@ -321,8 +321,8 @@ mod dialog {
         wasm_bindgen_futures::spawn_local(async move {
             let name = file.path().to_string_lossy().into_owned();
             let command = match file.bytes_async().await {
-                Ok(bytes) => Command::Intent(Intent::Open(place(OpenRequest::bytes(bytes, name)))),
-                Err(e) => Command::Ui(UiCommand::Notify(Toast::error(format!(
+                Ok(bytes) => Sent::Engine(Command::Open(place(OpenRequest::bytes(bytes, name)))),
+                Err(e) => Sent::Ui(UiCommand::Notify(Toast::error(format!(
                     "Couldn't read {name}: {e}"
                 )))),
             };

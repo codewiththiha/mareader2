@@ -7,7 +7,7 @@ use super::{Action, ShelfAction};
 use crate::icons::Icon;
 use crate::platform::Platform;
 use crate::titlebar::LibraryBar;
-use crate::ui_command::{Command, Commands, Intent};
+use crate::ui_command::{Command, Commands, Sent};
 use crate::widgets;
 
 pub const LIBRARY_VIEW_MENU: &str = "library-view-menu";
@@ -41,7 +41,7 @@ pub fn button(
             // Every change shows at once; the menu stays open to chain them.
             let mut next = *view;
             if widgets::menu_row(ui, Icon::FolderPlus, "New shelf", None, false).clicked() {
-                out.push(Command::Intent(Intent::Library(Action::Shelf(
+                out.push(Sent::Engine(Command::Library(Action::Shelf(
                     ShelfAction::New,
                 ))));
                 ui.close();
@@ -56,7 +56,7 @@ pub fn button(
             widgets::menu_rule(ui);
             contents(ui, &mut next, auto);
             if next != *view {
-                out.push(Command::Intent(Intent::SetLibraryView(next)));
+                out.push(Sent::Engine(Command::SetLibraryView(next)));
             }
             widgets::close_on_key(ui);
         });

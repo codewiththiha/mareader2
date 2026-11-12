@@ -8,7 +8,7 @@ use mareader_settings::PageStart;
 use mareader_ui_egui::MareaderApp;
 use mareader_ui_egui::page_ai::menu::FIND;
 use mareader_ui_egui::selection::Sheet;
-use mareader_ui_egui::ui_command::{Command, Intent, UiCommand};
+use mareader_ui_egui::ui_command::{Command, Sent, UiCommand};
 
 use crate::common::{ai_reader as reader, find, page};
 
@@ -21,7 +21,7 @@ fn bare() -> H {
     let mut settings = h.state().settings().clone();
     settings.ai.presets.clear();
     h.state_mut()
-        .queue(Command::Intent(Intent::SetSettings(Box::new(settings))));
+        .queue(Sent::Engine(Command::SetSettings(Box::new(settings))));
     h.run();
     h
 }
@@ -199,7 +199,7 @@ fn a_task_set_to_this_page_runs_without_asking() -> Out {
     let mut settings = h.state().settings().clone();
     settings.ai.tasks.simplify.start = PageStart::Page;
     h.state_mut()
-        .queue(Command::Intent(Intent::SetSettings(Box::new(settings))));
+        .queue(Sent::Engine(Command::SetSettings(Box::new(settings))));
     h.run();
     let (_, sheet) = page(&h, 0)?;
     press(&mut h, margin(sheet), PointerButton::Secondary);
@@ -231,7 +231,7 @@ fn going_far_away_pauses_then_asks_to_carry_on_there() -> Out {
     let pane = h.state().active_pane();
     simplify_on(&mut h, false)?;
     h.state_mut()
-        .queue(Command::Intent(Intent::GoTo { pane, page: 30 }));
+        .queue(Sent::Engine(Command::GoTo { pane, page: 30 }));
     // Kept still a moment far from page 0, it asks.
     h.run_steps(120);
     assert!(h.query_by_label("Continue").is_some(), "the pill asks");
@@ -251,7 +251,7 @@ fn staying_on_a_done_page_asks_the_next_pages() -> Out {
     settings.ai.tasks.pages.dwell = 5;
     settings.ai.tasks.pages.at_once = 3;
     h.state_mut()
-        .queue(Command::Intent(Intent::SetSettings(Box::new(settings))));
+        .queue(Sent::Engine(Command::SetSettings(Box::new(settings))));
     h.run();
     simplify_on(&mut h, false)?;
     h.run_steps(30);
@@ -274,7 +274,7 @@ fn a_pdf_takes_type_settings_while_an_ai_page_shows() {
     let open = |h: &mut H| {
         h.set_size(egui::vec2(1000.0, 1200.0));
         h.state_mut()
-            .queue(Command::Intent(Intent::OpenSettings(Tab::Appearance)));
+            .queue(Sent::Engine(Command::OpenSettings(Tab::Appearance)));
         h.run();
     };
     let mut plain = reader(&[("pdf", "sample:5")]);
@@ -300,9 +300,9 @@ fn a_pdf_takes_type_settings_while_an_ai_page_shows() {
     assert!(h.query_all_by_label("Book layout").next().is_none());
     // Turned to a page of its own, the PDF has no type to set.
     let pane = h.state().active_pane();
-    h.state_mut().queue(Command::Ui(UiCommand::CloseSettings));
+    h.state_mut().queue(Sent::Ui(UiCommand::CloseSettings));
     h.state_mut()
-        .queue(Command::Intent(Intent::GoTo { pane, page: 4 }));
+        .queue(Sent::Engine(Command::GoTo { pane, page: 4 }));
     h.run_steps(4);
     open(&mut h);
     assert!(!h.state().settings_scope().ai_pages);
@@ -327,7 +327,7 @@ fn laid() -> Result<H, String> {
     ]);
     let pane = h.state().active_pane();
     h.state_mut()
-        .queue(Command::Intent(Intent::GoTo { pane, page: 2 }));
+        .queue(Sent::Engine(Command::GoTo { pane, page: 2 }));
     h.run_steps(30);
     h.run();
     let (count, base, key) = book(&h)?;
@@ -360,7 +360,7 @@ fn new_type_lays_the_result_out_again() -> Out {
     let mut settings = h.state().settings().clone();
     settings.text.font_size *= 1.6;
     h.state_mut()
-        .queue(Command::Intent(Intent::SetSettings(Box::new(settings))));
+        .queue(Sent::Engine(Command::SetSettings(Box::new(settings))));
     h.run_steps(30);
     h.run();
     let (count, more, key) = book(&h)?;

@@ -6,7 +6,7 @@ mod stack;
 use egui::{Context, Id, Rect, pos2};
 
 use crate::motion;
-use crate::ui_command::{Command, Commands, UiCommand};
+use crate::ui_command::{Commands, Sent, UiCommand};
 
 /// At least this long is left once a held stack is let go.
 pub const HOVER_GRACE: f64 = 1.5;
@@ -424,8 +424,8 @@ impl Toasts {
             if let Some((id, command)) = undo
                 && ctx.input_mut(|i| i.consume_key(egui::Modifiers::COMMAND, egui::Key::Z))
             {
-                out.push(Command::Intent(command));
-                out.push(Command::Ui(UiCommand::CloseToast(id)));
+                out.push(Sent::Engine(command));
+                out.push(Sent::Ui(UiCommand::CloseToast(id)));
             }
         }
         let opened = ctx.animate_bool_with_time(egui::Id::new("toasts-open"), self.open, FADE);
@@ -532,7 +532,7 @@ impl Toasts {
 
 #[cfg(test)]
 mod tests {
-    use {super::*, crate::ui_command::Intent};
+    use {super::*, crate::ui_command::Command};
 
     const SCREEN: Rect = Rect::from_min_max(pos2(0.0, 0.0), pos2(1200.0, 800.0));
 
@@ -637,7 +637,7 @@ mod tests {
         let mut long = Toasts::default();
         long.push(
             Toast::info("Removed highlight from the second paragraph of chapter four")
-                .undo(Intent::Study(crate::study::Action::Restore(Vec::new()))),
+                .undo(Command::Study(crate::study::Action::Restore(Vec::new()))),
         );
         frame(&ctx, &mut long, None, 0.0);
         let long_card = card::measure(&ctx, &long.live[0], WIDTH, &t);

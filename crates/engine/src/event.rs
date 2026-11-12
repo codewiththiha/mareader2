@@ -2,7 +2,7 @@
 
 use crate::toast::Toast;
 
-/// One result of an intent that the session cannot show itself.
+/// One result of an command that the session cannot show itself.
 #[derive(Clone, Debug, PartialEq)]
 pub enum Event {
     /// A note for the reader; the front end decides how it looks.

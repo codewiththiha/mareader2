@@ -3,7 +3,7 @@
 //! `Session` owns what outlives a frame and is not a drawing: the settings,
 //! the pane tree and which pane is awake, the panes by last focus, and the
 //! route. A front end draws that state and asks for changes by handing an
-//! [`Intent`] to `Session::execute` (`execute.rs`); what the session cannot
+//! [`Command`] to `Session::execute` (`execute.rs`); what the session cannot
 //! show itself leaves as an [`Event`], drained once a frame.
 //!
 //! Documents, the library and the study tools are still run by front-end
@@ -14,7 +14,7 @@ use std::sync::Arc;
 use mareader_settings::Settings;
 use mareader_workspace::{Bounds, Edge, MAX_PANES, PaneId, PaneTree, TreeError};
 
-use crate::command::Intent;
+use crate::command::Command;
 use crate::event::Event;
 use crate::route::Route;
 use crate::toast::Toast;
@@ -36,12 +36,12 @@ pub struct Session {
     waker: Waker,
 }
 
-/// What an intent the session carries out alone came to.
+/// What an command the session carries out alone came to.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Done {
     /// True when the state changed and the window should redraw.
     pub dirty: bool,
-    /// Why an intent was refused, if it was: a bad path, a bad value.
+    /// Why an command was refused, if it was: a bad path, a bad value.
     pub refused: Option<String>,
 }
 
@@ -200,74 +200,74 @@ impl Session {
         &mut self.tree
     }
 
-    /// Carries out an intent that needs no controller: panes and dials.
+    /// Carries out an command that needs no controller: panes and dials.
     ///
     /// `execute` routes those here; the rest answer quiet, untouched.
-    pub fn apply(&mut self, intent: Intent) -> Done {
+    pub fn apply(&mut self, intent: Command) -> Done {
         match intent {
-            Intent::FocusPane(id) => {
+            Command::FocusPane(id) => {
                 self.focus(id);
                 Done::changed()
             }
-            Intent::ClosePane(id) => match self.close(id) {
+            Command::ClosePane(id) => match self.close(id) {
                 true => Done::changed(),
                 false => Done::quiet(),
             },
-            Intent::SetRatio(path, ratio) => {
+            Command::SetRatio(path, ratio) => {
                 self.tree.set_ratio(&path, ratio);
                 Done::changed()
             }
-            Intent::SetSettings(settings) => {
+            Command::SetSettings(settings) => {
                 let mut settings = *settings;
                 settings.sanitize();
                 self.settings = settings;
                 Done::changed()
             }
-            Intent::SetField { path, value } => self.put(&path, Ok(value)),
+            Command::SetField { path, value } => self.put(&path, Ok(value)),
             other => self.dial(other),
         }
     }
 
-    /// The dials an intent names outright, each written as its path is.
-    fn dial(&mut self, intent: Intent) -> Done {
+    /// The dials an command names outright, each written as its path is.
+    fn dial(&mut self, intent: Command) -> Done {
         match intent {
-            Intent::SetSidebarOverlay(on) => {
+            Command::SetSidebarOverlay(on) => {
                 self.settings.chrome.sidebar_overlay = on;
                 Done::changed()
             }
-            Intent::SetTitlebarPinned(on) => {
+            Command::SetTitlebarPinned(on) => {
                 let bar = self.route.bar();
                 self.settings.chrome.pin(bar, on);
                 Done::changed()
             }
-            Intent::SetInkContrast(ink) => {
+            Command::SetInkContrast(ink) => {
                 self.put("text.ink_contrast", serde_json::to_string(&ink))
             }
-            Intent::SetQuickText(quick) => {
+            Command::SetQuickText(quick) => {
                 let mut text = self.settings.text.clone();
                 quick.apply(&mut text);
                 self.put("text", serde_json::to_string(&text))
             }
-            Intent::SetIndependence(own) => {
+            Command::SetIndependence(own) => {
                 let themes = serde_json::to_string(&own.themes);
                 self.put("workspace.independent_themes", themes);
                 let textures = serde_json::to_string(&own.textures);
                 self.put("workspace.independent_textures", textures)
             }
-            Intent::SavePreset { name, group, look } => {
+            Command::SavePreset { name, group, look } => {
                 self.settings.save_preset(&name, &group, look);
                 self.settings.sanitize();
                 Done::changed()
             }
-            Intent::DeletePreset(id) => {
+            Command::DeletePreset(id) => {
                 self.settings.delete_preset(&id);
                 self.settings.sanitize();
                 Done::changed()
             }
-            Intent::SetDictionary(dictionary) => {
+            Command::SetDictionary(dictionary) => {
                 self.put("dictionary", serde_json::to_string(&*dictionary))
             }
-            Intent::SetLibraryView(view) => self.put("library", serde_json::to_string(&view)),
+            Command::SetLibraryView(view) => self.put("library", serde_json::to_string(&view)),
             _ => Done::quiet(),
         }
     }

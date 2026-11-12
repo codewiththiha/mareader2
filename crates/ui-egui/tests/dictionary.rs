@@ -15,7 +15,7 @@ use mareader_ui_egui::park::PEEK;
 use mareader_ui_egui::settings_window::Tab;
 use mareader_ui_egui::settings_window::{ALL_LANGUAGES, MORE_LANGUAGES};
 use mareader_ui_egui::ui_command::Route;
-use mareader_ui_egui::ui_command::{Command, Intent, UiCommand};
+use mareader_ui_egui::ui_command::{Command, Sent, UiCommand};
 
 use crate::common::click_at;
 
@@ -59,7 +59,7 @@ fn reader(dir: &Path) -> H {
 fn select(h: &mut H, text: &str) {
     let pane = h.state().active_pane();
     let text = text.to_owned();
-    h.state_mut().queue(Command::Intent(Intent::SelectText {
+    h.state_mut().queue(Sent::Engine(Command::SelectText {
         pane,
         page: 0,
         text,
@@ -92,7 +92,7 @@ fn look_up_answers_from_the_packs_in_the_default_language() {
     let mut s = h.state().settings().clone();
     s.dictionary.default_lang = Some("fr".into());
     h.state_mut()
-        .queue(Command::Intent(Intent::SetSettings(Box::new(s))));
+        .queue(Sent::Engine(Command::SetSettings(Box::new(s))));
     select(&mut h, "quick brown");
     h.get_by_label("Look up").click();
     h.run();
@@ -122,7 +122,7 @@ fn the_tab_lists_packs_and_removes_one() {
     let dir = shelf();
     let mut h = reader(dir.path());
     h.state_mut()
-        .queue(Command::Intent(Intent::OpenSettings(Tab::Dictionary)));
+        .queue(Sent::Engine(Command::OpenSettings(Tab::Dictionary)));
     h.run();
     // Packs on this device show; the rest wait in a fold.
     assert!(h.query_by_label("Download English → Japanese").is_none());
@@ -166,7 +166,7 @@ fn full_page(h: &mut H) {
     let mut s = h.state().settings().clone();
     s.dictionary.opens = DictionaryOpens::Page;
     h.state_mut()
-        .queue(Command::Intent(Intent::SetSettings(Box::new(s))));
+        .queue(Sent::Engine(Command::SetSettings(Box::new(s))));
     h.run();
 }
 
@@ -208,7 +208,7 @@ fn the_page_bar_opens_its_settings_and_keeps_a_pin() {
     assert!(window.is_open());
     assert_eq!(window.tab(), Tab::Dictionary);
     assert_eq!(h.query_all_by_label("Layout").count(), 0, "a reading tab");
-    h.state_mut().queue(Command::Ui(UiCommand::CloseSettings));
+    h.state_mut().queue(Sent::Ui(UiCommand::CloseSettings));
     h.run();
     assert!(h.state().pinned(), "the page starts pinned");
     let field_top = |h: &H| h.state().dict().page_field().map(|r| r.top());
@@ -249,7 +249,7 @@ fn the_page_bar_opens_its_settings_and_keeps_a_pin() {
 fn from_the_library_the_page_returns_to_the_library() {
     let dir = shelf();
     let mut h = reader(dir.path());
-    h.state_mut().queue(Command::Ui(UiCommand::ShowLibrary));
+    h.state_mut().queue(Sent::Ui(UiCommand::ShowLibrary));
     h.run();
     h.get_by_label("Dictionary").click();
     h.run();
@@ -258,10 +258,10 @@ fn from_the_library_the_page_returns_to_the_library() {
     h.run();
     assert_eq!(h.state().route(), Route::Library);
     // The page's Library button goes there from the reader's side too.
-    h.state_mut().queue(Command::Ui(UiCommand::ShowLibrary));
+    h.state_mut().queue(Sent::Ui(UiCommand::ShowLibrary));
     h.run();
     full_page(&mut h);
-    h.state_mut().queue(Command::Ui(UiCommand::ShowDictionary));
+    h.state_mut().queue(Sent::Ui(UiCommand::ShowDictionary));
     h.run();
     h.get_by_label("Library").click();
     h.run();
@@ -297,7 +297,7 @@ fn an_answer_can_be_looked_up_in_turn() {
     let mut s = h.state().settings().clone();
     s.dictionary.langs = vec!["wiktionary-en-fr".into()];
     h.state_mut()
-        .queue(Command::Intent(Intent::SetSettings(Box::new(s))));
+        .queue(Sent::Engine(Command::SetSettings(Box::new(s))));
     h.state_mut()
         .set_option("dict_page", "light")
         .expect("a known option");
@@ -318,7 +318,7 @@ fn in_the_reader_the_button_floats_a_window_that_folds_and_closes() {
     let dir = shelf();
     let mut h = reader(dir.path());
     // As the bar's Dictionary button sends.
-    h.state_mut().queue(Command::Ui(UiCommand::ShowDictionary));
+    h.state_mut().queue(Sent::Ui(UiCommand::ShowDictionary));
     h.run();
     assert_eq!(h.state().route(), Route::Reader, "the book stays");
     assert_eq!(window_open(&h), (true, false));
@@ -530,7 +530,7 @@ fn the_tab_chooses_how_the_reader_opens_it() {
     let dir = shelf();
     let mut h = reader(dir.path());
     h.state_mut()
-        .queue(Command::Intent(Intent::OpenSettings(Tab::Dictionary)));
+        .queue(Sent::Engine(Command::OpenSettings(Tab::Dictionary)));
     h.run();
     h.get_by_label("Full page").click();
     h.run();
@@ -578,7 +578,7 @@ fn the_card_carries_its_word_into_the_window_or_the_page() {
     let mut s = h.state().settings().clone();
     s.dictionary.opens = DictionaryOpens::Page;
     h.state_mut()
-        .queue(Command::Intent(Intent::SetSettings(Box::new(s))));
+        .queue(Sent::Engine(Command::SetSettings(Box::new(s))));
     select(&mut h, "brown");
     h.get_by_label("Look up").click();
     h.run();
@@ -656,7 +656,7 @@ fn a_bridge_names_english_and_each_answer_its_word() {
     let mut s = h.state().settings().dictionary.clone();
     (s.pair, s.from, s.to) = (true, Some("fr".into()), Some("my".into()));
     h.state_mut()
-        .queue(Command::Intent(Intent::SetDictionary(Box::new(s))));
+        .queue(Sent::Engine(Command::SetDictionary(Box::new(s))));
     h.run();
     h.state_mut()
         .set_option("dict_page", "lumière")
@@ -674,7 +674,7 @@ fn the_card_says_its_word_in_the_reading_voice() {
     let mut s = h.state().settings().clone();
     s.read_aloud.engine = "silent".into();
     h.state_mut()
-        .queue(Command::Intent(Intent::SetSettings(Box::new(s))));
+        .queue(Sent::Engine(Command::SetSettings(Box::new(s))));
     h.run();
     select(&mut h, "quick");
     h.get_by_label("Look up").click();
@@ -705,7 +705,7 @@ fn near_matches_can_be_left_off_the_card() {
     h.key_press(egui::Key::Escape);
     h.run();
     h.state_mut()
-        .queue(Command::Intent(Intent::OpenSettings(Tab::Dictionary)));
+        .queue(Sent::Engine(Command::OpenSettings(Tab::Dictionary)));
     h.run();
     let switch = h.get_by_role_and_label(Role::CheckBox, "Show near matches");
     switch.scroll_to_me();
@@ -714,7 +714,7 @@ fn near_matches_can_be_left_off_the_card() {
         .click();
     h.run();
     assert!(!h.state().settings().dictionary.near);
-    h.state_mut().queue(Command::Ui(UiCommand::CloseSettings));
+    h.state_mut().queue(Sent::Ui(UiCommand::CloseSettings));
     h.run();
     select(&mut h, "quic");
     h.get_by_label("Look up").click();
@@ -734,7 +734,7 @@ fn light_in(dir: &Path, (engine, voice): (&str, Option<&str>), others: bool) -> 
     (s.dictionary.pair, s.dictionary.to) = (true, Some("fr".into()));
     s.dictionary.other_voices = others;
     h.state_mut()
-        .queue(Command::Intent(Intent::SetSettings(Box::new(s))));
+        .queue(Sent::Engine(Command::SetSettings(Box::new(s))));
     h.run();
     h.state_mut()
         .set_option("dict_window", "light")
@@ -846,7 +846,7 @@ fn dictionary_window_idling_in_corner_moves_aside_for_toast_and_restores() {
     let aside = h.state().dict().window_rect().expect("stepped aside");
     assert!(aside.left() < corner.left(), "moved aside for toast");
     // Clearing the toast eases the window back to its place.
-    h.state_mut().queue(Command::Ui(UiCommand::ClearToasts));
+    h.state_mut().queue(Sent::Ui(UiCommand::ClearToasts));
     h.run_steps(30);
     let back = h.state().dict().window_rect().expect("restored");
     assert!(

@@ -6,7 +6,7 @@ use image::RgbaImage;
 use mareader_appearance::FilmGrain;
 use mareader_ui_egui::MareaderApp;
 use mareader_ui_egui::theme::TITLE_BAR_H;
-use mareader_ui_egui::ui_command::{Intent, UiCommand};
+use mareader_ui_egui::ui_command::{Command, UiCommand};
 
 use crate::common::scroll;
 
@@ -525,8 +525,8 @@ fn a_mode_click_fades_from_the_old_look() -> Out {
     let mut look = h.state().look(h.state().active_pane());
     look.base = BaseMode::Dim;
     h.state_mut()
-        .queue(mareader_ui_egui::ui_command::Command::Intent(
-            Intent::SetAppearance(look),
+        .queue(mareader_ui_egui::ui_command::Sent::Engine(
+            Command::SetAppearance(look),
         ));
     h.step();
     assert_eq!(base(&h), BaseMode::Dim, "a queued change lands at once");
@@ -572,7 +572,7 @@ fn page_spread(h: &mut Harness<'static, MareaderApp>) -> Result<Vec<(i32, i32)>,
 fn texture_for_each_patterns_every_open_pane() -> Out {
     use mareader_appearance::TextureMode;
     use mareader_ui_egui::settings_window::Tab;
-    use mareader_ui_egui::ui_command::Command;
+    use mareader_ui_egui::ui_command::Sent;
     let options = [
         ("pdf", "sample"),
         ("panes", "2"),
@@ -591,7 +591,7 @@ fn texture_for_each_patterns_every_open_pane() -> Out {
         assert!(hi - lo < 6, "plain pages first: {lo}..{hi}");
     }
     h.state_mut()
-        .queue(Command::Intent(Intent::OpenSettings(Tab::Panes)));
+        .queue(Sent::Engine(Command::OpenSettings(Tab::Panes)));
     h.run();
     let switch = "Independent page texture for each pane";
     // Split, the tab opens on the pane looks; the switch sits below.
@@ -601,7 +601,7 @@ fn texture_for_each_patterns_every_open_pane() -> Out {
     h.get_by_role_and_label(egui::accesskit::Role::CheckBox, switch)
         .click();
     h.run();
-    h.state_mut().queue(Command::Ui(UiCommand::CloseSettings));
+    h.state_mut().queue(Sent::Ui(UiCommand::CloseSettings));
     h.run();
     h.run_steps(4);
     let app = h.state();
@@ -621,7 +621,7 @@ fn texture_for_each_patterns_every_open_pane() -> Out {
 #[test]
 fn the_palette_s_texture_for_each_patterns_every_open_pane() -> Out {
     use mareader_appearance::TextureMode;
-    use mareader_ui_egui::ui_command::Command;
+    use mareader_ui_egui::ui_command::Sent;
     let options = [
         ("pdf", "sample"),
         ("panes", "2"),
@@ -629,7 +629,7 @@ fn the_palette_s_texture_for_each_patterns_every_open_pane() -> Out {
         ("pdf", "sample"),
     ];
     let mut h = reader(&options);
-    h.state_mut().queue(Command::Ui(UiCommand::ShowAppearance));
+    h.state_mut().queue(Sent::Ui(UiCommand::ShowAppearance));
     h.run();
     let switch = h.get_by_role_and_label(egui::accesskit::Role::CheckBox, "Texture per pane");
     switch.scroll_to_me();
@@ -669,9 +669,10 @@ fn a_book_page_takes_its_own_paper_not_the_pdf_filter() -> Out {
         let mut h = reader(&options);
         let pane = h.state().active_pane();
         h.state_mut()
-            .queue(mareader_ui_egui::ui_command::Command::Intent(
-                Intent::GoTo { pane, page: 1 },
-            ));
+            .queue(mareader_ui_egui::ui_command::Sent::Engine(Command::GoTo {
+                pane,
+                page: 1,
+            }));
         h.run();
         h.run_steps(2);
         let image = h.render()?;
@@ -746,9 +747,10 @@ fn the_ink_dial_lightens_a_book_s_text_and_leaves_its_pictures() -> Out {
     let pane = h.state().active_pane();
     h.state_mut().set_option("ink", "100")?;
     h.state_mut()
-        .queue(mareader_ui_egui::ui_command::Command::Intent(
-            Intent::GoTo { pane, page: 1 },
-        ));
+        .queue(mareader_ui_egui::ui_command::Sent::Engine(Command::GoTo {
+            pane,
+            page: 1,
+        }));
     h.run();
     h.run_steps(2);
     let full = dark(&h.render()?, 90);
@@ -764,10 +766,9 @@ fn the_ink_dial_lightens_a_book_s_text_and_leaves_its_pictures() -> Out {
 fn the_library_page_draws_under_a_glass_bar() -> Out {
     // A pinned bar blurs whatever is behind it; here, no pages at all.
     let mut h = reader(&[("pdf", "sample"), ("pinned", "true")]);
-    h.state_mut()
-        .queue(mareader_ui_egui::ui_command::Command::Ui(
-            UiCommand::ShowLibrary,
-        ));
+    h.state_mut().queue(mareader_ui_egui::ui_command::Sent::Ui(
+        UiCommand::ShowLibrary,
+    ));
     h.run();
     assert!(h.state().library_showing());
     let image = h.render()?;

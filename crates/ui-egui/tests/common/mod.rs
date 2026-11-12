@@ -8,7 +8,7 @@ use mareader_pdf::TextLayer;
 use mareader_ui_egui::MareaderApp;
 use mareader_ui_egui::library::Action;
 use mareader_ui_egui::selection::Sheet;
-use mareader_ui_egui::ui_command::{Command, Intent};
+use mareader_ui_egui::ui_command::{Command, Sent};
 
 fn harness(
     options: &[(&str, &str)],
@@ -135,8 +135,7 @@ pub(crate) fn release(h: &mut Harness<'static, MareaderApp>, at: egui::Pos2) {
 }
 
 pub(crate) fn act(h: &mut Harness<'static, MareaderApp>, action: Action) {
-    h.state_mut()
-        .queue(Command::Intent(Intent::Library(action)));
+    h.state_mut().queue(Sent::Engine(Command::Library(action)));
     h.run();
     h.run();
 }
@@ -144,6 +143,6 @@ pub(crate) fn act(h: &mut Harness<'static, MareaderApp>, action: Action) {
 pub(crate) fn go_to(h: &mut Harness<'static, MareaderApp>, page: usize) {
     let pane = h.state().active_pane();
     h.state_mut()
-        .queue(Command::Intent(Intent::GoTo { pane, page }));
+        .queue(Sent::Engine(Command::GoTo { pane, page }));
     h.run();
 }

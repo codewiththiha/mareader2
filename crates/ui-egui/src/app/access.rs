@@ -22,7 +22,7 @@ impl MareaderApp {
 
     /// Makes `pane` the focused pane.
     pub(super) fn focus(&mut self, pane: PaneId) {
-        self.send(Intent::FocusPane(pane));
+        self.send(Command::FocusPane(pane));
     }
 
     /// The tree, writable, for the pane surgery `execute` cannot express:
@@ -43,7 +43,7 @@ impl MareaderApp {
 
     /// Takes a whole new settings, through the door.
     pub fn set_settings(&mut self, settings: Settings) {
-        self.send(Intent::SetSettings(Box::new(settings)));
+        self.send(Command::SetSettings(Box::new(settings)));
     }
 
     /// One dial, by its dotted path, to whatever JSON `value` makes.
@@ -57,12 +57,12 @@ impl MareaderApp {
     ) -> Result<(), String> {
         let value = serde_json::to_string(&value).map_err(|e| e.to_string())?;
         let path = path.into();
-        let done = self.session.apply(Intent::SetField { path, value });
+        let done = self.session.apply(Command::SetField { path, value });
         done.refused.map_or(Ok(()), Err)
     }
 
-    /// An intent the session carries out alone: a dial, the focus.
-    pub(super) fn send(&mut self, intent: Intent) {
+    /// An command the session carries out alone: a dial, the focus.
+    pub(super) fn send(&mut self, intent: Command) {
         self.session.apply(intent);
     }
 
@@ -132,7 +132,7 @@ impl MareaderApp {
     }
 
     /// Applied at the end of the next frame, like a view's commands.
-    pub fn queue(&mut self, command: Command) {
+    pub fn queue(&mut self, command: Sent) {
         self.ui.queued.push(command);
     }
 

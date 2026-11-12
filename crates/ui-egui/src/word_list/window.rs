@@ -15,7 +15,7 @@ use crate::icons::Icon;
 use crate::modal::Dialog;
 use crate::settings_window::Tab;
 use crate::theme::{self, Tokens};
-use crate::ui_command::{Command, Commands, Intent, UiCommand};
+use crate::ui_command::{Command, Commands, Sent, UiCommand};
 use crate::vocab::Vocab;
 use crate::widgets;
 
@@ -154,7 +154,7 @@ impl WordWindow {
         if draft != *settings {
             // The preview redraws from the saved options, a frame on.
             ctx.request_repaint();
-            out.push(Command::Intent(Intent::SetSettings(Box::new(draft))));
+            out.push(Sent::Engine(Command::SetSettings(Box::new(draft))));
         }
         if close || modal.should_close() {
             self.open = None;
@@ -439,7 +439,7 @@ impl Open {
                 if let Some(output) = output
                     && let Some(toast) = deliver(&ctx, files, &self.title, made, output)
                 {
-                    out.push(Command::Ui(UiCommand::Notify(toast)));
+                    out.push(Sent::Ui(UiCommand::Notify(toast)));
                 }
             });
         });
@@ -542,7 +542,7 @@ fn languages(ui: &mut Ui, list: &mut WordList, dict: &Dict, out: &mut Commands, 
         ui.horizontal_wrapped(|ui| {
             ui.label(RichText::new("Download a dictionary to add meanings.").color(t.muted));
             if ui.link("Dictionary settings").clicked() {
-                out.push(Command::Intent(Intent::OpenSettings(Tab::Dictionary)));
+                out.push(Sent::Engine(Command::OpenSettings(Tab::Dictionary)));
                 *close = true;
             }
         });

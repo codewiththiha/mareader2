@@ -72,7 +72,7 @@ impl MareaderApp {
         {
             self.apply(
                 ctx,
-                Command::Intent(Intent::Library(ui_library::Action::FindAgain(id))),
+                Sent::Engine(Command::Library(ui_library::Action::FindAgain(id))),
             );
             return;
         }
@@ -103,7 +103,7 @@ impl MareaderApp {
                     placement,
                     ..request
                 };
-                self.apply(ctx, Command::Intent(Intent::Open(request)));
+                self.apply(ctx, Sent::Engine(Command::Open(request)));
             }
             Err(toast) => self.ui.toasts.push(toast),
         }
@@ -161,7 +161,7 @@ impl MareaderApp {
             if !paths.is_empty() {
                 let to = self.ui.library.file_target.or(self.ui.library.at());
                 let import = ui_library::BookAction::Import { paths, to };
-                out.push(Command::Intent(Intent::Library(ui_library::Action::Book(
+                out.push(Sent::Engine(Command::Library(ui_library::Action::Book(
                     import,
                 ))));
             }

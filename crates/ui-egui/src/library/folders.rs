@@ -18,7 +18,7 @@ use super::moving::CopyWork;
 use super::runs::{Phase, RunId};
 use super::{LibraryState, Pick, Sheet, Status, wall_ms};
 use crate::toast::Toast;
-use crate::ui_command::{Command, Commands, UiCommand};
+use crate::ui_command::{Commands, Sent, UiCommand};
 
 /// Seconds between rescans when the window keeps regaining focus.
 const RESCAN_GAP: f64 = 2.0;
@@ -149,12 +149,12 @@ impl LibraryState {
         let root = std::fs::canonicalize(&root).unwrap_or(root);
         if self.avoid().iter().any(|own| own.starts_with(&root)) {
             let note = "That folder holds Mareader's own files; choose one inside it.";
-            out.push(Command::Ui(UiCommand::Notify(Toast::error(note))));
+            out.push(Sent::Ui(UiCommand::Notify(Toast::error(note))));
             return;
         }
         if opts.mode().copies() && self.store().is_none() {
             let note = "The library has no folder to keep books in.";
-            out.push(Command::Ui(UiCommand::Notify(Toast::error(note))));
+            out.push(Sent::Ui(UiCommand::Notify(Toast::error(note))));
             return;
         }
         match self.model.gate(&root, &opts) {
@@ -291,12 +291,12 @@ impl LibraryState {
         if done.offline {
             self.runs.finish(going.run);
             let note = format!("“{name}” couldn't be read.");
-            out.push(Command::Ui(UiCommand::Notify(Toast::error(note))));
+            out.push(Sent::Ui(UiCommand::Notify(Toast::error(note))));
             return;
         }
         if done.truncated {
             let note = format!("“{name}” is very large; only part of it was read.");
-            out.push(Command::Ui(UiCommand::Notify(Toast::info(note))));
+            out.push(Sent::Ui(UiCommand::Notify(Toast::info(note))));
         }
         going.found = done.found.len();
         let wall = wall_ms();
@@ -386,7 +386,7 @@ impl LibraryState {
             Some((shelf, returned)) => self.folders.sheet = Some(Sheet::Note { shelf, returned }),
             None => {
                 let note = landed_note(&name, &landed, going.found, waiting);
-                out.push(Command::Ui(UiCommand::Notify(Toast::info(note))));
+                out.push(Sent::Ui(UiCommand::Notify(Toast::info(note))));
                 if let Some(shelf) = landed.root {
                     self.reveal(Pick::Shelf(shelf), now);
                 }
@@ -401,7 +401,7 @@ impl LibraryState {
                 n => format!(" ({} more failed)", n - 1),
             };
             let note = format!("Couldn't copy “{}”: {why}{more}.", file_name(path));
-            out.push(Command::Ui(UiCommand::Notify(Toast::error(note))));
+            out.push(Sent::Ui(UiCommand::Notify(Toast::error(note))));
         }
         match self.folders.pending.remove(&done.tag) {
             Some(Pending::Land(planned, going)) => {
@@ -426,7 +426,7 @@ impl LibraryState {
     pub(super) fn copy_out(&mut self, work: Box<CopyWork>, files: Vec<Found>, out: &mut Commands) {
         let Some(store) = self.store() else {
             let note = "The library has no folder to keep books in.";
-            out.push(Command::Ui(UiCommand::Notify(Toast::error(note))));
+            out.push(Sent::Ui(UiCommand::Notify(Toast::error(note))));
             return;
         };
         let tag = self.tag(Pending::Depart(work));
@@ -448,7 +448,7 @@ impl LibraryState {
     ) {
         let Some(store) = self.store() else {
             let note = "The library has no folder to keep books in.";
-            out.push(Command::Ui(UiCommand::Notify(Toast::error(note))));
+            out.push(Sent::Ui(UiCommand::Notify(Toast::error(note))));
             return;
         };
         let tag = self.tag(Pending::Duplicate(picks));
@@ -465,7 +465,7 @@ impl LibraryState {
     pub(super) fn copy_for(&mut self, question: Question, answer: Placement, out: &mut Commands) {
         let (Some(store), Some(found)) = (self.store(), question.found().cloned()) else {
             let note = "The library has no folder to keep books in.";
-            out.push(Command::Ui(UiCommand::Notify(Toast::error(note))));
+            out.push(Sent::Ui(UiCommand::Notify(Toast::error(note))));
             return;
         };
         let tag = self.tag(Pending::Keep(Box::new(question), answer));
@@ -496,7 +496,7 @@ impl LibraryState {
         }
         if self.store().is_none() {
             let note = "The library has no folder to keep books in.";
-            out.push(Command::Ui(UiCommand::Notify(Toast::error(note))));
+            out.push(Sent::Ui(UiCommand::Notify(Toast::error(note))));
             return;
         }
         let label = match files.as_slice() {
@@ -547,9 +547,7 @@ impl LibraryState {
         let asks = screened.asks.into_iter().map(Question::File);
         self.folders.asks.extend(asks);
         if !notes.is_empty() {
-            out.push(Command::Ui(UiCommand::Notify(Toast::error(
-                notes.join(" "),
-            ))));
+            out.push(Sent::Ui(UiCommand::Notify(Toast::error(notes.join(" ")))));
         }
         let loose = Loose {
             to,
@@ -605,7 +603,7 @@ impl LibraryState {
             n => parts.push(format!("{n} wait for your choice.")),
         }
         if !parts.is_empty() {
-            out.push(Command::Ui(UiCommand::Notify(Toast::info(parts.join(" ")))));
+            out.push(Sent::Ui(UiCommand::Notify(Toast::info(parts.join(" ")))));
         }
         if let [id] = landed.as_slice() {
             self.reveal(Pick::Book(*id), now);
@@ -620,7 +618,7 @@ impl LibraryState {
         };
         if !path.is_file() {
             let note = format!("“{}” is not there any more.", file_name(&path));
-            out.push(Command::Ui(UiCommand::Notify(Toast::error(note))));
+            out.push(Sent::Ui(UiCommand::Notify(Toast::error(note))));
             return;
         }
         let tag = self.tag(Pending::Restore(folder, content));
@@ -642,7 +640,7 @@ impl LibraryState {
             let path = done.skipped.first().or(done.failed.first().map(|f| &f.0));
             let name = path.map(|p| file_name(p)).unwrap_or_default();
             let note = format!("“{name}” is not there any more.");
-            out.push(Command::Ui(UiCommand::Notify(Toast::error(note))));
+            out.push(Sent::Ui(UiCommand::Notify(Toast::error(note))));
             return;
         };
         let copies = self.model.folder(folder).is_some_and(|f| f.mode().copies());
@@ -678,7 +676,7 @@ impl LibraryState {
         };
         let title = self.model.book(id).map(|b| b.title.value.clone());
         let note = format!("Restored “{}”.", title.unwrap_or_default());
-        out.push(Command::Ui(UiCommand::Notify(Toast::info(note))));
+        out.push(Sent::Ui(UiCommand::Notify(Toast::info(note))));
         self.reveal(Pick::Book(id), now);
     }
 
