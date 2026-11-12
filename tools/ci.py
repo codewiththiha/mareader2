@@ -62,7 +62,9 @@ from dataclasses import dataclass, field
 API = "https://api.github.com"
 REPO_DEFAULT = "codewiththiha/mareader2"
 GATE = "CI"
-CI_WORKFLOW = "ci.yml"
+# ci.yml sets `run-name`, so a run's "name" is its display title;
+# the workflow it belongs to is the only stable handle.
+GATE_WORKFLOW = "ci.yml"
 REMOTE = "remote.yml"
 INSTALLERS = "installers.yml"
 CACHE_ROOT = "/home/user/.cache"
@@ -347,9 +349,9 @@ def state_path(name: str) -> str:
 
 def gate_run(repo: str, token: str, sha: str) -> Run | None:
     """The newest CI run on this commit; older ones are context."""
-    payload = api(token, f"/repos/{repo}/actions/runs?head_sha={sha}&per_page=50")
-    runs = [Run.of(r) for r in (payload or {}).get("workflow_runs", [])
-            if r["name"] == GATE]
+    payload = api(token, f"/repos/{repo}/actions/workflows/{GATE_WORKFLOW}"
+                         f"/runs?head_sha={sha}&per_page=50")
+    runs = [Run.of(r) for r in (payload or {}).get("workflow_runs", [])]
     return max(runs, key=lambda r: r.created) if runs else None
 
 
@@ -401,7 +403,7 @@ def final(args) -> int:
                 f"GitHub's {sha[:9]}. Push first if that is not what you mean.")
     except (OSError, subprocess.CalledProcessError):
         pass
-    run = dispatch(args.repo, token, "", sha, branch, CI_WORKFLOW, profile="full")
+    run = dispatch(args.repo, token, "", sha, branch, GATE_WORKFLOW, profile="full")
     run = follow(args.repo, token, run, args.timeout, args.poll, whole=True)
     return verdict(sha, run)
 
