@@ -4,6 +4,7 @@
 //! and the places they open at. Everything here is a run, a result, or one
 //! pane's book of them, so a test can drive a page's AI with no window at all.
 
+use std::collections::HashMap;
 use std::sync::Arc;
 
 use mareader_library::{AiPageId, AiTask, BookId, Library, PageSpan};
@@ -11,14 +12,14 @@ use mareader_session::{Anchor, Document, Insert, Inserts};
 use mareader_study::page::Rewritten;
 use mareader_workspace::PaneId;
 
-use crate::repaint::Repaint;
-use crate::study::loose::loose_id;
 use super::Slot;
 use super::extract::Source;
 use super::follow::Follow;
 use super::groups::Batch;
 use super::state::{Asked, Cover, Drawn, Handle, Index, Key, Loose, Run, Showing, Who, canned};
 use super::view::{page_task, source_of};
+use crate::repaint::Repaint;
+use crate::study::loose::loose_id;
 
 /// The page AI's state across panes.
 #[derive(Default)]
@@ -80,7 +81,7 @@ impl Ledger {
     }
 
     /// Writes the page's text; the same ask under way just shows.
-    fn begin(
+    pub fn begin(
         &mut self,
         who: &Who<'_>,
         (page, last): (usize, usize),
@@ -144,16 +145,16 @@ impl Ledger {
     ) -> Option<u64> {
         let view = asked.documents.ai_view(asked.pane)?;
         let page = view.document.to_base(asked.page);
-                let found = match source_of(&view, asked.documents, page) {
+        let found = match source_of(&view, asked.documents, page) {
             Ok(found) => found,
             Err("loading") => {
-                self.notes.push(
-                    "This page's text is still loading. Try again in a moment.".to_owned(),
-                );
+                self.notes
+                    .push("This page's text is still loading. Try again in a moment.".to_owned());
                 return None;
             }
             Err(_) => {
-                self.notes.push("This page has no text to work on.".to_owned());
+                self.notes
+                    .push("This page has no text to work on.".to_owned());
                 return None;
             }
         };

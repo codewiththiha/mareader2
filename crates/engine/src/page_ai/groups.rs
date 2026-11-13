@@ -14,7 +14,7 @@ use super::extract::{self, Source};
 use super::follow::doing;
 use super::ledger::Ledger;
 use super::read;
-use super::state::{Around, Asked, Run, Who};
+use super::state::{Around, Asked, Who};
 use super::view::{Pill, Ring, group_span, page_task};
 
 /// A group's text, if any, the group, and the span it covers.
@@ -182,7 +182,7 @@ impl Ledger {
     }
 
     /// Each pane's groups: taken in, asked again, or started.
-    fn drive(&mut self, a: &Around<'_>, now: f64) {
+    pub fn drive(&mut self, a: &Around<'_>, now: f64) {
         let panes: Vec<PaneId> = self.batches.keys().copied().collect();
         for pane in panes {
             let Some(mut b) = self.batches.remove(&pane) else {
@@ -195,13 +195,7 @@ impl Ledger {
     }
 
     /// One frame of `b`; false once it is done.
-    fn step_batch(
-        &mut self,
-        pane: PaneId,
-        b: &mut Batch,
-        a: &Around<'_>,
-        now: f64,
-    ) -> bool {
+    fn step_batch(&mut self, pane: PaneId, b: &mut Batch, a: &Around<'_>, now: f64) -> bool {
         let Some(view) = a.documents.ai_view(pane) else {
             return false;
         };
@@ -318,7 +312,7 @@ impl Ledger {
                 self.write(b, who, (Some(source), g, span), now);
             }
             _ => {
-                                let wake = self.repaint.waker();
+                let wake = self.repaint.waker();
                 let rx = read::group(wake, Arc::clone(document), (g.from, g.to), self.inline);
                 b.reading.push((rx, g, span));
             }

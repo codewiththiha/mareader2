@@ -21,8 +21,6 @@ use crate::documents::{AiView, Documents};
 use crate::gpu::Gpu;
 use crate::ui_command::{Commands, Sent, UiCommand};
 use mareader_engine::page_ai::extract::{self, Source};
-use mareader_engine::stable_hash::hash;
-use mareader_engine::toast::Toast;
 pub use mareader_engine::page_ai::follow::{Follow, State, allowance, doing};
 pub use mareader_engine::page_ai::groups::{
     Batch, Group, Read, TRIES, groups, room_for, size_for, span_of,
@@ -32,7 +30,9 @@ pub use mareader_engine::page_ai::state::{
     Around, Asked, Cover, Drawn, Handle, Index, Key, Loose, News, Run, Showing, Who, canned, poll,
 };
 pub use mareader_engine::page_ai::view::{group_span, page_task, source_of};
+use mareader_engine::stable_hash::hash;
 pub use mareader_engine::study::loose::{loose_book, loose_id};
+use mareader_engine::toast::Toast;
 pub use paint::{Overlay, Pill, PillPress};
 
 /// Seconds a result takes to fade in over its page.
@@ -352,7 +352,9 @@ impl PageAi {
                             continue;
                         }
                         let mut said = say(&f);
-                        if self.ledger.follows.values().any(|w| w.runs.contains(&run.id)) {
+                        if (self.ledger.follows.values())
+                            .any(|w| w.runs.contains(&run.id))
+                        {
                             said.push_str(" Continuous mode stopped.");
                         }
                         if batch.is_some_and(|b| b.waiting_any()) {
@@ -379,7 +381,8 @@ impl PageAi {
             .filter(|r| r.failed.is_some())
             .map(|r| r.id)
             .collect();
-        self.ledger.showing
+        self.ledger
+            .showing
             .retain(|_, s| !matches!(s.slot, Slot::Run(id) if failed.contains(&id)));
         for (id, result) in done {
             self.keep(main, id, result);
@@ -517,7 +520,8 @@ impl PageAi {
         (book, name): (Option<BookId>, &str),
     ) -> PaneAi {
         let now = ctx.input(|i| i.time);
-        let pill = self.ledger.pill(pane, now).or_else(|| self.ledger.group_pill(pane));
+        let pill = (self.ledger.pill(pane, now))
+            .or_else(|| self.ledger.group_pill(pane));
         let wash = self.wash(ctx, pane);
         let Some(view) = documents.ai_view(pane) else {
             self.ledger.drawn.remove(&pane);
@@ -1066,7 +1070,13 @@ impl PageAi {
     pub fn text_of(&mut self, main: &Library, slot: Slot) -> Option<String> {
         let result = match slot {
             Slot::Saved(id) => self.result(main, id)?,
-            Slot::Run(id) => self.ledger.runs.iter().find(|r| r.id == id)?.shown.clone()?,
+            Slot::Run(id) => self
+                .ledger
+                .runs
+                .iter()
+                .find(|r| r.id == id)?
+                .shown
+                .clone()?,
         };
         Some(extract::plain(&result))
     }
@@ -1264,7 +1274,9 @@ impl PageAi {
         };
         let slot = Slot::Saved(id);
         let key = (asked.pane, view.layout, page);
-        self.ledger.showing.insert(key, Showing { slot, since: now });
+        self.ledger
+            .showing
+            .insert(key, Showing { slot, since: now });
         true
     }
 
@@ -1326,4 +1338,3 @@ impl PageAi {
         })
     }
 }
-

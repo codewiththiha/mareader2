@@ -77,12 +77,7 @@ pub trait Models {
     fn capacity(&self, preset: &ModelPreset) -> Option<u32>;
 
     /// Starts `task` over `source`'s `pages`; the writer answers as it goes.
-    fn start(
-        &self,
-        task: &AiTask,
-        source: &Source,
-        pages: usize,
-    ) -> Result<Handle, &'static str>;
+    fn start(&self, task: &AiTask, source: &Source, pages: usize) -> Result<Handle, &'static str>;
 }
 
 /// The settings' task a kept task belongs to.

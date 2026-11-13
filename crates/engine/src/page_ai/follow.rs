@@ -13,7 +13,7 @@ use mareader_workspace::PaneId;
 use super::Slot;
 use super::ledger::Ledger;
 use super::read::{self, Read};
-use super::state::{Around, Asked, Run, Showing, Who};
+use super::state::{Around, Asked, Showing, Who};
 use super::view::{Models, Pill, Ring, page_task, source_of};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -185,13 +185,7 @@ impl Ledger {
     }
 
     /// One frame of `f`; false once it should end.
-    fn step(
-        &mut self,
-        pane: PaneId,
-        f: &mut Follow,
-        a: &Around<'_>,
-        now: f64,
-    ) -> bool {
+    fn step(&mut self, pane: PaneId, f: &mut Follow, a: &Around<'_>, now: f64) -> bool {
         let Some(view) = a.documents.ai_view(pane).filter(|v| v.layout == f.layout) else {
             return false;
         };
@@ -290,14 +284,7 @@ impl Ledger {
         writing + f.pending
     }
 
-    fn cover(
-        &mut self,
-        f: &mut Follow,
-        pane: PaneId,
-        pages: &[usize],
-        a: &Around<'_>,
-        now: f64,
-    ) {
+    fn cover(&mut self, f: &mut Follow, pane: PaneId, pages: &[usize], a: &Around<'_>, now: f64) {
         let Some(view) = a.documents.ai_view(pane) else {
             return;
         };
@@ -311,7 +298,7 @@ impl Ledger {
             Document::Pdf(_) => {
                 f.pending += pages.len();
                 let document = Arc::clone(&view.document);
-                                let wake = self.repaint.waker();
+                let wake = self.repaint.waker();
                 f.reading
                     .push(read::pages(wake, document, pages.to_vec(), self.inline));
             }

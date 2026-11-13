@@ -6,11 +6,11 @@ use std::sync::Arc;
 
 use mareader_engine::page_ai::extract::Source;
 use mareader_engine::page_ai::state::Handle;
+#[cfg(not(target_arch = "wasm32"))]
+use mareader_engine::page_ai::state::{News, Writing};
 use mareader_engine::page_ai::view::Models;
 use mareader_library::AiTask;
 use mareader_settings::{AiSettings, ModelPreset};
-#[cfg(not(target_arch = "wasm32"))]
-use mareader_engine::page_ai::state::{News, Writing};
 #[cfg(not(target_arch = "wasm32"))]
 use mareader_settings::{SummaryStyle, language_name};
 use mareader_study::Explainer;
@@ -180,12 +180,7 @@ impl Models for Ai {
     }
 
     #[cfg(not(target_arch = "wasm32"))]
-    fn start(
-        &self,
-        task: &AiTask,
-        source: &Source,
-        pages: usize,
-    ) -> Result<Handle, &'static str> {
+    fn start(&self, task: &AiTask, source: &Source, pages: usize) -> Result<Handle, &'static str> {
         let rewrite = match task {
             AiTask::Summary => mareader_assist::Rewrite::Summarize(SummaryStyle::Paragraphs),
             AiTask::Points => mareader_assist::Rewrite::Summarize(SummaryStyle::Points),
@@ -215,10 +210,12 @@ impl Models for Ai {
 #[cfg(not(target_arch = "wasm32"))]
 impl Writing for mareader_assist::Rewriting {
     fn news(&mut self) -> Vec<News> {
-        let came = mareader_assist::Rewriting::poll(self).into_iter().map(|n| match n {
-            mareader_assist::Rewrote::Partial(r) => News::Partial(r),
-            mareader_assist::Rewrote::Done(r) => News::Done(r),
-        });
+        let came = mareader_assist::Rewriting::poll(self)
+            .into_iter()
+            .map(|n| match n {
+                mareader_assist::Rewrote::Partial(r) => News::Partial(r),
+                mareader_assist::Rewrote::Done(r) => News::Done(r),
+            });
         came.collect()
     }
 }
