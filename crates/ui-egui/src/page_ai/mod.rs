@@ -106,9 +106,7 @@ struct BubbleMenu {
     at: Pos2,
 }
 
-/// The page AI's state across panes.
-#[derive(Default)]
-/// The page AI's state across panes.
+/// The page AI's window half: its pixels, its menus, and the ledger beside them.
 #[derive(Default)]
 pub struct PageAi {
     /// What a run keeps; the pixels stay here beside it.
@@ -352,9 +350,7 @@ impl PageAi {
                             continue;
                         }
                         let mut said = say(&f);
-                        if (self.ledger.follows.values())
-                            .any(|w| w.runs.contains(&run.id))
-                        {
+                        if (self.ledger.follows.values()).any(|w| w.runs.contains(&run.id)) {
                             said.push_str(" Continuous mode stopped.");
                         }
                         if batch.is_some_and(|b| b.waiting_any()) {
@@ -376,6 +372,7 @@ impl PageAi {
         }
         // A failed run that was shown leaves the page as it was.
         let failed: Vec<u64> = self
+            .ledger
             .runs
             .iter()
             .filter(|r| r.failed.is_some())
@@ -520,8 +517,7 @@ impl PageAi {
         (book, name): (Option<BookId>, &str),
     ) -> PaneAi {
         let now = ctx.input(|i| i.time);
-        let pill = (self.ledger.pill(pane, now))
-            .or_else(|| self.ledger.group_pill(pane));
+        let pill = (self.ledger.pill(pane, now)).or_else(|| self.ledger.group_pill(pane));
         let wash = self.wash(ctx, pane);
         let Some(view) = documents.ai_view(pane) else {
             self.ledger.drawn.remove(&pane);
@@ -615,6 +611,7 @@ impl PageAi {
         let span = |slot: Slot| match slot {
             Slot::Saved(id) => self.saved(main, id).map(|p| p.span.clone()),
             Slot::Run(id) => self
+                .ledger
                 .runs
                 .iter()
                 .find(|r| r.id == id)
