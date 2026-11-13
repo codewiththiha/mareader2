@@ -58,7 +58,7 @@ pub struct Relink {
 pub enum Out {
     /// A note for the reader; the front end decides how it looks.
     Toast(crate::toast::Toast),
-    /// An command for the session to run.
+    /// A command for the session to run.
     Command(crate::command::Command),
 }
 
