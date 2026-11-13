@@ -168,7 +168,7 @@ fn the_library_and_positions_come_back_after_a_restart() {
     let launch = || {
         let mut app = MareaderApp::default();
         app.set_option("workers", "0").ok();
-        app.attach_library(root.clone());
+        app.attach_library(&egui::Context::default(), root.clone());
         harness(app)
     };
     let mut h = launch();
@@ -1327,7 +1327,7 @@ fn imports_are_copies_the_library_keeps_and_deletes_with_the_book() {
     let mut app = MareaderApp::default();
     app.set_option("workers", "0").ok();
     app.set_option("library", "show").ok();
-    app.attach_library(root.clone());
+    app.attach_library(&egui::Context::default(), root.clone());
     let mut h = harness(app);
     let shelf = new_shelf(&mut h, "Poems");
     let to = Some(shelf);
@@ -1386,7 +1386,7 @@ fn kept_in(dir: &Path) -> Harness<'static, MareaderApp> {
     let mut app = MareaderApp::default();
     app.set_option("workers", "0").ok();
     app.set_option("library", "show").ok();
-    app.attach_library(dir.join("library"));
+    app.attach_library(&egui::Context::default(), dir.join("library"));
     harness(app)
 }
 

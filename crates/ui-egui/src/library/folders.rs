@@ -12,10 +12,10 @@ use mareader_library::{
 };
 
 use super::LibraryState;
-use super::io::{Copies, CopyIn, Files, Job, Measured, Tag, Walk, Walked};
 use super::runs::{Phase, RunId};
 use crate::ui_command::{Commands, Sent, UiCommand};
 use mareader_engine::library::folder_name;
+use mareader_engine::library::{Copies, CopyIn, Files, Job, Measured, Tag, Walk, Walked};
 use mareader_engine::library::{CopyWork, Question};
 use mareader_engine::library::{Sheet, Status, wall_ms};
 use mareader_engine::toast::Toast;

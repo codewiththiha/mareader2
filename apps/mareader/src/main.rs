@@ -142,7 +142,7 @@ fn main() -> eframe::Result {
         Box::new(|cc| {
             let mut app = MareaderApp::from_creation(cc);
             if let Some(dir) = eframe::storage_dir("mareader") {
-                app.attach_library(dir.join("library"));
+                app.attach_library(&cc.egui_ctx, dir.join("library"));
                 app.attach_ai(&cc.egui_ctx, dir.join("ai"), dev_helper());
                 app.attach_dictionaries(&cc.egui_ctx, dir.join("dictionaries"));
                 app.attach_vocabulary(&cc.egui_ctx, dir.join("vocabulary"));

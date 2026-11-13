@@ -494,7 +494,7 @@ fn library(count: usize) -> Result<bool, String> {
     let mut app = MareaderApp::default();
     app.set_option("workers", "0")?;
     app.set_option("library", "show")?;
-    app.attach_library(dir.path().join("library"));
+    app.attach_library(&egui::Context::default(), dir.path().join("library"));
     let mut h = harness(app);
     let mut audit = Audit::default();
     Audit::header();

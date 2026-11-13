@@ -28,8 +28,10 @@ impl MareaderApp {
     }
 
     /// Keeps the library in `root`; without one it lives in memory.
-    pub fn attach_library(&mut self, root: PathBuf) {
-        self.ui.library.attach(root);
+    pub fn attach_library(&mut self, ctx: &Context, root: PathBuf) {
+        let ctx = ctx.clone();
+        let waker = Arc::new(move || ctx.request_repaint());
+        self.ui.library.attach(root, waker);
     }
 
     /// Starts the AI service, its keys kept in `root`; `helper` as in `Ai`.

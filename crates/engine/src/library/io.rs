@@ -3,17 +3,16 @@
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::{self, Receiver, Sender};
-use std::sync::{Arc, Mutex, PoisonError};
 use std::thread::JoinHandle;
 
-use egui::Context;
-
-use super::runs::{Beat, Phase, RunId};
 use mareader_library::disk::{self, Folder, FoundAgain, Known, Limits, Loaded, Sought};
 use mareader_library::store::Store;
 use mareader_library::{
     BookId, Changes, ContentId, Copied, DeviceId, Format, Found, Measure, Options,
 };
+
+use super::{Beat, Phase, Relink, RunId, wall_ms};
+use crate::session::Waker;
 
 pub enum Job {
     Load(Folder, DeviceId),
@@ -100,7 +99,6 @@ pub struct Copies {
     pub failed: Vec<(PathBuf, String)>,
 }
 
-use mareader_engine::library::Relink;
 
 /// A file a pane opened, waiting to be measured.
 #[derive(Clone, Debug)]
@@ -140,8 +138,6 @@ pub enum Io {
     Thread {
         jobs: Option<Sender<Job>>,
         news: Receiver<News>,
-        /// To wake the frame when news arrives.
-        ctx: Arc<Mutex<Option<Context>>>,
         worker: Option<JoinHandle<()>>,
     },
 }
@@ -156,12 +152,10 @@ impl Default for Io {
 }
 
 impl Io {
-    /// A worker thread; inline where one can't start.
-    pub fn thread() -> Self {
+    /// A worker thread, waking `wake` when news lands; inline without one.
+    pub fn thread(wake: Waker) -> Self {
         let (jobs, inbox) = mpsc::channel::<Job>();
         let (post, news) = mpsc::channel();
-        let ctx: Arc<Mutex<Option<Context>>> = Arc::default();
-        let wake = Arc::clone(&ctx);
         let spawned = std::thread::Builder::new()
             .name("library".into())
             .spawn(move || {
@@ -169,10 +163,7 @@ impl Io {
                 let closed = std::cell::Cell::new(false);
                 let mut tell = |n: News| {
                     closed.set(closed.get() || post.send(n).is_err());
-                    let ctx = wake.lock().unwrap_or_else(PoisonError::into_inner);
-                    if let Some(ctx) = ctx.as_ref() {
-                        ctx.request_repaint();
-                    }
+                    wake();
                 };
                 // Opened by the load, then written by every save.
                 let mut store = None;
@@ -187,7 +178,6 @@ impl Io {
             Ok(worker) => Self::Thread {
                 jobs: Some(jobs),
                 news,
-                ctx,
                 worker: Some(worker),
             },
             Err(_) => Self::default(),
@@ -205,16 +195,10 @@ impl Io {
     }
 
     /// What finished since the last call.
-    pub fn poll(&mut self, ctx: &Context) -> Vec<News> {
+    pub fn poll(&mut self) -> Vec<News> {
         match self {
             Self::Inline { news, .. } => news.drain(..).collect(),
-            Self::Thread {
-                news, ctx: wake, ..
-            } => {
-                let mut slot = wake.lock().unwrap_or_else(PoisonError::into_inner);
-                slot.get_or_insert_with(|| ctx.clone());
-                news.try_iter().collect()
-            }
+            Self::Thread { news, .. } => news.try_iter().collect(),
         }
     }
 }
@@ -269,11 +253,7 @@ fn run(job: Job, store: &mut Option<Store>, post: &mut dyn FnMut(News)) {
             folder,
             sought,
         } => {
-            let found = disk::find_again(
-                &folder,
-                &sought,
-                Limits::new(mareader_engine::library::wall_ms()),
-            );
+            let found = disk::find_again(&folder, &sought, Limits::new(wall_ms()));
             Some(News::Sought {
                 book,
                 folder,
@@ -404,5 +384,52 @@ fn found(path: PathBuf, format: Format, measure: Measure, describe: bool) -> Fou
         measure,
         title,
         author,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Arc;
+    use std::time::Duration;
+
+    use super::*;
+
+    /// How long a test waits for the worker before giving up on it.
+    const WAIT: Duration = Duration::from_secs(20);
+
+    /// A job that touches no disk: a path that isn't a file.
+    fn missing() -> Job {
+        Job::Check(vec![PathBuf::from("/a/path/that/is/not/a/file")])
+    }
+
+    /// The files a check reported gone; anything else reads as none.
+    fn gone(news: &[News]) -> usize {
+        match news {
+            [News::Checked(gone)] => gone.len(),
+            _ => 0,
+        }
+    }
+
+    #[test]
+    fn a_worker_thread_takes_a_job_and_wakes_the_window() {
+        let (tell, woke) = mpsc::channel();
+        let wake: Waker = Arc::new(move || {
+            let _ = tell.send(());
+        });
+        let mut io = Io::thread(wake);
+        io.send(missing());
+        // News is posted before the wake, so a wake means it has landed.
+        assert!(
+            woke.recv_timeout(WAIT).is_ok(),
+            "the worker never woke the window"
+        );
+        assert_eq!(gone(&io.poll()), 1, "the path that isn't a file is gone");
+    }
+
+    #[test]
+    fn an_inline_worker_reports_on_the_thread_that_asked() {
+        let mut io = Io::default();
+        io.send(missing());
+        assert_eq!(gone(&io.poll()), 1, "no worker, but the job still runs");
     }
 }

@@ -7,7 +7,6 @@ mod covers;
 pub mod crumbs;
 pub mod folders;
 mod import_sheet;
-mod io;
 mod living;
 pub(crate) mod menu;
 mod menus;
@@ -32,11 +31,11 @@ use crate::documents::Documents;
 use crate::ui_command::{Commands, Sent, UiCommand};
 pub use add::ADD_MENU;
 pub use covers::Covers;
-use io::{Io, Job, News, Probe};
 use mareader_engine::command::Command;
 use mareader_engine::documents::OpenRequest;
 pub use mareader_engine::library::{Ask, Bound, Heard, Paused, Proposal, Spot};
-use mareader_engine::library::{Out, State, Status, wall_ms};
+use mareader_engine::library::{Io, Job, News, Out, Probe, State, Status, wall_ms};
+use mareader_engine::session::Waker;
 use mareader_engine::toast::Toast;
 use mareader_library::picks::{PickAction, Picks};
 pub use menu::LIBRARY_VIEW_MENU;
@@ -193,12 +192,12 @@ impl LibraryState {
     }
 
     /// Reads the library kept in `root`, and saves to it from now on.
-    pub fn attach(&mut self, root: PathBuf) {
+    pub fn attach(&mut self, root: PathBuf, wake: Waker) {
         let folder = Folder::new(root);
         self.io = if self.inline {
             Io::default()
         } else {
-            Io::thread()
+            Io::thread(wake)
         };
         self.io.send(Job::Load(folder.clone(), self.model.device()));
         self.folder = Some(folder);
@@ -208,7 +207,7 @@ impl LibraryState {
     /// Takes in finished disk work.
     pub fn receive(&mut self, ctx: &Context, out: &mut Commands) {
         let now = ctx.input(|i| i.time);
-        for news in self.io.poll(ctx) {
+        for news in self.io.poll() {
             match news {
                 News::Loaded(loaded) => {
                     // Opens before loading can't have touched the model.

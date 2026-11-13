@@ -13,6 +13,7 @@ mod duplicating;
 mod filing;
 mod find;
 mod held;
+mod io;
 mod moving;
 
 mod organizing;
@@ -23,6 +24,7 @@ mod shelving;
 mod state;
 pub use counted::counted;
 pub use find::folder_name;
+pub use io::{Copies, CopyIn, Files, Io, Job, Measured, News, Probe, Tag, Walk, Walked};
 pub use moving::listed;
 pub use organizing::{
     Ask, Bound, Heard, Loose, Organizer, Paused, Proposal, Spot, Standing, apply, natural,
