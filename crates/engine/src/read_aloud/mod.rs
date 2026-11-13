@@ -2,6 +2,7 @@
 
 pub mod booth;
 pub mod countdown;
+pub mod feed;
 pub mod parts;
 pub mod words;
 
