@@ -197,7 +197,7 @@ impl Models for Ai {
         };
         let off = "The AI service couldn't start. Restart the app to try again.";
         let live = self.rewrite(job).ok_or(off)?;
-        Ok(Handle::Live(Box::new(live)))
+        Ok(Handle::Live(Box::new(Writer(live))))
     }
 
     #[cfg(target_arch = "wasm32")]
@@ -206,11 +206,15 @@ impl Models for Ai {
     }
 }
 
+/// The service's writer, wrapped so the ledger's handle can hold it.
+#[cfg(not(target_arch = "wasm32"))]
+struct Writer(mareader_assist::Rewriting);
+
 /// The service's own line to its model, as a run reads it.
 #[cfg(not(target_arch = "wasm32"))]
-impl Writing for mareader_assist::Rewriting {
+impl Writing for Writer {
     fn news(&mut self) -> Vec<News> {
-        let came = mareader_assist::Rewriting::poll(self)
+        let came = mareader_assist::Rewriting::poll(&mut self.0)
             .into_iter()
             .map(|n| match n {
                 mareader_assist::Rewrote::Partial(r) => News::Partial(r),

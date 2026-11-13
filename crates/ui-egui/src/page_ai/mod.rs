@@ -533,7 +533,7 @@ impl PageAi {
         };
         self.prune(main);
         self.align(main, pane, &view, (book, name));
-        let index = self.ledger.index(main, &view, (book, name));
+        let index = self.index(main, &view, (book, name));
         let groups = self.spread_groups(main, pane, &view);
         let mut overlays = Vec::new();
         let mut drawn = Vec::new();
@@ -1173,7 +1173,7 @@ impl PageAi {
 
     /// The right-clicked word lit in `pane`, at or in it; for tests.
     pub fn washed_word(&self, pane: PaneId) -> Option<mareader_speech::Spot> {
-        self.ledger.washed(pane).and(self.ledger.washed_word)
+        self.washed(pane).and(self.ledger.washed_word)
     }
 
     /// The pages washed in `pane`, while the menu shows or fades; for tests.
