@@ -14,6 +14,7 @@ mod find;
 mod held;
 mod moving;
 
+mod organizing;
 mod question;
 mod runs;
 mod shelving;
@@ -21,6 +22,10 @@ mod state;
 pub use counted::counted;
 pub use find::folder_name;
 pub use moving::listed;
+pub use organizing::{
+    Ask, Bound, Heard, Loose, Organizer, Paused, Proposal, Spot, Standing, apply, natural,
+    organizable, undo,
+};
 pub use question::{Kind, Question};
 pub use runs::{Beat, DELAY, Phase, Run, RunId, Runs};
 pub use shelving::Crumb;
