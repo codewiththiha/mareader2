@@ -1,6 +1,7 @@
 //! Unnarrated books, voiced sentence by sentence; a thread reads pages ahead.
 
 use std::collections::VecDeque;
+use std::ops::Range;
 use std::sync::mpsc::{Receiver, TryRecvError};
 use std::sync::{Arc, PoisonError};
 
@@ -11,11 +12,11 @@ use mareader_settings::{Highlight, Pass, ReadAloudSettings, Skips};
 use mareader_speech::{Event, Heard, Shelf, Spot, Tone, Voicer, Waker};
 use mareader_workspace::PaneId;
 
-use super::{follow, place_name};
 use crate::documents::{Documents, Reading};
 pub use mareader_engine::read_aloud::feed::{Counts, Reach, Said, Start, enough, spawn};
 use mareader_engine::read_aloud::lit::{Lit, Span};
 use mareader_engine::read_aloud::parts::{self, Part};
+use mareader_engine::read_aloud::place::{Panes, Stand, follow, place_name};
 use mareader_engine::read_aloud::player::{Act, Lyrics, View};
 
 /// Sentences kept behind the voice, for stepping back.
@@ -663,7 +664,8 @@ impl Spoken {
         let page = lit.map(|(start, _)| start.page);
         // Only a real turn shows the new page's first sentence.
         let turned = page.is_some() && page != self.followed && page != Some(reading.current);
-        follow(documents, reading, settings, page, &mut self.followed);
+        let stand = reading.stand();
+        follow(documents, &stand, settings, page, &mut self.followed);
         self.reveal(documents, (reading.pane, clear), settings, turned);
         if !self.paused && !self.finished {
             ctx.request_repaint_after(mareader_engine::read_aloud::TICK);
@@ -772,7 +774,7 @@ impl Spoken {
     }
 
     /// The words of the sentence said lit as `highlight` asks, by index.
-    fn lit_words(&self, highlight: (Highlight, u8)) -> Option<std::ops::Range<usize>> {
+    fn lit_words(&self, highlight: (Highlight, u8)) -> Option<Range<usize>> {
         let said = &self.current.as_ref()?.sentence;
         let heard = self.heard.filter(|_| self.saying);
         // The voice's own clock, else ours: either way, pauses left out.
@@ -816,7 +818,7 @@ impl Spoken {
     }
 
     /// The pane, the page read, and the characters lit on it.
-    pub fn spot(&self) -> Option<(usize, std::ops::Range<usize>)> {
+    pub fn spot(&self) -> Option<(usize, Range<usize>)> {
         let (start, end) = self
             .lit_spots()
             .filter(|_| !self.finished && !self.relaid)?;
@@ -927,6 +929,30 @@ impl Drop for Spoken {
         // Some systems speak on after their handle is gone.
         if let Some(v) = self.voicer.as_mut() {
             v.stop();
+        }
+    }
+}
+
+/// The reader turns and lights the panes the front end holds.
+impl Panes for Documents {
+    fn go_to(&mut self, pane: PaneId, page: usize) {
+        Documents::go_to(self, pane, page);
+    }
+
+    fn reveal_said(&mut self, pane: PaneId, page: usize, chars: Range<usize>, clear: f32) -> bool {
+        Documents::reveal_said(self, pane, page, chars, clear)
+    }
+}
+
+/// A pane's book, as the reader below the front end sees it.
+impl Reading {
+    /// Where it stands: its pane, its book, and the page showing.
+    pub fn stand(&self) -> Stand {
+        Stand {
+            pane: self.pane,
+            doc: self.doc,
+            document: Arc::clone(&self.document),
+            current: self.current,
         }
     }
 }

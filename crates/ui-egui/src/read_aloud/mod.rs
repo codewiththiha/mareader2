@@ -21,6 +21,7 @@ use crate::ui_command::{Commands, Sent, UiCommand};
 use crate::{motion, widgets};
 use mareader_engine::command::Command;
 use mareader_engine::dict::Download;
+use mareader_engine::read_aloud::place::place_name;
 use mareader_engine::read_aloud::{ReadFrom, TICK, parts};
 
 mod ask;
@@ -1638,32 +1639,6 @@ fn lengths(narration: &Narration) -> Vec<f64> {
         out.push(sum);
     }
     out
-}
-
-/// "Page 12 · Chapter Three": where a page is, for the seek track.
-fn place_name(document: &Document, page: usize) -> String {
-    let outline = document.outline();
-    let chapter = mareader_pdf::active_entry(outline, page).and_then(|i| outline.get(i));
-    match chapter {
-        Some(c) if !c.title.trim().is_empty() => format!("Page {} · {}", page + 1, c.title.trim()),
-        _ => format!("Page {}", page + 1),
-    }
-}
-
-/// Turns `reading`'s pane to `page` when it is new and following is on.
-fn follow(
-    documents: &mut Documents,
-    reading: &Reading,
-    settings: &ReadAloudSettings,
-    page: Option<usize>,
-    followed: &mut Option<usize>,
-) {
-    if settings.follow && page.is_some() && page != *followed {
-        *followed = page;
-        if let Some(page) = page.filter(|p| *p != reading.current) {
-            documents.go_to(reading.pane, page);
-        }
-    }
 }
 
 /// The speaker on a word's card: says it, or stops it; accented meanwhile.

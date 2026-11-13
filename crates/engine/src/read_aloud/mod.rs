@@ -5,6 +5,7 @@ pub mod countdown;
 pub mod feed;
 pub mod lit;
 pub mod parts;
+pub mod place;
 pub mod player;
 pub mod words;
 
