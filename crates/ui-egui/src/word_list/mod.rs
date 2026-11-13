@@ -5,29 +5,13 @@ use mareader_dict::{Reply, Ticket};
 use mareader_settings::WordOutput;
 
 use crate::dict::Dict;
-use crate::vocab::Vocab;
 use mareader_engine::toast::Toast;
-use mareader_engine::word_list::{Levels, Meanings};
+use mareader_engine::word_list::Meanings;
 
 pub mod preview;
 pub mod window;
 
 pub use mareader_engine::word_list::{Ask, Gather, Made, Progress, WordLists, copied, file_stem};
-
-/// The app's level cache answers what a list asks for.
-impl Levels for Vocab {
-    fn coming(&self) -> bool {
-        Vocab::coming(self)
-    }
-
-    fn ready(&self) -> bool {
-        Vocab::ready(self)
-    }
-
-    fn bands(&mut self, keys: &[String]) -> Vec<Option<u8>> {
-        Vocab::bands(self, keys)
-    }
-}
 
 /// The app's dictionaries answer what a list asks for.
 impl Meanings for Dict {

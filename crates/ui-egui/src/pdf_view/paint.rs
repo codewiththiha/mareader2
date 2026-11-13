@@ -99,7 +99,8 @@ fn prepare_ink(cx: &mut ShowContext<'_>, ui: &mut Ui) {
     let placed = study::marks::place(&view_cx.marks, &text);
     // Shading sits under the reader's own marks.
     let shading = view_cx.shading.as_ref().zip(vocab.as_mut());
-    let shaded = shading.map_or_else(vocab::Shading::default, |(look, v)| v.place(look, &text));
+    let shaded =
+        shading.map_or_else(vocab::Shading::default, |(look, v)| vocab::place(v, look, &text));
     let on_word = vocab::hovered(ui, &shaded).filter(|_| view_cx.picked.is_none());
     cx.paint.open = open;
     cx.paint.placed = placed;
