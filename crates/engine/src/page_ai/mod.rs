@@ -1,5 +1,6 @@
 //! What a page asks the AI, and what comes back.
 
+pub mod cards;
 pub mod extract;
 pub mod read;
 
