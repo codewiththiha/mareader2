@@ -98,3 +98,7 @@ pub fn group(
     }
     rx
 }
+
+#[cfg(test)]
+#[path = "read_tests.rs"]
+mod tests;

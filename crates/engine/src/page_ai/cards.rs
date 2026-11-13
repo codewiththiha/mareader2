@@ -170,3 +170,7 @@ pub fn set(job: &Job) -> Option<Set> {
         pdf: job.book.is_none(),
     })
 }
+
+#[cfg(test)]
+#[path = "cards_tests.rs"]
+mod tests;

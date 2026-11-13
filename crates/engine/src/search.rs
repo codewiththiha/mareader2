@@ -339,3 +339,7 @@ fn work(
         }
     }
 }
+
+#[cfg(test)]
+#[path = "search_tests.rs"]
+mod tests;

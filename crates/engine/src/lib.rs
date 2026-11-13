@@ -51,6 +51,8 @@ pub mod settings;
 pub mod sounds;
 pub mod stable_hash;
 pub mod study;
+#[cfg(test)]
+mod testing;
 pub mod texts;
 pub mod toast;
 pub mod transcript;

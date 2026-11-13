@@ -11,3 +11,7 @@ pub fn give_back() {
             mareader_memory::give_back();
         });
 }
+
+#[cfg(test)]
+#[path = "memory_tests.rs"]
+mod tests;

@@ -119,3 +119,7 @@ fn joined(document: &Document, pages: &[usize]) -> String {
     });
     texts.collect::<Vec<_>>().join("\n\n")
 }
+
+#[cfg(test)]
+#[path = "page_copy_tests.rs"]
+mod tests;
