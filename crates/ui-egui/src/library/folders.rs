@@ -7,8 +7,8 @@ use egui::Context;
 use mareader_library::disk::Known;
 use mareader_library::gate::Gate;
 use mareader_library::{
-    Asked, Book, BookId, ContentId, Copied, FolderId, Found, Landed, Options, Placement, Plan,
-    Planned, ShelfId,
+    Asked, BookId, ContentId, Copied, FolderId, Found, Landed, Options, Placement, Plan, Planned,
+    ShelfId,
 };
 
 use super::LibraryState;
@@ -115,6 +115,7 @@ impl LibraryState {
         let (root, opts, run) = (going.root.clone(), going.opts.clone(), going.run);
         let (known, contents) = self.known();
         let tag = self.tag(Pending::Walk(going, folder));
+        let avoid = self.avoid();
         self.io.send(Job::Walk(Box::new(Walk {
             tag,
             run,
@@ -122,7 +123,7 @@ impl LibraryState {
             opts,
             known,
             contents,
-            avoid: self.avoid(),
+            avoid,
             now_ms: wall_ms(),
         })));
     }
@@ -150,7 +151,9 @@ impl LibraryState {
             return;
         }
         let living = (self.model.books()).flat_map(|b| b.locations.iter().map(|l| l.path.clone()));
-        self.io.send(Job::Check(living.collect()));
+        // The lazy iterator holds the model; gather before sending.
+        let paths: Vec<PathBuf> = living.collect();
+        self.io.send(Job::Check(paths));
         let watched: Vec<(FolderId, PathBuf, Options)> = (self.model.folders())
             .filter(|f| f.owes_walk())
             .map(|f| (f.id, f.root.clone(), f.opts.clone()))
