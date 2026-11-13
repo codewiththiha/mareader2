@@ -106,7 +106,7 @@ struct BubbleMenu {
     at: Pos2,
 }
 
-/// The page AI's window half: its pixels, its menus, and the ledger beside them.
+/// The page AI's window half: its cards, its menus, and the ledger.
 #[derive(Default)]
 pub struct PageAi {
     /// What a run keeps; the pixels stay here beside it.
