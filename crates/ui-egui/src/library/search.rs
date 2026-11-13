@@ -12,7 +12,7 @@ use egui::{
 };
 use mareader_engine::command::Command;
 use mareader_engine::library::{Action, Field, RING_END, RING_HOLD};
-use mareader_library::{Book, Library, Suggestion, Target};
+use mareader_library::{Library, Suggestion, Target};
 use std::ops::Range;
 
 /// The field's id: the app asks it whether it holds the keys.

@@ -45,7 +45,9 @@ impl State {
                 }
             }
             Action::Rename(named, name) => self.rename(named, &name),
-            Action::Design(book, design) => self.model.set_design(book, design, wall_ms()),
+            Action::Design(book, design) => {
+                self.model.set_design(book, design, wall_ms());
+            }
             Action::Shelf(action) => self.shelf_act(action, out),
             Action::Pick(action) => self.picks.apply(action),
             Action::Book(action) => self.book_act(action, out),

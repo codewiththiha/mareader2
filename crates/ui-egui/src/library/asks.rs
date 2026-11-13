@@ -3,7 +3,7 @@
 use egui::{Button, RichText, Ui};
 use mareader_library::conflict::next_name;
 use mareader_library::gate::Clash;
-use mareader_library::screen::{Answer, FileAsk, Why};
+use mareader_library::screen::{FileAsk, Why};
 use mareader_library::{Entry, Level, Library, MergeAsk, MoveAsk, Placement};
 
 use crate::modal::title;

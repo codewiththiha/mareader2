@@ -165,7 +165,6 @@ impl Default for Study {
 }
 
 impl Study {
-
     pub fn set_inline(&mut self, inline: bool) {
         self.inline = inline;
     }

@@ -41,7 +41,11 @@ impl State {
                 };
                 let name = folder_name(&folder);
                 self.finding(book, Step::Working(format!("Looking in “{name}”…")));
-                self.io.send(Job::Seek { book, folder, sought });
+                self.io.send(Job::Seek {
+                    book,
+                    folder,
+                    sought,
+                });
             }
             _ => {}
         }

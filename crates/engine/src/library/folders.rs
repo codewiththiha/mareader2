@@ -143,13 +143,7 @@ impl State {
     }
 
     /// The import sheet's answer: through the gate, then a walk.
-    pub fn import_folder(
-        &mut self,
-        root: PathBuf,
-        opts: Options,
-        now: f64,
-        out: &mut Vec<Out>,
-    ) {
+    pub fn import_folder(&mut self, root: PathBuf, opts: Options, now: f64, out: &mut Vec<Out>) {
         self.close_sheet();
         self.folders.opts = Some(opts.clone());
         let root = std::fs::canonicalize(&root).unwrap_or(root);

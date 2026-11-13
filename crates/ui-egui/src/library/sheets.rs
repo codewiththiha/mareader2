@@ -360,6 +360,3 @@ impl LibraryState {
         self.engine(out, |s, a| s.act(action, now, a));
     }
 }
-
-impl LibraryState {
-}
