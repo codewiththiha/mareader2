@@ -912,14 +912,15 @@ The AI can shelve loose books. How it plans is in `docs/assist.md`,
 - **Undo**, on that toast, takes the books off again and removes the new
   shelves that are empty.
 
-Code: `crates/ui-egui/src/library/organizing.rs` (which books qualify, the run's
-state, Apply and Undo), `review.rs` (the sheet), `runs.rs` (the card), and
+Code: `crates/engine/src/library/organizing.rs` (which books qualify, the run's
+state, Apply and Undo) and `filing.rs` beside it (what the library asks, hears
+and files), `review.rs` (the sheet), `runs.rs` (the card), and
 `crates/ui-egui/src/ai.rs`, which turns the library's ask into the service's
 keys and its news back. The library side never names `mareader_assist`,
 so it builds for the browser preview too.
 
-Tests: the unit tests in `organizing.rs`, `review.rs` and `runs.rs`, and
-`crates/ui-egui/tests/organize.rs` (a run held and stopped, Apply then Undo,
+Tests: `crates/engine/tests/filing.rs`, the unit tests in `review.rs` and
+`runs.rs`, and `crates/ui-egui/tests/organize.rs` (a run held and stopped, Apply then Undo,
 Discard, the View options row, books read in place refused). Shots:
 `organize=running` or `organize=review` with `copies=N`.
 

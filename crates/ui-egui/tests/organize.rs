@@ -7,7 +7,7 @@ use mareader_engine::library::{Action, ShelfAction};
 use mareader_engine::toast::Toast;
 use mareader_library::{BookId, Move};
 use mareader_ui_egui::MareaderApp;
-use mareader_ui_egui::library::organizing::{Heard, Paused};
+use mareader_ui_egui::library::{Heard, Paused};
 use mareader_ui_egui::ui_command::{Commands, Sent, UiCommand};
 
 /// Frames enough for a run's card to show; its ring keeps asking for more.
