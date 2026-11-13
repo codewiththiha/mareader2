@@ -10,7 +10,9 @@ use mareader_workspace::PaneId;
 
 use crate::documents::OpenRequest;
 
-use super::{Organizer, Picks, Question, Runs, Scope, Sheet};
+use super::folders::Folders;
+use super::searching::Search;
+use super::{Io, Organizer, Picks, Question, Runs, Scope, Sheet};
 
 /// Whether the library's files can be written.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -59,6 +61,14 @@ pub struct State {
     pub sheet: Option<Sheet>,
     /// The runs in flight, oldest first; a card shows one.
     pub runs: Runs,
+    /// Disk work: the jobs sent and the news come back.
+    pub io: Io,
+    /// Folder walks, and the work waiting on them.
+    pub folders: Folders,
+    /// The search's field, its listing, and the card a choice lit.
+    pub search: Search,
+    /// Where covers are kept between launches; no walk enters it.
+    pub cache: Option<PathBuf>,
     /// The AI's run filing loose books, and its plan.
     pub organizer: Organizer,
 }
@@ -85,6 +95,10 @@ impl Default for State {
             asks: VecDeque::new(),
             held: BTreeSet::new(),
             runs: Runs::default(),
+            io: Io::default(),
+            folders: Folders::default(),
+            search: Search::default(),
+            cache: None,
             organizer: Organizer::default(),
         }
     }

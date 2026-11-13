@@ -33,14 +33,13 @@ pub use add::ADD_MENU;
 pub use covers::Covers;
 use mareader_engine::command::Command;
 use mareader_engine::documents::OpenRequest;
-pub use mareader_engine::library::{Ask, Bound, Heard, Paused, Proposal, Spot};
+pub use mareader_engine::library::{Ask, Bound, Field, Heard, Listing, Paused, Proposal, Spot};
 use mareader_engine::library::{Io, Job, News, Out, Probe, State, Status, wall_ms};
 use mareader_engine::session::Waker;
 use mareader_engine::toast::Toast;
 use mareader_library::picks::{PickAction, Picks};
 pub use menu::LIBRARY_VIEW_MENU;
 pub use menus::{Organizer, organize_rows};
-pub use search::{Field, Listing};
 
 /// Seconds between writes while reading.
 pub const SAVE_DELAY: f64 = 0.5;
@@ -49,10 +48,7 @@ pub const SAVE_DELAY: f64 = 0.5;
 pub struct LibraryState {
     /// What outlives a frame: the model, the page's place, the sheet.
     state: mareader_engine::library::State,
-    io: Io,
     covers: Covers,
-    folders: folders::Folders,
-    search: search::Search,
     motion: living::Motion,
 }
 
@@ -151,7 +147,7 @@ impl LibraryState {
 
     /// Keeps covers in `<dir>/covers` between launches.
     pub fn attach_cache(&mut self, dir: PathBuf) {
-        self.covers.set_cache(dir.join("covers"));
+        self.state.cache = Some(dir.join("covers"));
     }
 
     /// The books, and their covers to draw them with.
@@ -188,20 +184,21 @@ impl LibraryState {
 
     /// Hands the frame's cover asks to their worker.
     pub fn end_frame(&mut self, ctx: &Context) {
-        self.covers.end_frame(ctx);
+        let cache = self.state.cache.clone();
+        self.covers.end_frame(ctx, cache.as_deref());
     }
 
     /// Reads the library kept in `root`, and saves to it from now on.
     pub fn attach(&mut self, root: PathBuf, wake: Waker) {
         let folder = Folder::new(root);
-        self.io = if self.inline {
-            Io::default()
-        } else {
-            Io::thread(wake)
+        let (inline, device) = (self.state.inline, self.state.model.device());
+        self.state.io = match inline {
+            true => Io::default(),
+            false => Io::thread(wake),
         };
-        self.io.send(Job::Load(folder.clone(), self.model.device()));
-        self.folder = Some(folder);
-        self.status = Status::Loading;
+        self.state.io.send(Job::Load(folder.clone(), device));
+        self.state.folder = Some(folder);
+        self.state.status = Status::Loading;
     }
 
     /// Takes in finished disk work.

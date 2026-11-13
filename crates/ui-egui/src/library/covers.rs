@@ -78,8 +78,6 @@ enum Slot {
 pub struct Covers {
     slots: HashMap<ContentId, Slot>,
     link: Option<Link>,
-    /// `<cache>/covers`; none keeps covers in memory only.
-    cache: Option<PathBuf>,
     inline: bool,
     frame: u64,
     /// This frame's asks, best first.
@@ -105,15 +103,6 @@ impl Covers {
     /// Covers read on the frame, as tests and shots want.
     pub fn set_inline(&mut self, inline: bool) {
         self.inline = inline;
-    }
-
-    /// Where covers are kept between launches; set before the first ask.
-    pub fn cache_dir(&self) -> Option<PathBuf> {
-        self.cache.clone()
-    }
-
-    pub fn set_cache(&mut self, dir: PathBuf) {
-        self.cache = Some(dir);
     }
 
     /// `book`'s cover, asked for if it isn't here yet.
@@ -169,7 +158,10 @@ impl Covers {
     }
 
     /// Hands this frame's asks over and makes a few textures.
-    pub fn end_frame(&mut self, ctx: &Context) {
+    ///
+    /// `cache` is `<dir>/covers`, where covers are kept between launches;
+    /// none keeps them in memory only.
+    pub fn end_frame(&mut self, ctx: &Context, cache: Option<&Path>) {
         // Best first: what waits already, then this frame's new asks.
         let mut near = std::mem::take(&mut self.near);
         near.extend(self.asked.iter().map(|w| w.content));
@@ -177,14 +169,14 @@ impl Covers {
             // As many as become textures, so none pile up waiting.
             let take = self.asked.len().min(UPLOADS);
             for want in self.asked.drain(..take).collect::<Vec<_>>() {
-                let art = load(&want, self.versioned().as_deref());
+                let art = load(&want, versioned(cache).as_deref());
                 self.arrive(want.content, art);
             }
             if !self.asked.is_empty() {
                 ctx.request_repaint();
             }
         } else {
-            self.trade(ctx);
+            self.trade(ctx, cache);
         }
         // Read for books scrolled past: the disk cache has them again.
         let waits = |c: &ContentId, s: &mut Slot| !matches!(s, Slot::Read(_)) || near.contains(c);
@@ -196,13 +188,13 @@ impl Covers {
     }
 
     /// Takes finished covers; new asks replace old, so scrolled-past drop.
-    fn trade(&mut self, ctx: &Context) {
+    fn trade(&mut self, ctx: &Context, cache: Option<&Path>) {
         if self.asked.is_empty() && self.sent.is_empty() && self.link.is_none() {
             return;
         }
         let link = match &self.link {
             Some(link) => Arc::clone(link),
-            None => match self.spawn(ctx) {
+            None => match self.spawn(ctx, cache) {
                 Some(link) => link,
                 // No thread: covers are read on the frame instead.
                 None => return self.inline = true,
@@ -226,19 +218,15 @@ impl Covers {
         }
     }
 
-    fn spawn(&mut self, ctx: &Context) -> Option<Link> {
+    fn spawn(&mut self, ctx: &Context, cache: Option<&Path>) -> Option<Link> {
         let link: Link = Arc::default();
-        let (theirs, ctx, cache) = (Arc::clone(&link), ctx.clone(), self.versioned());
+        let (theirs, ctx, cache) = (Arc::clone(&link), ctx.clone(), versioned(cache));
         std::thread::Builder::new()
             .name("covers".into())
             .spawn(move || work(&theirs, &ctx, cache.as_deref()))
             .ok()?;
         self.link = Some(Arc::clone(&link));
         Some(link)
-    }
-
-    fn versioned(&self) -> Option<PathBuf> {
-        self.cache.as_ref().map(|c| c.join(format!("v{VERSION}")))
     }
 
     fn arrive(&mut self, content: ContentId, art: Option<Art>) {
@@ -311,6 +299,11 @@ impl Covers {
         let shown = |s: &&Slot| matches!(s, Slot::Shown { .. });
         self.slots.values().filter(shown).count()
     }
+}
+
+/// The cache's own folder for this build; other versions' are deleted.
+fn versioned(cache: Option<&Path>) -> Option<PathBuf> {
+    cache.map(|c| c.join(format!("v{VERSION}")))
 }
 
 fn work(link: &Link, ctx: &Context, cache: Option<&Path>) {

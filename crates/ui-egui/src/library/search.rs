@@ -11,11 +11,10 @@ use egui::{
     StrokeKind, TextFormat, Ui, pos2, vec2,
 };
 use mareader_engine::command::Command;
-use mareader_engine::library::{Action, Scope};
+use mareader_engine::library::{Action, Field, Listing, Lit, Reveal, Scope, Shape};
 use mareader_library::picks::{Pick, PickAction};
 use mareader_library::{
-    Book, BookId, Home, Item, Library, Query, SUGGEST_LIMIT, ShelfId, SortKey, Suggestion, Target,
-    View, plural,
+    Book, BookId, Home, Item, Library, SUGGEST_LIMIT, SortKey, Suggestion, Target, View, plural,
 };
 use std::{ops::Range, rc::Rc};
 
@@ -34,87 +33,6 @@ const PULSE: f64 = 1.6;
 const HALO: f32 = 16.0;
 
 use mareader_engine::library::SearchAction;
-
-#[derive(Default)]
-pub(super) struct Search {
-    text: String,
-    query: Query,
-    /// Suggestions list under the field while it's focused.
-    open: bool,
-    lit: Option<usize>,
-    reveal: Option<Reveal>,
-    listing: Option<(Shape, Rc<Listing>)>,
-    suggestions: Option<(u64, Query, Rc<[Suggestion]>)>,
-}
-
-impl Search {
-    fn set_text(&mut self, text: String) {
-        self.query = Query::new(&text);
-        self.text = text;
-        self.open = !self.query.is_empty();
-        // The first row is lit, so Enter goes to the best match.
-        self.lit = self.open.then_some(0);
-    }
-
-    fn close(&mut self) {
-        self.open = false;
-        self.lit = None;
-    }
-
-    /// Empties the field; true if it held anything.
-    pub(super) fn clear(&mut self) -> bool {
-        let had = !self.text.is_empty();
-        self.set_text(String::new());
-        had
-    }
-}
-
-/// A card shown by choosing it: ringed for a while, scrolled to once.
-#[derive(Clone, Copy, Debug)]
-struct Reveal {
-    pick: Pick,
-    since: f64,
-    scroll: bool,
-}
-
-/// What the page lists, kept until the library or the page changes.
-#[derive(Debug, Default)]
-pub struct Listing {
-    /// Shelves and books in the order shown.
-    pub items: Vec<Item>,
-    /// Books before the search: the 12 in "3 of 12 books".
-    pub total: usize,
-    /// Matches hidden by the shelf or filter, when none show.
-    pub elsewhere: usize,
-}
-
-/// Everything a listing depends on.
-#[derive(Clone, Debug, PartialEq)]
-struct Shape {
-    revision: u64,
-    at: Option<ShelfId>,
-    scope: Scope,
-    sort: SortKey,
-    ascending: bool,
-    home: Home,
-    query: Query,
-}
-
-/// What the bar's field shows; the bar edits a copy.
-#[derive(Clone, Debug, Default)]
-pub struct Field {
-    pub text: String,
-    pub placeholder: String,
-    pub open: bool,
-    pub lit: Option<usize>,
-}
-
-/// The card being revealed: what it is, and how long ago it was chosen.
-#[derive(Clone, Copy, Debug)]
-pub struct Lit {
-    pub pick: Pick,
-    pub age: f64,
-}
 
 impl LibraryState {
     /// The shelves and books the page shows, in order.

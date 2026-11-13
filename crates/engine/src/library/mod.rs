@@ -12,6 +12,7 @@ mod counted;
 mod duplicating;
 mod filing;
 mod find;
+mod folders;
 mod held;
 mod io;
 mod moving;
@@ -19,11 +20,13 @@ mod moving;
 mod organizing;
 mod question;
 mod runs;
+mod searching;
 mod seed;
 mod shelving;
 mod state;
 pub use counted::counted;
 pub use find::folder_name;
+pub use folders::{Folders, Going, Pending, RESCAN_GAP, SETTLE_WAIT, Screening, offline};
 pub use io::{Copies, CopyIn, Files, Io, Job, Measured, News, Probe, Tag, Walk, Walked};
 pub use moving::listed;
 pub use organizing::{
@@ -32,6 +35,7 @@ pub use organizing::{
 };
 pub use question::{Kind, Question};
 pub use runs::{Beat, DELAY, Phase, Run, RunId, Runs};
+pub use searching::{Field, Listing, Lit, Reveal, Search, Shape};
 pub use shelving::Crumb;
 pub use state::{State, Status, wall_ms};
 

@@ -16,14 +16,14 @@ use mareader_library::{
 use super::add::{self, Here};
 use super::covers::Covers;
 use super::living::{Grab, Motion};
-use super::search::{self, Lit};
+use super::search;
 use super::{LibraryState, folders, menus};
 use crate::icons::Icon;
 use crate::motion;
 use crate::theme::{self, Tokens};
 use crate::ui_command::{Commands, Sent};
 use mareader_engine::command::Command;
-use mareader_engine::library::{Action, Carry, Scope, ShelfAction};
+use mareader_engine::library::{Action, Carry, Lit, Scope, ShelfAction};
 use mareader_engine::library::{SearchAction, counted};
 use mareader_library::picks::{Pick, PickAction, Picks};
 

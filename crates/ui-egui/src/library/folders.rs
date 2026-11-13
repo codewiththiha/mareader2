@@ -1,93 +1,27 @@
 //! Folder runs: imports, quiet rescans, loose files and restores.
 
-use std::collections::{BTreeSet, HashMap, HashSet, VecDeque};
+use std::collections::{BTreeSet, HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
 use egui::Context;
 use mareader_library::disk::Known;
 use mareader_library::gate::Gate;
 use mareader_library::{
-    Asked, Book, BookId, ContentId, Copied, FolderId, Found, Landed, Options, Origin, Placement,
-    Plan, Planned, ShelfId,
+    Asked, Book, BookId, ContentId, Copied, FolderId, Found, Landed, Options, Placement, Plan,
+    Planned, ShelfId,
 };
 
 use super::LibraryState;
 use super::runs::{Phase, RunId};
 use crate::ui_command::{Commands, Sent, UiCommand};
 use mareader_engine::library::folder_name;
+pub use mareader_engine::library::offline;
 use mareader_engine::library::{Copies, CopyIn, Files, Job, Measured, Tag, Walk, Walked};
 use mareader_engine::library::{CopyWork, Question};
+use mareader_engine::library::{Going, Pending, RESCAN_GAP, SETTLE_WAIT, Screening};
 use mareader_engine::library::{Sheet, Status, wall_ms};
 use mareader_engine::toast::Toast;
 use mareader_library::picks::Pick;
-
-/// Seconds between rescans when the window keeps regaining focus.
-const RESCAN_GAP: f64 = 2.0;
-/// Seconds before looking again at files still being written.
-const SETTLE_WAIT: f64 = 3.5;
-
-/// A walk on its way: what it walks, as what, and its card.
-#[derive(Clone, Debug)]
-struct Going {
-    root: PathBuf,
-    opts: Options,
-    plan: Plan,
-    asked: Asked,
-    run: Option<RunId>,
-    /// Files the walk found, for the run's last word.
-    found: usize,
-}
-
-/// Work waiting on the worker, under the tag its news carries.
-#[derive(Debug)]
-enum Pending {
-    /// A folder walking; a rescan names the folder it walks.
-    Walk(Going, Option<FolderId>),
-    /// A planned walk's copies, landed once made.
-    Land(Box<Planned>, Going),
-    /// Loose files measured, then screened onto the level.
-    Files(Option<ShelfId>, Option<RunId>),
-    /// Screened files copied, then landed onto the level.
-    Loose(Box<Loose>),
-    /// An answer's copy, then the answer written.
-    Keep(Box<Question>, Placement),
-    /// Books read in place copied, then the gesture that owed them.
-    Depart(Box<CopyWork>),
-    /// A removed book's file measured, then copied if its folder copies.
-    Restore(FolderId, ContentId),
-    Restored(FolderId, ContentId, Box<Found>),
-    /// The picks' books copied, then the duplicates made.
-    Duplicate(Vec<Pick>),
-}
-
-#[derive(Debug)]
-struct Loose {
-    to: Option<ShelfId>,
-    run: Option<RunId>,
-    files: Vec<Found>,
-    /// Questions the screen queued.
-    asked: usize,
-}
-
-/// When folders are walked, what they said, and what waits on the worker.
-#[derive(Debug, Default)]
-pub(super) struct Folders {
-    next: Tag,
-    pending: HashMap<Tag, Pending>,
-    /// Watched folders walking quietly now.
-    walking: BTreeSet<FolderId>,
-    /// A rescan asked for while one ran.
-    again: bool,
-    /// When the last rescan left, in egui seconds.
-    last: Option<f64>,
-    settle_at: Option<f64>,
-    focused: bool,
-    offline: BTreeSet<FolderId>,
-    /// Folders dropped while a sheet was up, asked about in turn.
-    later: VecDeque<PathBuf>,
-    /// The import sheet's last answers, the next one's start.
-    pub(super) opts: Option<Options>,
-}
 
 impl LibraryState {
     /// Whether a rescan is walking.
@@ -263,12 +197,6 @@ impl LibraryState {
                 false => ctx.request_repaint_after(std::time::Duration::from_secs_f64(at - now)),
             }
         }
-    }
-
-    /// The library's own folders, which no walk enters.
-    pub(super) fn avoid(&self) -> Vec<PathBuf> {
-        let folder = self.folder.as_ref().map(|f| f.root().to_path_buf());
-        folder.into_iter().chain(self.covers.cache_dir()).collect()
     }
 
     pub(super) fn checked(&mut self, gone: &HashSet<PathBuf>) {
@@ -551,7 +479,7 @@ impl LibraryState {
         if !notes.is_empty() {
             out.push(Sent::Ui(UiCommand::Notify(Toast::error(notes.join(" ")))));
         }
-        let loose = Loose {
+        let loose = Screening {
             to,
             run,
             files: screened.clean,
@@ -575,7 +503,7 @@ impl LibraryState {
 
     fn land_loose(
         &mut self,
-        loose: Loose,
+        loose: Screening,
         copies: &HashMap<PathBuf, Copied>,
         now: f64,
         out: &mut Commands,
@@ -694,15 +622,6 @@ impl LibraryState {
             self.reveal(Pick::Book(book), now);
         }
     }
-}
-
-/// The folder an absent book's last address belongs to, if offline.
-pub fn offline(book: &Book, offline: &BTreeSet<FolderId>) -> bool {
-    book.missing()
-        && book.locations.iter().any(|l| match l.origin {
-            Origin::Folder(id) => offline.contains(&id),
-            Origin::Opened | Origin::Store => false,
-        })
 }
 
 /// "Added 3 books from “Essays”.", or why nothing was.
