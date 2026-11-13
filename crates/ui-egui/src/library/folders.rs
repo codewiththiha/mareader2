@@ -1,14 +1,12 @@
 //! Folder runs: imports, quiet rescans, loose files and restores.
 
-use std::collections::{BTreeSet, HashMap, HashSet};
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
 use egui::Context;
-use mareader_library::disk::Known;
 use mareader_library::gate::Gate;
 use mareader_library::{
-    Asked, BookId, ContentId, Copied, FolderId, Found, Landed, Options, Placement, Plan, Planned,
-    ShelfId,
+    BookId, ContentId, Copied, FolderId, Found, Landed, Options, Placement, Planned, ShelfId,
 };
 
 use super::LibraryState;
@@ -16,7 +14,7 @@ use super::runs::{Phase, RunId};
 use crate::ui_command::{Commands, Sent, UiCommand};
 use mareader_engine::library::folder_name;
 pub use mareader_engine::library::offline;
-use mareader_engine::library::{Copies, CopyIn, Files, Job, Measured, Tag, Walk, Walked};
+use mareader_engine::library::{Copies, CopyIn, Files, Job, Measured, Walk, Walked};
 use mareader_engine::library::{CopyWork, Question};
 use mareader_engine::library::{Going, Pending, RESCAN_GAP, SETTLE_WAIT, Screening};
 use mareader_engine::library::{Sheet, Status, wall_ms};
@@ -24,51 +22,6 @@ use mareader_engine::toast::Toast;
 use mareader_library::picks::Pick;
 
 impl LibraryState {
-    /// Whether a rescan is walking.
-    pub fn scanning(&self) -> bool {
-        !self.folders.walking.is_empty()
-    }
-
-    /// Folders whose drive wasn't there at the last look.
-    pub fn offline(&self) -> &BTreeSet<FolderId> {
-        &self.folders.offline
-    }
-
-    /// Questions waiting, the next first; shown when no sheet is up.
-    pub fn questions(&self) -> impl Iterator<Item = &Question> {
-        self.state.asks.iter()
-    }
-
-    /// The import sheet's start: the last answers, else the defaults.
-    pub fn last_options(&self) -> Options {
-        self.folders.opts.clone().unwrap_or_default()
-    }
-
-    fn tag(&mut self, pending: Pending) -> Tag {
-        self.folders.next += 1;
-        let tag = self.folders.next;
-        self.folders.pending.insert(tag, pending);
-        tag
-    }
-
-    fn store(&self) -> Option<PathBuf> {
-        self.folder.as_ref().map(|f| f.store())
-    }
-
-    /// The import sheet for `root`, or after the sheet that's up.
-    pub(super) fn ask_folder(&mut self, root: PathBuf) {
-        // "Change…" on the import sheet swaps its folder.
-        match self.sheet {
-            Some(Sheet::Import(_)) | None => self.sheet = Some(Sheet::Import(root)),
-            Some(_) => self.folders.later.push_back(root),
-        }
-    }
-
-    /// Closes the sheet; a folder dropped meanwhile asks next.
-    pub(super) fn close_sheet(&mut self) {
-        self.sheet = self.folders.later.pop_front().map(Sheet::Import);
-    }
-
     /// The import sheet's answer: through the gate, then a walk.
     pub(super) fn import_folder(
         &mut self,
@@ -94,84 +47,6 @@ impl LibraryState {
             Gate::Walk { root, plan } => self.walk(root, opts, plan, now),
             Gate::Clash(clash) => self.state.asks.push_back(Question::Clash { clash, opts }),
         }
-    }
-
-    /// An import's walk, with a card.
-    pub(super) fn walk(&mut self, root: PathBuf, opts: Options, plan: Plan, now: f64) {
-        let run = Some(self.runs.start(folder_name(&root), Phase::Scanning));
-        let going = Going {
-            root,
-            opts,
-            plan,
-            asked: Asked::Explicitly,
-            run,
-            found: 0,
-        };
-        self.send_walk(going, None);
-        self.folders.last = Some(now);
-    }
-
-    fn send_walk(&mut self, going: Going, folder: Option<FolderId>) {
-        let (root, opts, run) = (going.root.clone(), going.opts.clone(), going.run);
-        let (known, contents) = self.known();
-        let tag = self.tag(Pending::Walk(going, folder));
-        let avoid = self.avoid();
-        self.io.send(Job::Walk(Box::new(Walk {
-            tag,
-            run,
-            root,
-            opts,
-            known,
-            contents,
-            avoid,
-            now_ms: wall_ms(),
-        })));
-    }
-
-    /// Content ids by path, and every content the library has met.
-    fn known(&self) -> (Known, HashSet<ContentId>) {
-        let mut known = Known::new();
-        let mut contents = HashSet::new();
-        for book in self.model.all_books() {
-            contents.insert(book.content);
-            for at in &book.locations {
-                known.insert(at.path.clone(), (at.stamp, book.content));
-            }
-        }
-        (known, contents)
-    }
-
-    /// Re-checks known files and walks watched folders, quietly.
-    pub fn rescan(&mut self, now: f64) {
-        if self.status == Status::Loading {
-            return;
-        }
-        if !self.folders.walking.is_empty() {
-            self.folders.again = true;
-            return;
-        }
-        let living = (self.model.books()).flat_map(|b| b.locations.iter().map(|l| l.path.clone()));
-        // The lazy iterator holds the model; gather before sending.
-        let paths: Vec<PathBuf> = living.collect();
-        self.io.send(Job::Check(paths));
-        let watched: Vec<(FolderId, PathBuf, Options)> = (self.model.folders())
-            .filter(|f| f.owes_walk())
-            .map(|f| (f.id, f.root.clone(), f.opts.clone()))
-            .collect();
-        for (id, root, opts) in watched {
-            let going = Going {
-                root,
-                opts,
-                plan: Plan::default(),
-                asked: Asked::OnFocus,
-                run: None,
-                found: 0,
-            };
-            self.folders.walking.insert(id);
-            self.send_walk(going, Some(id));
-        }
-        self.folders.last = Some(now);
-        self.folders.settle_at = None;
     }
 
     /// Rescans when the window comes back, and after files settle.
@@ -200,10 +75,6 @@ impl LibraryState {
                 false => ctx.request_repaint_after(std::time::Duration::from_secs_f64(at - now)),
             }
         }
-    }
-
-    pub(super) fn checked(&mut self, gone: &HashSet<PathBuf>) {
-        self.model.check_present(|p| !gone.contains(p));
     }
 
     pub(super) fn walked(&mut self, done: Walked, now: f64, out: &mut Commands) {
@@ -238,29 +109,6 @@ impl LibraryState {
             return;
         };
         self.land_or_copy(planned, going, now, out);
-    }
-
-    /// A quiet walk of a watched folder, landed as it found.
-    fn rescanned(&mut self, id: FolderId, done: Walked, now: f64) {
-        self.folders.walking.remove(&id);
-        match done.offline {
-            true => self.folders.offline.insert(id),
-            false => self.folders.offline.remove(&id),
-        };
-        if !done.offline {
-            let plan = Plan::default();
-            let planned = self.model.plan_walk(id, done.found, Asked::OnFocus, plan);
-            if let Some(planned) = planned.filter(|p| !p.is_empty()) {
-                let asks = planned.asks.clone();
-                self.model.land_walk(planned, &HashMap::new(), wall_ms());
-                self.state
-                    .asks
-                    .extend(asks.into_iter().map(Question::Merge));
-            }
-        }
-        if self.folders.walking.is_empty() && std::mem::take(&mut self.folders.again) {
-            self.rescan(now);
-        }
     }
 
     /// Copies first if the folder copies; else lands at once.
@@ -611,19 +459,6 @@ impl LibraryState {
         let note = format!("Restored “{}”.", title.unwrap_or_default());
         out.push(Sent::Ui(UiCommand::Notify(Toast::info(note))));
         self.reveal(Pick::Book(id), now);
-    }
-
-    /// A moved book shown on the open folder shelf too.
-    pub(super) fn show_moved(&mut self, folder: FolderId, book: BookId, now: f64) {
-        self.sheet = None;
-        let rung = |s: ShelfId| self.model.shelf(s).and_then(|s| s.kind.value.rung());
-        let here = self
-            .at
-            .filter(|s| rung(*s).is_some_and(|(f, _)| f == folder));
-        if let Some(shelf) = here {
-            self.model.file(book, shelf, wall_ms());
-            self.reveal(Pick::Book(book), now);
-        }
     }
 }
 

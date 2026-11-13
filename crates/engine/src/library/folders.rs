@@ -4,15 +4,20 @@
 //! The walking itself runs on the library's worker. This is the state that
 //! answers it, so a walk's news lands on a model that remembers the walk.
 
-use std::collections::{BTreeSet, HashMap, VecDeque};
+use std::collections::{BTreeSet, HashMap, HashSet, VecDeque};
 use std::path::PathBuf;
 
+use mareader_library::disk::Known;
 use mareader_library::picks::Pick;
 use mareader_library::{
-    Asked, Book, ContentId, FolderId, Found, Options, Origin, Placement, Plan, Planned, ShelfId,
+    Asked, Book, BookId, ContentId, FolderId, Found, Options, Origin, Placement, Plan, Planned,
+    ShelfId,
 };
 
-use super::{CopyWork, Question, RunId, State, Tag};
+use super::{
+    CopyWork, Job, Phase, Question, RunId, Sheet, State, Status, Tag, Walk, Walked, folder_name,
+    wall_ms,
+};
 
 /// Seconds between rescans when the window keeps regaining focus.
 pub const RESCAN_GAP: f64 = 2.0;
@@ -88,6 +93,167 @@ impl State {
     pub fn avoid(&self) -> Vec<PathBuf> {
         let own = self.folder.as_ref().map(|f| f.root().to_path_buf());
         own.into_iter().chain(self.cache.clone()).collect()
+    }
+
+    /// Whether a rescan is walking.
+    pub fn scanning(&self) -> bool {
+        !self.folders.walking.is_empty()
+    }
+
+    /// Folders whose drive wasn't there at the last look.
+    pub fn offline(&self) -> &BTreeSet<FolderId> {
+        &self.folders.offline
+    }
+
+    /// Questions waiting, the next first; shown when no sheet is up.
+    pub fn questions(&self) -> impl Iterator<Item = &Question> {
+        self.asks.iter()
+    }
+
+    /// The import sheet's start: the last answers, else the defaults.
+    pub fn last_options(&self) -> Options {
+        self.folders.opts.clone().unwrap_or_default()
+    }
+
+    pub fn tag(&mut self, pending: Pending) -> Tag {
+        self.folders.next += 1;
+        let tag = self.folders.next;
+        self.folders.pending.insert(tag, pending);
+        tag
+    }
+
+    pub fn store(&self) -> Option<PathBuf> {
+        self.folder.as_ref().map(|f| f.store())
+    }
+
+    /// The import sheet for `root`, or after the sheet that's up.
+    pub fn ask_folder(&mut self, root: PathBuf) {
+        // "Change…" on the import sheet swaps its folder.
+        match self.sheet {
+            Some(Sheet::Import(_)) | None => self.sheet = Some(Sheet::Import(root)),
+            Some(_) => self.folders.later.push_back(root),
+        }
+    }
+
+    /// Closes the sheet; a folder dropped meanwhile asks next.
+    pub fn close_sheet(&mut self) {
+        self.sheet = self.folders.later.pop_front().map(Sheet::Import);
+    }
+
+    /// An import's walk, with a card.
+    pub fn walk(&mut self, root: PathBuf, opts: Options, plan: Plan, now: f64) {
+        let run = Some(self.runs.start(folder_name(&root), Phase::Scanning));
+        let going = Going {
+            root,
+            opts,
+            plan,
+            asked: Asked::Explicitly,
+            run,
+            found: 0,
+        };
+        self.send_walk(going, None);
+        self.folders.last = Some(now);
+    }
+
+    fn send_walk(&mut self, going: Going, folder: Option<FolderId>) {
+        let (root, opts, run) = (going.root.clone(), going.opts.clone(), going.run);
+        let (known, contents) = self.known();
+        let tag = self.tag(Pending::Walk(going, folder));
+        let avoid = self.avoid();
+        self.io.send(Job::Walk(Box::new(Walk {
+            tag,
+            run,
+            root,
+            opts,
+            known,
+            contents,
+            avoid,
+            now_ms: wall_ms(),
+        })));
+    }
+
+    /// Content ids by path, and every content the library has met.
+    fn known(&self) -> (Known, HashSet<ContentId>) {
+        let mut known = Known::new();
+        let mut contents = HashSet::new();
+        for book in self.model.all_books() {
+            contents.insert(book.content);
+            for at in &book.locations {
+                known.insert(at.path.clone(), (at.stamp, book.content));
+            }
+        }
+        (known, contents)
+    }
+
+    /// Re-checks known files and walks watched folders, quietly.
+    pub fn rescan(&mut self, now: f64) {
+        if self.status == Status::Loading {
+            return;
+        }
+        if !self.folders.walking.is_empty() {
+            self.folders.again = true;
+            return;
+        }
+        let living = (self.model.books()).flat_map(|b| b.locations.iter().map(|l| l.path.clone()));
+        // The lazy iterator holds the model; gather before sending.
+        let paths: Vec<PathBuf> = living.collect();
+        self.io.send(Job::Check(paths));
+        let watched: Vec<(FolderId, PathBuf, Options)> = (self.model.folders())
+            .filter(|f| f.owes_walk())
+            .map(|f| (f.id, f.root.clone(), f.opts.clone()))
+            .collect();
+        for (id, root, opts) in watched {
+            let going = Going {
+                root,
+                opts,
+                plan: Plan::default(),
+                asked: Asked::OnFocus,
+                run: None,
+                found: 0,
+            };
+            self.folders.walking.insert(id);
+            self.send_walk(going, Some(id));
+        }
+        self.folders.last = Some(now);
+        self.folders.settle_at = None;
+    }
+
+    pub fn checked(&mut self, gone: &HashSet<PathBuf>) {
+        self.model.check_present(|p| !gone.contains(p));
+    }
+
+    /// A quiet walk of a watched folder, landed as it found.
+    pub fn rescanned(&mut self, id: FolderId, done: Walked, now: f64) {
+        self.folders.walking.remove(&id);
+        match done.offline {
+            true => self.folders.offline.insert(id),
+            false => self.folders.offline.remove(&id),
+        };
+        if !done.offline {
+            let plan = Plan::default();
+            let planned = self.model.plan_walk(id, done.found, Asked::OnFocus, plan);
+            if let Some(planned) = planned.filter(|p| !p.is_empty()) {
+                let asks = planned.asks.clone();
+                self.model.land_walk(planned, &HashMap::new(), wall_ms());
+                self.asks.extend(asks.into_iter().map(Question::Merge));
+            }
+        }
+        if self.folders.walking.is_empty() && std::mem::take(&mut self.folders.again) {
+            self.rescan(now);
+        }
+    }
+
+    /// A moved book shown on the open folder shelf too.
+    pub fn show_moved(&mut self, folder: FolderId, book: BookId, now: f64) {
+        self.sheet = None;
+        let rung = |s: ShelfId| self.model.shelf(s).and_then(|s| s.kind.value.rung());
+        let here = self
+            .at
+            .filter(|s| rung(*s).is_some_and(|(f, _)| f == folder));
+        if let Some(shelf) = here {
+            self.model.file(book, shelf, wall_ms());
+            self.reveal(Pick::Book(book), now);
+        }
     }
 }
 
