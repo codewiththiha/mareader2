@@ -1,6 +1,5 @@
 //! The library's state: the model, its files, and what the panes read.
 
-mod actions;
 mod add;
 pub mod asks;
 mod copying;
