@@ -21,7 +21,7 @@ use crate::ui_command::{Commands, Sent, UiCommand};
 use crate::{motion, widgets};
 use mareader_engine::command::Command;
 use mareader_engine::dict::Download;
-use mareader_engine::read_aloud::place::place_name;
+use mareader_engine::read_aloud::place::{follow, place_name};
 use mareader_engine::read_aloud::{ReadFrom, TICK, parts};
 
 mod ask;
@@ -183,7 +183,8 @@ impl Narrated {
                 documents.go_to(self.pane, page);
                 self.followed = Some(page);
             }
-            follow(documents, reading, settings, page, &mut self.followed);
+            let stand = reading.stand();
+            follow(documents, &stand, settings, page, &mut self.followed);
         }
         if !self.paused && !self.finished {
             ctx.request_repaint_after(TICK);
