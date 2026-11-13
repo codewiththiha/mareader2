@@ -704,8 +704,8 @@ tier = "P2"
 milestone = "M5"
 status = "shipped"
 evidence = [
-  "crates/ui-egui/src/library/runs.rs::a_scan_spins_then_reading_fills_the_ring",
-  "crates/ui-egui/src/library/runs.rs::beats_are_sent_once_a_percent",
+  "crates/engine/src/library/runs.rs::a_scan_spins_then_reading_fills_the_ring",
+  "crates/engine/src/library/runs.rs::beats_are_sent_once_a_percent",
 ]
 reference = ["crates/library-runtime/src/features/library/progress_dock.rs"]
 
