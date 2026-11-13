@@ -2,10 +2,12 @@
 
 use std::collections::VecDeque;
 use std::sync::Arc;
-use std::sync::mpsc::{Receiver, TryRecvError, channel};
+use std::sync::mpsc::{Receiver, TryRecvError};
 
 use egui::Context;
 use mareader_engine::page_ai::extract::{self, Source};
+use mareader_engine::page_ai::read;
+use mareader_engine::session::Waker;
 use mareader_library::{AiPageId, AiTask, BookId, PageSpan};
 use mareader_session::Document;
 use mareader_settings::{AiSettings, PageTask, Provider};
@@ -111,50 +113,6 @@ fn span_of(document: &Document, (from, to): (usize, usize)) -> Option<PageSpan> 
         Document::Pdf(_) if from == to => Some(PageSpan::Page { page: from }),
         Document::Pdf(_) => Some(PageSpan::Pages { from, to }),
     }
-}
-
-/// Reads a PDF group's pages on a thread, as one source.
-fn read_pdf(
-    ctx: &Context,
-    document: Arc<Document>,
-    (from, to): (usize, usize),
-    inline: bool,
-) -> Receiver<Option<Source>> {
-    let (tx, rx) = channel();
-    let ctx = ctx.clone();
-    let work = move || {
-        let layers: Vec<_> = (from.saturating_sub(1)..=to + 1)
-            .map(|p| (p, document.text_layer(p).ok()))
-            .collect();
-        let layer = |p: usize| {
-            let found = layers.iter().find(|(q, _)| *q == p);
-            found.and_then(|(_, l)| l.as_ref())
-        };
-        let pages: Vec<(Source, bool)> = (from..=to)
-            .filter_map(|page| {
-                let own = layer(page)?;
-                let near: Vec<_> = [page.checked_sub(1), Some(page + 1)]
-                    .into_iter()
-                    .flatten()
-                    .filter_map(layer)
-                    .map(|l| &l.text)
-                    .collect();
-                let runs_on = page > from && own.text.continues();
-                Some((extract::pdf(&own.text, &near), runs_on))
-            })
-            .collect();
-        let found = (!pages.is_empty()).then(|| extract::join(pages));
-        let _ = tx.send(found);
-        ctx.request_repaint();
-    };
-    if inline || cfg!(target_arch = "wasm32") {
-        work();
-    } else {
-        let named = std::thread::Builder::new().name("page-ai-group".into());
-        // Unspawned, the group just counts as without text.
-        let _ = named.spawn(work);
-    }
-    rx
 }
 
 impl PageAi {
@@ -363,7 +321,9 @@ impl PageAi {
                 self.write(b, who, (Some(source), g, span), now);
             }
             _ => {
-                let rx = read_pdf(ctx, Arc::clone(document), (g.from, g.to), self.inline);
+                let ctx = ctx.clone();
+                let wake: Waker = Arc::new(move || ctx.request_repaint());
+                let rx = read::group(wake, Arc::clone(document), (g.from, g.to), self.inline);
                 b.reading.push((rx, g, span));
             }
         }

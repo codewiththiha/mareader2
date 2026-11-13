@@ -1,14 +1,15 @@
 //! Continuous runs: the pages ahead are asked as the reader reads.
 
 use egui::Context;
-use mareader_engine::page_ai::extract::{self, Source};
-use mareader_library::{AiTask, BookId, Library, PageSpan};
+use mareader_engine::page_ai::read::{self, Read};
+use mareader_engine::session::Waker;
+use mareader_library::{AiTask, BookId, Library};
 use mareader_session::Document;
 use mareader_settings::{AiSettings, ModelPreset, language_name};
 use mareader_workspace::PaneId;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 use std::sync::Arc;
-use std::sync::mpsc::{Receiver, TryRecvError, channel};
+use std::sync::mpsc::{Receiver, TryRecvError};
 
 use crate::documents::Documents;
 use crate::ui_command::Commands;
@@ -21,9 +22,6 @@ use mareader_engine::page_ai::Slot;
 const STILL: f64 = 1.2;
 /// Pages past the run's ends that still count as reading it.
 const SLACK: usize = 2;
-
-/// A page read off the frame; none if it has no text.
-type Read = (usize, Option<(Source, PageSpan)>);
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum State {
@@ -98,50 +96,6 @@ pub(super) fn capacity(ai: &crate::ai::Ai, p: &ModelPreset) -> Option<u32> {
 #[cfg(target_arch = "wasm32")]
 pub(super) fn capacity(_: &crate::ai::Ai, _: &ModelPreset) -> Option<u32> {
     None
-}
-
-/// Reads PDF pages' text on a thread, so the frame never waits.
-fn read_pdf(
-    ctx: &Context,
-    document: Arc<Document>,
-    pages: Vec<usize>,
-    inline: bool,
-) -> Receiver<Read> {
-    let (tx, rx) = channel();
-    let ctx = ctx.clone();
-    let work = move || {
-        let mut layers = HashMap::new();
-        for page in pages {
-            let near = [page.checked_sub(1), Some(page), Some(page + 1)];
-            for p in near.into_iter().flatten() {
-                layers
-                    .entry(p)
-                    .or_insert_with(|| document.text_layer(p).ok());
-            }
-            let layer = |p: usize| layers.get(&p).and_then(Option::as_ref);
-            let found = layer(page).map(|own| {
-                let near: Vec<_> = [page.checked_sub(1), Some(page + 1)]
-                    .into_iter()
-                    .flatten()
-                    .filter_map(layer)
-                    .map(|l| &l.text)
-                    .collect();
-                (extract::pdf(&own.text, &near), PageSpan::Page { page })
-            });
-            if tx.send((page, found)).is_err() {
-                return;
-            }
-            ctx.request_repaint();
-        }
-    };
-    if inline || cfg!(target_arch = "wasm32") {
-        work();
-    } else {
-        // Unspawned, the run just asks nothing more.
-        let named = std::thread::Builder::new().name("page-ai-read".into());
-        let _ = named.spawn(work);
-    }
-    rx
 }
 
 impl PageAi {
@@ -382,8 +336,10 @@ impl PageAi {
             Document::Pdf(_) => {
                 f.pending += pages.len();
                 let document = Arc::clone(&view.document);
+                let ctx = ctx.clone();
+                let wake: Waker = Arc::new(move || ctx.request_repaint());
                 f.reading
-                    .push(read_pdf(ctx, document, pages.to_vec(), self.inline));
+                    .push(read::pages(wake, document, pages.to_vec(), self.inline));
             }
         }
     }

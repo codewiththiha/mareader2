@@ -1,6 +1,7 @@
 //! What a page asks the AI, and what comes back.
 
 pub mod extract;
+pub mod read;
 
 use mareader_library::AiPageId;
 use mareader_settings::PageTask;
