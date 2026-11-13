@@ -73,3 +73,7 @@ pub fn ask(
     });
     rx
 }
+
+#[cfg(test)]
+#[path = "asking_tests.rs"]
+mod tests;
