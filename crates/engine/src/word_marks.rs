@@ -2,10 +2,15 @@
 
 use std::collections::{HashMap, HashSet};
 use std::fmt::Write as _;
+use std::sync::Arc;
+use std::sync::mpsc::{Receiver, channel};
 
 use mareader_cefr::{MAX_WORD_CHARS, candidates, normalize, tokenize};
 use mareader_dict::{Entry, Found, fold};
+use mareader_session::Document;
 use mareader_settings::{WordFields, WordGroup, WordLayout, WordList, WordSort};
+
+use crate::session::Waker;
 
 /// A cell keeps at most this many rows; a word this many near words.
 const CELL_ROWS: usize = 4;
@@ -44,6 +49,55 @@ pub fn keys(pages: &[Page]) -> Vec<String> {
         }
     }
     out
+}
+
+/// The picked pages' text, each own page once, with its chapter.
+fn read(document: &Document, pages: &[usize]) -> Vec<Page> {
+    let outline = document.outline();
+    let top = outline.iter().map(|e| e.depth).min();
+    let chapters: Vec<_> = outline.iter().filter(|e| Some(e.depth) == top).collect();
+    let mut out: Vec<Page> = Vec::new();
+    for &shown in pages {
+        let page = document.to_base(shown);
+        if out.iter().any(|p| p.page == page) {
+            continue;
+        }
+        let Ok(layer) = document.text_layer(shown) else {
+            continue;
+        };
+        let (text, _) = crate::study::words::read(&layer);
+        let mut before = chapters.iter().filter(|e| e.page <= shown);
+        let chapter = before.next_back().map(|e| e.title.trim().to_owned());
+        let text = text.into_iter().collect();
+        out.push(Page {
+            page,
+            chapter,
+            text,
+        });
+    }
+    out
+}
+
+/// Reads `pages` on a thread, so the frame never waits; `wake` asks for one.
+pub fn spawn(
+    wake: Waker,
+    document: Arc<Document>,
+    pages: Vec<usize>,
+    inline: bool,
+) -> Receiver<Vec<Page>> {
+    let (tx, rx) = channel();
+    let work = move || {
+        let _ = tx.send(read(&document, &pages));
+        wake();
+    };
+    if inline || cfg!(target_arch = "wasm32") {
+        work();
+    } else {
+        let named = std::thread::Builder::new().name("word-list".into());
+        // Unspawned, the list never comes; the reader still works.
+        let _ = named.spawn(work);
+    }
+    rx
 }
 
 fn words_of(text: &str) -> impl Iterator<Item = String> + '_ {

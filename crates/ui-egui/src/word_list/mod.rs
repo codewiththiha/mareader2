@@ -2,7 +2,7 @@
 
 use std::collections::HashMap;
 use std::sync::Arc;
-use std::sync::mpsc::{Receiver, TryRecvError, channel};
+use std::sync::mpsc::{Receiver, TryRecvError};
 
 use egui::Context;
 use mareader_dict::{Found, Ticket};
@@ -16,7 +16,8 @@ use mareader_engine::toast::Toast;
 pub mod preview;
 pub mod window;
 
-use mareader_engine::word_marks::{Page, Sheet, Word};
+use mareader_engine::session::Waker;
+use mareader_engine::word_marks::{self, Page, Sheet, Word};
 
 /// Pages this few, or a book's, are read in the frame.
 const INLINE: usize = 4;
@@ -135,21 +136,10 @@ impl WordLists {
 
 impl Gather {
     pub fn new(ctx: &Context, ask: Ask) -> Self {
-        let (tx, rx) = channel();
         let inline = ask.pages.len() <= INLINE || ask.document.is_reflowable();
         let ctx = ctx.clone();
-        let (document, pages) = (ask.document, ask.pages);
-        let work = move || {
-            let _ = tx.send(read(&document, &pages));
-            ctx.request_repaint();
-        };
-        if inline || cfg!(target_arch = "wasm32") {
-            work();
-        } else {
-            let named = std::thread::Builder::new().name("word-list".into());
-            // Unspawned, the list never comes; the reader still works.
-            let _ = named.spawn(work);
-        }
+        let wake: Waker = Arc::new(move || ctx.request_repaint());
+        let rx = word_marks::spawn(wake, ask.document, ask.pages, inline);
         Self {
             title: ask.title,
             level: ask.level,
@@ -369,31 +359,4 @@ pub fn copied(made: &Made) -> String {
         ));
     }
     said
-}
-
-/// The picked pages' text, each own page once, with its chapter.
-fn read(document: &Document, pages: &[usize]) -> Vec<Page> {
-    let outline = document.outline();
-    let top = outline.iter().map(|e| e.depth).min();
-    let chapters: Vec<_> = outline.iter().filter(|e| Some(e.depth) == top).collect();
-    let mut out: Vec<Page> = Vec::new();
-    for &shown in pages {
-        let page = document.to_base(shown);
-        if out.iter().any(|p| p.page == page) {
-            continue;
-        }
-        let Ok(layer) = document.text_layer(shown) else {
-            continue;
-        };
-        let (text, _) = mareader_engine::study::words::read(&layer);
-        let mut before = chapters.iter().filter(|e| e.page <= shown);
-        let chapter = before.next_back().map(|e| e.title.trim().to_owned());
-        let text = text.into_iter().collect();
-        out.push(Page {
-            page,
-            chapter,
-            text,
-        });
-    }
-    out
 }
