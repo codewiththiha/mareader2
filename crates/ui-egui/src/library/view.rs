@@ -103,10 +103,7 @@ pub fn show(ui: &mut Ui, library: &mut LibraryState, view: &View, top: f32, out:
     let settle = ui
         .ctx()
         .animate_bool_with_time(landed, plan.is_some(), 0.55);
-    let paused = library
-        .organizer()
-        .paused()
-        .map(super::Paused::short);
+    let paused = library.organizer().paused().map(super::Paused::short);
     let (scope, at) = (library.scope, library.at());
     let picks = library.picks().clone();
     let unfolded = library.unfolded().clone();

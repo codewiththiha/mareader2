@@ -32,9 +32,7 @@ impl MareaderApp {
             self.ui.shelf_tree.made(self.ui.library.model(), made);
         }
         let organizer = self.ui.library.organizer();
-        let paused = organizer
-            .paused()
-            .map(ui_library::Paused::short);
+        let paused = organizer.paused().map(ui_library::Paused::short);
         let shelves = PanelContext {
             model: self.ui.library.model(),
             tabs: &tabs,

@@ -1,6 +1,6 @@
 //! The filing run's own tests: what it asks for, files, and lets go.
 
-use mareader_engine::library::{Proposal, Spot, State, apply, undo};
+use mareader_engine::library::{Bound, Proposal, Spot, State, apply, undo};
 use mareader_library::{Book, BookId, Origin};
 
 /// `copies` imported books, then one read in place.

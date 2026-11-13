@@ -109,8 +109,7 @@ impl MareaderApp {
                     renaming: self.ui.library.renaming(),
                     search: self.ui.library.field(),
                     organizing: self.ui.library.busy(),
-                    paused: (self.ui.library.organizer().paused())
-                        .map(ui_library::Paused::short),
+                    paused: (self.ui.library.organizer().paused()).map(ui_library::Paused::short),
                 };
                 // On a shelf, the breadcrumb names the page.
                 let title = if library.trail.is_empty() {
