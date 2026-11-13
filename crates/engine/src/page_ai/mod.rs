@@ -3,6 +3,7 @@
 pub mod cards;
 pub mod extract;
 pub mod read;
+pub mod view;
 
 use mareader_library::AiPageId;
 use mareader_settings::PageTask;

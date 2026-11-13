@@ -28,6 +28,8 @@ use crate::thumbnails::{self, ThumbState};
 use crate::ui_command::{Commands, Sent, UiCommand};
 use crate::zoom::ZoomState;
 use mareader_engine::memory::give_back;
+pub use mareader_engine::page_ai::view::AiView;
+use mareader_engine::page_ai::view::Views;
 use mareader_engine::pane::ZoomCommand;
 use mareader_engine::pane::{Arrow, ViewMode};
 use mareader_engine::paper::Papers;
@@ -64,21 +66,6 @@ enum Content {
         place: Box<Place>,
         view: Box<PdfView>,
     },
-}
-
-/// One pane's document as the page AI sees it, as of last frame.
-#[derive(Clone, Debug)]
-pub struct AiView {
-    pub doc: DocId,
-    /// Names the pages the AI counts in: a book's own, results aside.
-    pub layout: u64,
-    pub document: Arc<Document>,
-    /// What a result is set in.
-    pub typo: Arc<Typography>,
-    pub visible: std::ops::Range<usize>,
-    /// The page read now.
-    pub current: usize,
-    pub zoom: f32,
 }
 
 /// One pane's document as navigation sees it, as of last frame.
@@ -1650,6 +1637,16 @@ fn opening_mark_rect(rect: Rect) -> Rect {
 fn opening(ui: &mut Ui, t: &Tokens) {
     let mark = opening_mark_rect(ui.max_rect());
     loading_mark::paint(ui, mark, t.muted);
+}
+
+impl Views for Documents {
+    fn ai_view(&self, pane: PaneId) -> Option<AiView> {
+        Documents::ai_view(self, pane)
+    }
+
+    fn text_layer(&self, doc: DocId, page: usize) -> Option<Arc<TextLayer>> {
+        Documents::text_layer(self, doc, page)
+    }
 }
 
 #[cfg(test)]

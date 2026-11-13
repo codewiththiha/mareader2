@@ -11,6 +11,8 @@
 use std::sync::Arc;
 use std::time::Duration;
 
+use crate::session::Waker;
+
 /// Asks the window to draw again once `after` has passed.
 pub type RepaintFn = Arc<dyn Fn(Duration) + Send + Sync>;
 
@@ -46,6 +48,14 @@ impl Repaint {
     /// Draws again once `after` has passed; a poll's tick, or a wait's end.
     pub fn after(&self, after: Duration) {
         (self.ask)(after);
+    }
+
+    /// The same ask as a [`Waker`], for a thread that finishes when it will.
+    ///
+    /// [`Waker`]: crate::session::Waker
+    pub fn waker(&self) -> Waker {
+        let ask = Arc::clone(&self.ask);
+        Arc::new(move || ask(Duration::ZERO))
     }
 }
 

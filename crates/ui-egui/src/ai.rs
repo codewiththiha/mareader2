@@ -4,7 +4,8 @@
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use mareader_settings::AiSettings;
+use mareader_engine::page_ai::view::Models;
+use mareader_settings::{AiSettings, ModelPreset};
 use mareader_study::Explainer;
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -157,6 +158,18 @@ impl Ai {
         if let Some(assist) = &mut self.assist {
             assist.send(job);
         }
+    }
+}
+
+impl Models for Ai {
+    #[cfg(not(target_arch = "wasm32"))]
+    fn capacity(&self, preset: &ModelPreset) -> Option<u32> {
+        self.board().map(|board| board.capacity(preset))
+    }
+
+    #[cfg(target_arch = "wasm32")]
+    fn capacity(&self, _: &ModelPreset) -> Option<u32> {
+        None
     }
 }
 

@@ -6,6 +6,7 @@ use egui::{
 };
 
 use mareader_appearance::PageTone;
+pub use mareader_engine::page_ai::view::{Pill, PillPress, Ring};
 
 use crate::gpu::{Anchor, Quad};
 use crate::pages::PageTexture;
@@ -202,36 +203,6 @@ fn paint_bubble(ui: &Ui, r: Rect, b: &Bubble, lit: bool, t: &Tokens) {
         }
         State::Ready | State::Failed => {}
     }
-}
-
-/// How a continuous run's ring stands.
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub enum Ring {
-    /// The stay on this page so far, 0 to 1.
-    Fill(f32),
-    /// This page is being written.
-    Spin,
-    /// Nothing to wait for: the pages ahead are asked.
-    Full,
-    Paused,
-}
-
-/// A pane's continuous run, shown at its bottom.
-#[derive(Clone, Debug, PartialEq)]
-pub struct Pill {
-    pub text: String,
-    /// What it is doing, in a sentence.
-    pub tip: String,
-    pub ring: Ring,
-    /// It asks whether to carry on here.
-    pub ask: bool,
-}
-
-/// What a press on the pill asks for.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum PillPress {
-    Stop,
-    Continue,
 }
 
 const PILL_H: f32 = 32.0;
