@@ -183,9 +183,7 @@ mod tests {
             bytes: usize::MAX,
         };
         let id = session.poll(budget).into_iter().find_map(|e| match e {
-            Event::Opened {
-                result: Ok(id), ..
-            } => Some(id),
+            Event::Opened { result: Ok(id), .. } => Some(id),
             _ => None,
         })?;
         Some(Arc::clone(&session.get(id)?.doc))
@@ -234,7 +232,10 @@ mod tests {
     #[test]
     fn an_anchor_is_found_on_the_page_it_is_drawn_on() -> Result<(), &'static str> {
         let document = document().ok_or("the in-memory sample didn't open")?;
-        let at = Anchor { block: 0, offset: 0 };
+        let at = Anchor {
+            block: 0,
+            offset: 0,
+        };
         assert_eq!(locate(&document, at), (0, 0));
         Ok(())
     }
