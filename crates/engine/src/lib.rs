@@ -57,4 +57,5 @@ pub mod transcript;
 pub mod triggers;
 pub mod watch;
 pub mod word_card;
+pub mod word_list;
 pub mod word_marks;

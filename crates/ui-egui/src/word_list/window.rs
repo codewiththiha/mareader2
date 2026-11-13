@@ -75,7 +75,7 @@ impl WordWindow {
             title,
             pages,
             chapters,
-            gather: Gather::new(ctx, ask),
+            gather: Gather::new(crate::repaint::wake(ctx), ask),
             progress: Ok(Progress::Reading),
             preset: None,
             naming: None,

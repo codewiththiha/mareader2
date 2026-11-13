@@ -10,6 +10,13 @@ use std::time::Duration;
 
 use egui::Context;
 use mareader_engine::repaint::Repaint;
+use mareader_engine::session::Waker;
+
+/// Answers a worker's ask with a frame from `ctx`.
+pub fn wake(ctx: &Context) -> Waker {
+    let ctx = ctx.clone();
+    Arc::new(move || ctx.request_repaint())
+}
 
 /// Answers a controller's ask with a frame from `ctx`.
 pub fn of(ctx: &Context) -> Repaint {
