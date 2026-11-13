@@ -17,6 +17,7 @@ mod moving;
 mod organizing;
 mod question;
 mod runs;
+mod seed;
 mod shelving;
 mod state;
 pub use counted::counted;

@@ -24,8 +24,7 @@ use std::path::{Path, PathBuf};
 
 use egui::Context;
 use mareader_library::{
-    BookId, Copied, Format, Found, Library, Opened, Position, ShelfId, SpinePosition, disk::Folder,
-    display_title,
+    BookId, Format, Library, Opened, Position, ShelfId, SpinePosition, disk::Folder, display_title,
 };
 use mareader_session::{Anchor, Document, Source, SpinePlace};
 use mareader_workspace::PaneId;
@@ -55,11 +54,7 @@ pub struct LibraryState {
     covers: Covers,
     folders: folders::Folders,
     search: search::Search,
-    /// Imports and folder walks still going.
-    pub runs: runs::Runs,
     motion: living::Motion,
-    /// The AI's run filing loose books, and its plan.
-    organizer: organizing::Organizer,
 }
 
 /// Field reads fall through to the engine's state, as they did when it
@@ -414,75 +409,6 @@ impl LibraryState {
             ..OpenRequest::path(path.to_path_buf())
         })
     }
-
-    /// Adds made-up imported copies, on no shelf, for shots and tests.
-    pub fn seed_copies(&mut self, count: usize) {
-        let from = self.model.len();
-        let pairs: Vec<(Found, Copied)> = (from..from + count)
-            .map(|i| {
-                let (title, author) = SEEDS
-                    .get(i % SEEDS.len())
-                    .copied()
-                    .unwrap_or(("Book", None));
-                let measure = mareader_library::Measure {
-                    content: mareader_library::ContentId(i as u128 + 1),
-                    stamp: Default::default(),
-                };
-                let path = PathBuf::from(format!("/store/{i}-{title}.epub"));
-                let found = Found {
-                    path: path.clone(),
-                    format: Format::Epub,
-                    measure,
-                    title: Some(title.to_owned()),
-                    author: author.map(str::to_owned),
-                };
-                (found, Copied { path, measure })
-            })
-            .collect();
-        self.model.land_copies(&pairs, None, wall_ms());
-    }
-
-    /// Adds made-up books for shots: some started, one missing.
-    pub fn seed(&mut self, count: usize) {
-        let formats = [Format::Epub, Format::Pdf, Format::Markdown, Format::Text];
-        let now = wall_ms();
-        let from = self.model.len();
-        for i in from..from + count {
-            let (title, author) = SEEDS
-                .get(i % SEEDS.len())
-                .copied()
-                .unwrap_or(("Book", None));
-            let format = formats
-                .get(i % formats.len())
-                .copied()
-                .unwrap_or(Format::Pdf);
-            let opened = Opened {
-                path: PathBuf::from(format!("/books/{i}-{title}")),
-                measure: mareader_library::Measure {
-                    content: mareader_library::ContentId(i as u128 + 1),
-                    stamp: Default::default(),
-                },
-                format,
-                title: title.to_owned(),
-                author: author.map(str::to_owned),
-            };
-            let at = now.saturating_sub(i as u64 * 7_000_000);
-            let id = self.model.record_open(opened, at);
-            if i % 3 != 2 {
-                let pages = 40 + 37 * i;
-                let position = Position {
-                    page: pages * (i - from + 1) / (count + 2),
-                    pages,
-                    place: None,
-                    spine: None,
-                };
-                self.model.record_position(id, position, at);
-            }
-        }
-        // The fourth seeded book has lost its file.
-        self.model
-            .check_present(|p| !p.to_string_lossy().starts_with("/books/3-"));
-    }
 }
 
 /// The file's own format; the document says if it's a book.
@@ -518,17 +444,3 @@ fn author_of(document: &Document) -> Option<String> {
         .filter(|a| !a.is_empty())
         .map(str::to_owned)
 }
-
-/// Titles the made-up books wear.
-const SEEDS: [(&str, Option<&str>); 10] = [
-    ("The Raven", Some("Edgar Allan Poe")),
-    ("Middlemarch", Some("George Eliot")),
-    ("A Field Guide to Ferns", None),
-    ("Notes on Typography", Some("Ada Bringhurst")),
-    ("The Voyage Out", Some("Virginia Woolf")),
-    ("Collected Essays, Volume 10", Some("M. Aurel")),
-    ("Letters from the Coast", None),
-    ("An Atlas of Rivers", Some("Lena Ortiz")),
-    ("Collected Essays, Volume 2", Some("M. Aurel")),
-    ("Practical Rust", Some("Sam Okafor")),
-];
