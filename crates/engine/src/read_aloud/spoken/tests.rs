@@ -120,13 +120,15 @@ impl Read {
     /// One frame, with its book standing in a pane.
     fn frame(&mut self) -> bool {
         let (settings, shelf, stand) = (&self.settings, &self.shelf, &self.stand);
-        self.spoken.tick(&mut self.glass, Some(stand), (settings, shelf, 0.0))
+        self.spoken
+            .tick(&mut self.glass, Some(stand), (settings, shelf, 0.0))
     }
 
     /// One frame, with its book away from any pane.
     fn away(&mut self) -> bool {
         let (settings, shelf) = (&self.settings, &self.shelf);
-        self.spoken.tick(&mut self.glass, None, (settings, shelf, 0.0))
+        self.spoken
+            .tick(&mut self.glass, None, (settings, shelf, 0.0))
     }
 
     /// Frames until `met` holds; false if `FRAMES` of them did not.
