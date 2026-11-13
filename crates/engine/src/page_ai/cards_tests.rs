@@ -68,9 +68,14 @@ fn a_result_too_long_for_its_pages_shrinks_to_fit_them() {
 }
 
 #[test]
+fn a_worker_starts_only_where_threads_do() {
+    let threads = !cfg!(target_arch = "wasm32");
+    assert_eq!(worker().is_some(), threads, "a worker starts where it can");
+}
+
+#[test]
 fn the_worker_sets_what_it_is_asked_and_names_the_slot() {
     let Some((jobs, news)) = worker() else {
-        assert!(cfg!(target_arch = "wasm32"), "a worker starts where it can");
         return;
     };
     jobs.send((7, 3, job(2, 4, 0))).expect("the worker listens");
