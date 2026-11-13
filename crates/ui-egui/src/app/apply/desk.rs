@@ -130,7 +130,8 @@ impl Desk for Front<'_> {
 
     fn word_list(&mut self, pane: PaneId, pages: Vec<usize>, list: WordList) {
         if let Some(ask) = self.app.word_ask(pane, pages, list) {
-            self.app.ui.word_lists.start(crate::repaint::wake(self.ctx), ask);
+            let wake = crate::repaint::wake(self.ctx);
+            self.app.ui.word_lists.start(wake, ask);
         }
     }
 
