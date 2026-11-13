@@ -25,9 +25,7 @@ use mareader_appearance::Rgb;
 use mareader_cefr::Role;
 use mareader_engine::study::asking::{Got, Said};
 use mareader_engine::study::loose::{loose_book, loose_content};
-use mareader_library::{
-    BookId, DeviceId, Library, Mark, MarkId, MarkKind, NewMark, Pen, Spot, Style,
-};
+use mareader_library::{BookId, DeviceId, Library, Mark, MarkId, MarkKind, Pen, Spot, Style};
 use mareader_settings::{GlossSettings, HighlightSettings};
 use mareader_study::{Explainer, Failure, Unavailable, WordInfo};
 use mareader_workspace::PaneId;
@@ -415,7 +413,7 @@ mod tests {
     use std::path::PathBuf;
 
     use mareader_library::Gloss as MarkGloss;
-    use mareader_library::{ContentId, Format, Measure, Opened};
+    use mareader_library::{ContentId, Format, Measure, NewMark, Opened};
     use mareader_study::Canned;
 
     use super::*;
