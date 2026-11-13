@@ -348,3 +348,6 @@ impl Drop for Spoken {
         }
     }
 }
+
+#[cfg(test)]
+mod tests;
