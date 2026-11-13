@@ -11,7 +11,7 @@ use crate::ui_command::{Commands, Sent};
 use mareader_engine::command::Command;
 use mareader_engine::library::Question;
 use mareader_engine::library::{Action, Finding, Named, Sheet, Step};
-use mareader_library::picks::{Pick, PickAction};
+use mareader_library::picks::Pick;
 
 const WIDTH: f32 = 420.0;
 
@@ -357,74 +357,7 @@ fn import_note(
 impl LibraryState {
     /// Does what the page asked; dialogs are the app's.
     pub fn act(&mut self, action: Action, now: f64, out: &mut Commands) {
-        match action {
-            Action::AskFolder(root) => self.ask_folder(root),
-            Action::ImportFolder { root, opts } => {
-                self.engine(out, |s, a| s.import_folder(root, opts, now, a))
-            }
-            Action::Rescan => self.rescan(now),
-            Action::Answer(answer, all) => self.engine(out, |s, a| s.answer(answer, all, now, a)),
-            Action::CancelAsks => self.state.asks.clear(),
-            Action::Restore { folder, content } => {
-                self.engine(out, |s, a| s.restore(folder, content, a))
-            }
-            Action::AskMoved { folder, book } => {
-                self.sheet = Some(Sheet::Moved { folder, book });
-            }
-            Action::ShowMoved { folder, book } => self.show_moved(folder, book, now),
-            Action::Reveal(pick) => {
-                self.close_sheet();
-                self.reveal(pick, now);
-            }
-            Action::Scope(scope) => {
-                self.scope = scope;
-                self.picks.apply(PickAction::Clear);
-            }
-            Action::FindAgain(_)
-            | Action::Relink { .. }
-            | Action::UseAnyway(_)
-            | Action::Seek { .. } => self.engine(out, |s, a| s.find_act(action, a)),
-            Action::CloseSheet => {
-                // A note lights its shelf however it's closed.
-                let lit = match &self.sheet {
-                    Some(Sheet::Note { shelf, .. }) => Some(*shelf),
-                    _ => None,
-                };
-                self.close_sheet();
-                if let Some(shelf) = lit {
-                    self.reveal(Pick::Shelf(shelf), now);
-                }
-            }
-            Action::AskRename(named) => {
-                if self.name_of(named).is_some() {
-                    self.sheet = Some(Sheet::Rename(named));
-                }
-            }
-            Action::Rename(named, name) => self.rename(named, &name),
-            Action::Design(book, design) => {
-                self.model
-                    .set_design(book, design, mareader_engine::library::wall_ms());
-            }
-            Action::Shelf(action) => self.engine(out, |s, a| s.shelf_act(action, a)),
-            Action::Pick(action) => self.picks.apply(action),
-            Action::Book(action) => self.engine(out, |s, a| s.book_act(action, a)),
-            Action::Search(action) => self.search_act(action, now),
-            Action::ApplyOrganized => self.engine(out, |s, a| s.apply_organized(a)),
-            Action::DiscardOrganized | Action::StopOrganizing => self.organizer_end(),
-            Action::UndoOrganized(done) => self.undo_organized(&done),
-            // Dialogs need the app's files, and the AI its service.
-            Action::Organize(_)
-            | Action::OrganizeAnew(_)
-            | Action::PickInto(_)
-            | Action::ResumeOrganizing
-            | Action::DiscardPaused
-            | Action::RestorePaused
-            | Action::ShowAdd
-            | Action::PickFolder
-            | Action::PickFrom(_)
-            | Action::PickFile(_)
-            | Action::PickSearchFolder(_) => {}
-        }
+        self.engine(out, |s, a| s.act(action, now, a));
     }
 }
 

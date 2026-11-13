@@ -7,6 +7,7 @@ use mareader_library::{
     Options, Placement, ShelfId, Target,
 };
 
+mod acting;
 mod books;
 mod counted;
 mod duplicating;
