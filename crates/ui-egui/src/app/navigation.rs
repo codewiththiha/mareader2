@@ -116,9 +116,11 @@ impl MareaderApp {
         let key = Arc::as_ptr(&reading.document).addr();
         if self.ui.find.due(ctx.input(|i| i.time), key) {
             let query = self.ui.find.query();
+            let ctx = ctx.clone();
+            let wake: mareader_engine::session::Waker = Arc::new(move || ctx.request_repaint());
             self.ui
                 .search
-                .ask(ctx, reading.doc, &reading.document, query);
+                .ask(wake, reading.doc, &reading.document, query);
             self.ui.find.asked(key);
         }
         let found = self.ui.search.found(reading.doc, &reading.document);

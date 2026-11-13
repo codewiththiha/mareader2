@@ -19,6 +19,7 @@ mareader-g2p = { workspace = true }
 mareader-library = { workspace = true }
 mareader-pdf = { workspace = true }
 mareader-reflow = { workspace = true }
+mareader-search = { workspace = true }
 mareader-session = { workspace = true }
 mareader-settings = { workspace = true }
 mareader-speech = { workspace = true }

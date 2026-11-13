@@ -45,7 +45,8 @@ keyboard alone. The parity entries are `search.document`,
 | Piece | Home | Why |
 |---|---|---|
 | Folding, a page's searchable text, matching, snippets, stepping and the reveal rule | `crates/search` (L0) | pure, no dependencies, tested alone; the library's search folds with it too |
-| Per-document indexes, threads, hit painting | `crates/ui-egui/src/search.rs` | owns the `Document`, wakes egui |
+| Per-document indexes and their threads | `crates/engine/src/search.rs` (L5) | owns the `Document`, asks for a frame through a `Waker` |
+| Hit painting | `crates/ui-egui/src/search.rs` | egui |
 | The bar, count, results list, debounce and steps | `crates/ui-egui/src/find_bar.rs` | egui |
 | Revealing a hit | `PdfView::seek`, `Documents::reveal_hit` | the view knows its layout and scroll |
 
