@@ -7,7 +7,7 @@ use std::sync::Arc;
 
 use egui::{Context, Rect, Ui, Vec2};
 use mareader_appearance::Rgb;
-use mareader_engine::study::words;
+use mareader_engine::study::words::{self, Asked};
 use mareader_library::{BookId, Spot};
 use mareader_pdf::{Bounds, TextLayer};
 use mareader_session::{
@@ -32,9 +32,9 @@ use mareader_engine::pane::{Arrow, ViewMode};
 use mareader_engine::paper::Papers;
 use mareader_engine::reading::Place;
 use mareader_engine::reading_place;
-use mareader_engine::study::words::Asked;
 use mareader_engine::texts::TextLayers;
 use mareader_engine::toast::Toast;
+use mareader_engine::triggers::ClipAction;
 use mareader_engine::watch::{Reloads, Watch};
 
 /// Uploads per frame, so a burst of pages never stalls a scroll.
@@ -392,7 +392,7 @@ impl Documents {
     }
 
     /// Clips triggers were clicked to play, each with its book.
-    pub fn take_clips(&mut self) -> Vec<(Arc<Document>, crate::trigger::ClipAction)> {
+    pub fn take_clips(&mut self) -> Vec<(Arc<Document>, ClipAction)> {
         let mut out = Vec::new();
         for content in self.panes.values_mut() {
             let Content::Pdf { place, view } = content else {

@@ -192,7 +192,9 @@ impl MareaderApp {
             self.ui.toasts.push(toast);
         }
         for (doc, clip) in self.ui.documents.take_clips() {
-            self.ui.clips.act(&doc, clip, &mut self.ui.read_aloud);
+            if self.ui.clips.act(&doc, clip) {
+                self.ui.read_aloud.pause();
+            }
         }
         self.ui.clips.tick();
         self.find_reading();

@@ -169,7 +169,7 @@ pub struct PdfView {
     /// Clip transcripts open in the book's pages.
     pub transcripts: mareader_engine::transcript::Transcripts,
     /// What the book's triggers have shown, hidden and played.
-    pub triggers: crate::trigger::Triggers,
+    pub triggers: mareader_engine::triggers::Triggers,
     /// A book's picture opened large over the window.
     pub viewer: Option<crate::image_viewer::Viewer>,
     /// Where the last re-set landed, and on which page; reuse never drifts.

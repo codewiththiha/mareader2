@@ -1,10 +1,12 @@
-//! Hands a book's sound or video to the system's player.
+//! A book's sound and video: the system's player, and its files as clips.
 
 use std::hash::{DefaultHasher, Hash, Hasher};
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex, PoisonError};
 use std::time::{Duration, SystemTime};
 
+use mareader_audio::{Clip, Fetch};
+use mareader_epub::Files;
 use mareader_session::Document;
 
 /// Copies older than this are cleared when another clip plays.
@@ -22,6 +24,24 @@ pub fn play(doc: Arc<Document>, path: String) -> bool {
             }
         });
     spawned.is_ok()
+}
+
+/// Reads sound from `files`, keeping the last file for the next run.
+pub fn fetch(files: Files) -> Fetch {
+    let last: Mutex<Option<(String, Clip)>> = Mutex::new(None);
+    Arc::new(move |path: &str| {
+        let mut last = last.lock().unwrap_or_else(PoisonError::into_inner);
+        if let Some((_, clip)) = last.as_ref().filter(|(p, _)| p == path) {
+            return Some(clip.clone());
+        }
+        let media = files.media(path)?;
+        let clip = Clip::File {
+            data: Arc::new(media.data),
+            extension: media.extension,
+        };
+        *last = Some((path.to_owned(), clip.clone()));
+        Some(clip)
+    })
 }
 
 /// The clip copied out, named by its declared type, never the book's name.

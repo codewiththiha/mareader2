@@ -4,11 +4,12 @@ use std::collections::{BTreeMap, HashSet};
 use std::sync::{Arc, Weak};
 
 use mareader_audio::{Player, Segment};
-use mareader_engine::stable_hash::hash;
 use mareader_epub::{Action, Book, Insert, Triggered};
 use mareader_session::Document;
 
-use crate::read_aloud::ReadAloud;
+use crate::play::fetch;
+use crate::scripts::Paged;
+use crate::stable_hash::hash;
 
 /// A clip a trigger acts on, waiting for the window to act.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -27,7 +28,7 @@ pub struct Triggers {
     /// Clips clicked since the window last looked.
     pub clips: Vec<ClipAction>,
     /// What the book's scripts made of its scripted chapters.
-    pub script: crate::scripts::Paged,
+    pub script: Paged,
 }
 
 impl Triggers {
@@ -92,8 +93,8 @@ pub struct Clips {
 }
 
 impl Clips {
-    /// Carries out `clip` from `doc`; a video only plays, in its player.
-    pub fn act(&mut self, doc: &Arc<Document>, clip: ClipAction, read_aloud: &mut ReadAloud) {
+    /// Carries out `clip` from `doc`; true asks the window to pause narration.
+    pub fn act(&mut self, doc: &Arc<Document>, clip: ClipAction) -> bool {
         let ClipAction {
             action,
             path,
@@ -101,26 +102,27 @@ impl Clips {
         } = clip;
         if video {
             if action == Action::Play {
-                mareader_engine::play::play(Arc::clone(doc), path);
+                crate::play::play(Arc::clone(doc), path);
             }
-            return;
+            return false;
         }
         let here = (self.playing.as_ref())
             .filter(|p| p.path == path && p.doc.upgrade().is_some_and(|d| Arc::ptr_eq(&d, doc)));
         let going = here.is_some_and(|p| !p.player.status().done);
         match action {
-            Action::Play | Action::Show => self.start(doc, path, read_aloud),
+            Action::Play | Action::Show => self.start(doc, path),
             Action::Resume if going => {
                 if let Some(p) = here {
                     p.player.resume();
                 }
-                read_aloud.pause();
+                true
             }
-            Action::Resume => self.start(doc, path, read_aloud),
+            Action::Resume => self.start(doc, path),
             Action::Pause => {
                 if let Some(p) = here {
                     p.player.pause();
                 }
+                false
             }
             Action::Mute | Action::Unmute | Action::Hide => {
                 let muted = action == Action::Mute;
@@ -131,26 +133,27 @@ impl Clips {
                     true => self.muted.insert(path),
                     false => self.muted.remove(&path),
                 };
+                false
             }
         }
     }
 
-    /// Plays `path` from its start, in place of any other clip.
-    fn start(&mut self, doc: &Arc<Document>, path: String, read_aloud: &mut ReadAloud) {
+    /// Plays `path` from its start; true asks the window to pause narration.
+    fn start(&mut self, doc: &Arc<Document>, path: String) -> bool {
         let same = (self.playing.as_ref())
             .is_some_and(|p| p.doc.upgrade().is_some_and(|d| Arc::ptr_eq(&d, doc)));
         if !same {
             let Some(files) = doc.files() else {
-                return;
+                return false;
             };
             self.playing = Some(Playing {
                 doc: Arc::downgrade(doc),
                 path: path.clone(),
-                player: Player::new(crate::read_aloud::fetch(files)),
+                player: Player::new(fetch(files)),
             });
         }
         let Some(p) = self.playing.as_mut() else {
-            return;
+            return false;
         };
         p.player.set_muted(self.muted.contains(&path));
         p.player.play(vec![Segment {
@@ -160,7 +163,7 @@ impl Clips {
             tag: 0,
         }]);
         p.path = path;
-        read_aloud.pause();
+        true
     }
 
     /// Silences the clip playing, as read-aloud starts.
@@ -196,6 +199,6 @@ mod tests {
         t.click(vec![Triggered::Show(3, false), Triggered::Show(2, false)]);
         assert_eq!(t.shown, BTreeMap::from([(2, false), (3, false)]));
         assert_eq!(t.clips.len(), 1);
-        assert_eq!(t.clips[0].action, Action::Play);
+        assert!(t.clips.first().is_some_and(|c| c.action == Action::Play));
     }
 }

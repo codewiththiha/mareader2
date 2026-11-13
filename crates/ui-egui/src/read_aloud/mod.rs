@@ -1,11 +1,12 @@
 //! Reads a narrated book aloud: its player, the phrase lit, the bar.
 
-use std::sync::{Arc, Mutex, PoisonError};
+use std::sync::Arc;
 use std::time::Duration;
 
 use egui::{Color32, Context, CornerRadius, Id, Order, Rect, Ui};
-use mareader_audio::{Clip, Fault, Fetch, Player, Segment};
-use mareader_epub::{Files, Narration, Run, Skips};
+use mareader_audio::{Fault, Player, Segment};
+use mareader_engine::play::fetch;
+use mareader_epub::{Narration, Run, Skips};
 use mareader_session::{Anchor, Document};
 use mareader_settings::{Player as Look, ReadAloudSettings};
 use mareader_speech::Spot;
@@ -1734,24 +1735,6 @@ fn skips(settings: &ReadAloudSettings) -> Skips {
         notes: settings.skip_notes,
         page_numbers: settings.skip_page_numbers,
     }
-}
-
-/// Reads sound from `files`, keeping the last file for the next run.
-pub(crate) fn fetch(files: Files) -> Fetch {
-    let last: Mutex<Option<(String, Clip)>> = Mutex::new(None);
-    Arc::new(move |path: &str| {
-        let mut last = last.lock().unwrap_or_else(PoisonError::into_inner);
-        if let Some((_, clip)) = last.as_ref().filter(|(p, _)| p == path) {
-            return Some(clip.clone());
-        }
-        let media = files.media(path)?;
-        let clip = Clip::File {
-            data: Arc::new(media.data),
-            extension: media.extension,
-        };
-        *last = Some((path.to_owned(), clip.clone()));
-        Some(clip)
-    })
 }
 
 /// The words read on the pages shown, in the accent's tint.

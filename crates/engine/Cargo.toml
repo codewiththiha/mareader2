@@ -11,6 +11,7 @@ workspace = true
 
 [dependencies]
 mareader-appearance = { workspace = true }
+mareader-audio = { workspace = true }
 mareader-cefr = { workspace = true }
 mareader-dict = { workspace = true }
 mareader-epub = { workspace = true }

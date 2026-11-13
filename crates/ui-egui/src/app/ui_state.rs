@@ -25,7 +25,7 @@ pub struct UiState {
     pub(super) script_shot: Vec<String>,
     pub(super) scripts: crate::scripts::Runtimes,
     /// Clips the books' triggers play.
-    pub(super) clips: crate::trigger::Clips,
+    pub(super) clips: mareader_engine::triggers::Clips,
     /// Shots and tests: a page AI result kept, or a run started (true).
     pub(super) page_ai_seed: Option<(usize, mareader_library::AiTask, bool, usize)>,
     /// Shots: pages the word list window opens on, once shown.

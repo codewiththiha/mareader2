@@ -62,7 +62,6 @@ pub mod theme;
 pub mod thumbnails;
 pub mod titlebar;
 pub mod toast;
-pub mod trigger;
 pub mod ui_command;
 pub mod view_menu;
 pub mod vocab;

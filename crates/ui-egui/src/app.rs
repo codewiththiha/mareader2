@@ -196,7 +196,7 @@ impl MareaderApp {
                 trigger_shot: Vec::new(),
                 script_shot: Vec::new(),
                 scripts: Default::default(),
-                clips: crate::trigger::Clips::default(),
+                clips: mareader_engine::triggers::Clips::default(),
                 page_ai_seed: None,
                 word_window_seed: None,
                 sidebar: Sidebar::default(),

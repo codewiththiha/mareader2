@@ -51,6 +51,7 @@ pub mod study;
 pub mod texts;
 pub mod toast;
 pub mod transcript;
+pub mod triggers;
 pub mod watch;
 pub mod word_card;
 pub mod word_marks;
