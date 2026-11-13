@@ -99,7 +99,6 @@ pub struct Copies {
     pub failed: Vec<(PathBuf, String)>,
 }
 
-
 /// A file a pane opened, waiting to be measured.
 #[derive(Clone, Debug)]
 pub struct Probe {
