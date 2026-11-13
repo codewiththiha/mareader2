@@ -17,14 +17,11 @@ pub mod search;
 pub mod sheets;
 pub mod view;
 
-use std::collections::BTreeSet;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use egui::Context;
-use mareader_library::{
-    BookId, Format, Library, Opened, Position, ShelfId, SpinePosition, disk::Folder, display_title,
-};
-use mareader_session::{Anchor, Document, Source, SpinePlace};
+use mareader_library::{BookId, Format, Library, Opened, Position, SpinePosition, display_title};
+use mareader_session::Document;
 use mareader_workspace::PaneId;
 
 use crate::documents::Documents;
@@ -32,17 +29,11 @@ use crate::ui_command::{Commands, Sent, UiCommand};
 pub use add::ADD_MENU;
 pub use covers::Covers;
 use mareader_engine::command::Command;
-use mareader_engine::documents::OpenRequest;
 pub use mareader_engine::library::{Ask, Bound, Field, Heard, Listing, Paused, Proposal, Spot};
-use mareader_engine::library::{Io, Job, News, Out, Probe, State, Status, wall_ms};
-use mareader_engine::session::Waker;
+use mareader_engine::library::{Job, News, Out, Probe, State, Status, wall_ms};
 use mareader_engine::toast::Toast;
-use mareader_library::picks::{PickAction, Picks};
 pub use menu::LIBRARY_VIEW_MENU;
 pub use menus::{Organizer, organize_rows};
-
-/// Seconds between writes while reading.
-pub const SAVE_DELAY: f64 = 0.5;
 
 #[derive(Default)]
 pub struct LibraryState {
@@ -69,10 +60,6 @@ impl std::ops::DerefMut for LibraryState {
 }
 
 impl LibraryState {
-    pub fn model(&self) -> &Library {
-        &self.model
-    }
-
     /// Runs `work` on the engine's state, then answers what it asked for.
     ///
     /// The engine never calls upward: a note, a copy, a file dialog all come
@@ -110,16 +97,6 @@ impl LibraryState {
         self.engine(out, |state, asked| state.heard(heard, asked));
     }
 
-    /// Books a filing run holds: they open, but they don't move.
-    pub fn held(&self) -> &BTreeSet<BookId> {
-        &self.state.held
-    }
-
-    /// Whether a filing run holds any book.
-    pub fn busy(&self) -> bool {
-        !self.state.held.is_empty()
-    }
-
     /// Paints `book`'s cover in `rect`; false when it isn't shelved.
     pub fn paint_cover(&mut self, ui: &egui::Ui, rect: egui::Rect, book: BookId) -> bool {
         let Some(found) = self.state.model.book(book) else {
@@ -130,24 +107,10 @@ impl LibraryState {
         true
     }
 
-    /// For edits outside the library's own: marks, from the study tools.
-    pub fn model_mut(&mut self) -> &mut Library {
-        &mut self.model
-    }
-
-    pub fn loading(&self) -> bool {
-        self.status == Status::Loading
-    }
-
     /// Disk work runs on the frame; set before [`Self::attach`].
     pub fn set_inline(&mut self, inline: bool) {
         self.inline = inline;
         self.covers.set_inline(inline);
-    }
-
-    /// Keeps covers in `<dir>/covers` between launches.
-    pub fn attach_cache(&mut self, dir: PathBuf) {
-        self.state.cache = Some(dir.join("covers"));
     }
 
     /// The books, and their covers to draw them with.
@@ -160,24 +123,6 @@ impl LibraryState {
         (&self.state.model, &mut self.covers, &mut self.motion)
     }
 
-    /// The books and shelves picked on the page.
-    pub fn picks(&self) -> &Picks {
-        &self.picks
-    }
-
-    pub fn unfolded(&self) -> &BTreeSet<ShelfId> {
-        &self.unfolded
-    }
-
-    /// Escape lets go of a selection, then the search; true if it did.
-    pub fn escape(&mut self) -> bool {
-        if self.picks.active() {
-            self.picks.apply(PickAction::Clear);
-            return true;
-        }
-        self.search.clear()
-    }
-
     pub fn covers(&self) -> &Covers {
         &self.covers
     }
@@ -186,19 +131,6 @@ impl LibraryState {
     pub fn end_frame(&mut self, ctx: &Context) {
         let cache = self.state.cache.clone();
         self.covers.end_frame(ctx, cache.as_deref());
-    }
-
-    /// Reads the library kept in `root`, and saves to it from now on.
-    pub fn attach(&mut self, root: PathBuf, wake: Waker) {
-        let folder = Folder::new(root);
-        let (inline, device) = (self.state.inline, self.state.model.device());
-        self.state.io = match inline {
-            true => Io::default(),
-            false => Io::thread(wake),
-        };
-        self.state.io.send(Job::Load(folder.clone(), device));
-        self.state.folder = Some(folder);
-        self.state.status = Status::Loading;
     }
 
     /// Takes in finished disk work.
@@ -247,41 +179,6 @@ impl LibraryState {
                 News::Beat(beat) => self.runs.beat(beat),
             }
         }
-    }
-
-    /// Fills in where an open file was left; held while loading.
-    pub fn resume(&mut self, mut request: OpenRequest) -> Option<OpenRequest> {
-        let Source::Path(path) = &request.source else {
-            return Some(request);
-        };
-        // Opened as a book, or with a place already: nothing to fill in.
-        if request.page != 0
-            || request.place.is_some()
-            || request.spine.is_some()
-            || request.pages > 0
-            || request.book.is_some()
-        {
-            return Some(request);
-        }
-        if self.status == Status::Loading {
-            self.waiting.push(request);
-            return None;
-        }
-        // Recorded as `Documents::open` spells it: canonical.
-        let real = std::fs::canonicalize(path).unwrap_or_else(|_| path.clone());
-        let at = self.model.book_at(&real);
-        if let Some(p) = at.and_then(|id| self.model.position(id)) {
-            request.page = p.page;
-            request.place = p.place.map(|(block, offset)| Anchor { block, offset });
-            request.spine = p.spine.map(|place| SpinePlace {
-                href: place.href,
-                item: place.item,
-                block: place.block,
-                offset: place.offset,
-            });
-            request.pages = p.pages;
-        }
-        Some(request)
     }
 
     /// Records opens and positions; true if a file went to be measured.
@@ -346,69 +243,6 @@ impl LibraryState {
     pub fn book_in(&self, documents: &Documents, pane: PaneId) -> Option<BookId> {
         let own = documents.book(pane);
         own.or_else(|| self.model.book_at(&documents.place(pane)?.path))
-    }
-
-    /// Writes changes at most every [`SAVE_DELAY`]; else the wait left.
-    pub fn save(&mut self, now: f64) -> Option<f64> {
-        let (Some(_), Status::Ready) = (&self.folder, self.status) else {
-            return None;
-        };
-        if !self.model.is_dirty() {
-            return None;
-        }
-        let wait = self.wrote + SAVE_DELAY - now;
-        if wait > 0.0 {
-            return Some(wait);
-        }
-        let dirty = self.model.take_dirty();
-        let changes = self.model.changes(&dirty);
-        self.io.send(Job::Write(Box::new(changes)));
-        self.wrote = now;
-        None
-    }
-
-    /// Sends every pending change now: the app is saving or exiting.
-    pub fn flush(&mut self) {
-        self.wrote = f64::NEG_INFINITY;
-        self.save(0.0);
-    }
-
-    /// Where `id`'s file opens, on its page; a toast if it's gone.
-    pub fn open(&mut self, id: BookId) -> Result<OpenRequest, Toast> {
-        let book = self
-            .model
-            .book(id)
-            .ok_or_else(|| Toast::error("That book was removed."))?;
-        let Some(path) = book.path() else {
-            let title = &book.title.value;
-            return Err(Toast::error(format!("“{title}” isn't where it was.")));
-        };
-        let position = self.model.position(id);
-        let (page, place, spine, pages) = match position {
-            Some(position) => (
-                position.page,
-                position
-                    .place
-                    .map(|(block, offset)| Anchor { block, offset }),
-                position.spine.map(|place| SpinePlace {
-                    href: place.href,
-                    item: place.item,
-                    block: place.block,
-                    offset: place.offset,
-                }),
-                position.pages,
-            ),
-            None => (0, None, None, 0),
-        };
-        // Read as this book: a twin keeps its own place.
-        Ok(OpenRequest {
-            book: Some(id),
-            page,
-            place,
-            spine,
-            pages,
-            ..OpenRequest::path(path.to_path_buf())
-        })
     }
 }
 

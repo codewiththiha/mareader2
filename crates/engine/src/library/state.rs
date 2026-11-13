@@ -9,10 +9,14 @@ use mareader_library::{BookId, DeviceId, Library, ShelfId, disk::Folder};
 use mareader_workspace::PaneId;
 
 use crate::documents::OpenRequest;
+use crate::session::Waker;
 
 use super::folders::Folders;
 use super::searching::Search;
-use super::{Io, Organizer, Picks, Question, Runs, Scope, Sheet};
+use super::{Io, Job, Organizer, PickAction, Picks, Question, Runs, Scope, Sheet};
+
+/// Seconds between writes while reading.
+pub const SAVE_DELAY: f64 = 0.5;
 
 /// Whether the library's files can be written.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -101,6 +105,82 @@ impl Default for State {
             cache: None,
             organizer: Organizer::default(),
         }
+    }
+}
+
+impl State {
+    pub fn model(&self) -> &Library {
+        &self.model
+    }
+
+    /// For edits outside the library's own: marks, from the study tools.
+    pub fn model_mut(&mut self) -> &mut Library {
+        &mut self.model
+    }
+
+    pub fn loading(&self) -> bool {
+        self.status == Status::Loading
+    }
+
+    /// The books and shelves picked on the page.
+    pub fn picks(&self) -> &Picks {
+        &self.picks
+    }
+
+    pub fn unfolded(&self) -> &BTreeSet<ShelfId> {
+        &self.unfolded
+    }
+
+    /// Escape lets go of a selection, then the search; true if it did.
+    pub fn escape(&mut self) -> bool {
+        if self.picks.active() {
+            self.picks.apply(PickAction::Clear);
+            return true;
+        }
+        self.search.clear()
+    }
+
+    /// Keeps covers in `<dir>/covers` between launches.
+    pub fn attach_cache(&mut self, dir: PathBuf) {
+        self.cache = Some(dir.join("covers"));
+    }
+
+    /// Reads the library kept in `root`, and saves to it from now on.
+    pub fn attach(&mut self, root: PathBuf, wake: Waker) {
+        let folder = Folder::new(root);
+        let (inline, device) = (self.inline, self.model.device());
+        self.io = match inline {
+            true => Io::default(),
+            false => Io::thread(wake),
+        };
+        self.io.send(Job::Load(folder.clone(), device));
+        self.folder = Some(folder);
+        self.status = Status::Loading;
+    }
+
+    /// Writes changes at most every [`SAVE_DELAY`]; else the wait left.
+    pub fn save(&mut self, now: f64) -> Option<f64> {
+        let (Some(_), Status::Ready) = (&self.folder, self.status) else {
+            return None;
+        };
+        if !self.model.is_dirty() {
+            return None;
+        }
+        let wait = self.wrote + SAVE_DELAY - now;
+        if wait > 0.0 {
+            return Some(wait);
+        }
+        let dirty = self.model.take_dirty();
+        let changes = self.model.changes(&dirty);
+        self.io.send(Job::Write(Box::new(changes)));
+        self.wrote = now;
+        None
+    }
+
+    /// Sends every pending change now: the app is saving or exiting.
+    pub fn flush(&mut self) {
+        self.wrote = f64::NEG_INFINITY;
+        self.save(0.0);
     }
 }
 

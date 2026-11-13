@@ -1,11 +1,25 @@
 //! Books a filing run holds, and the actions it will not let them take.
 
+use std::collections::BTreeSet;
+
+use mareader_library::BookId;
+
 use super::{Out, Pick, ShelfAction, State};
 use crate::toast::Toast;
 
 const HELD: &str = "Books the AI is organizing stay put until it's done.";
 
 impl State {
+    /// Books a filing run holds: they open, but they don't move.
+    pub fn held(&self) -> &BTreeSet<BookId> {
+        &self.held
+    }
+
+    /// Whether a filing run holds any book.
+    pub fn busy(&self) -> bool {
+        !self.held.is_empty()
+    }
+
     pub fn unheld(&self, action: ShelfAction, out: &mut Vec<Out>) -> Option<ShelfAction> {
         let held = &self.held;
         if held.is_empty() {
