@@ -6,6 +6,7 @@ use std::sync::PoisonError;
 use mareader_settings::Highlight;
 use mareader_speech::Spot;
 
+use super::Spoken;
 use crate::read_aloud::lit::{Lit, Span};
 use crate::read_aloud::parts::Part;
 use crate::read_aloud::place::place_name;

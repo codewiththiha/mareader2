@@ -4,11 +4,11 @@ use std::collections::VecDeque;
 use std::sync::Arc;
 use std::sync::mpsc::TryRecvError;
 
-use mareader_session::Anchor;
 use mareader_settings::{Pass, ReadAloudSettings};
 use mareader_speech::{Event, Shelf, Spot};
 use mareader_workspace::PaneId;
 
+use super::{BEHIND, Spoken};
 use crate::read_aloud::TICK;
 use crate::read_aloud::feed::{Counts, Reach, Said, Start, enough, spawn};
 use crate::read_aloud::place::{Panes, Stand, follow};
