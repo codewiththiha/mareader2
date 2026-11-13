@@ -10,7 +10,11 @@ use egui::{
     UiBuilder, pos2, vec2,
 };
 use mareader_audio::RATES;
-use mareader_engine::{command::Command, read_aloud::parts::Kind, read_aloud::player::{Act, View}};
+use mareader_engine::{
+    command::Command,
+    read_aloud::parts::Kind,
+    read_aloud::player::{Act, View},
+};
 use mareader_settings::{Highlight, Player, ReadAloudSettings};
 
 /// The pill's height, and its buttons'.
