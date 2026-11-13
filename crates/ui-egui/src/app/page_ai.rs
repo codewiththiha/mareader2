@@ -93,7 +93,7 @@ impl MareaderApp {
 
     fn page_ai_pages(&mut self, action: Action) {
         match action {
-            Action::StopFollow(pane) => self.ui.page_ai.stop_follow(pane),
+            Action::StopFollow(pane) => self.ui.page_ai.ledger.stop_follow(pane),
             Action::RunPages {
                 pane,
                 pages,
@@ -125,7 +125,7 @@ impl MareaderApp {
                     ai: &self.ui.ai,
                     settings: &ai_settings,
                 };
-                self.ui.page_ai.run_pages(asked, &pages, task);
+                self.ui.page_ai.ledger.run_pages(asked, &pages, task);
             }
             Action::PagesMenu { pane, pages, at } => {
                 self.ui.page_ai.open_pages_menu(pane, pages, at)
@@ -136,7 +136,7 @@ impl MareaderApp {
 
     fn page_ai_result(&mut self, ctx: &Context, action: Action, now: f64, out: &mut Commands) {
         match action {
-            Action::StopPages(pane) => self.ui.page_ai.stop_groups(pane),
+            Action::StopPages(pane) => self.ui.page_ai.ledger.stop_groups(pane),
             Action::Redo { pane, page, slot } => {
                 let book = self.ui.library.book_in(&self.ui.documents, pane);
                 let name = self.ui.documents.title(pane).unwrap_or_default().to_owned();

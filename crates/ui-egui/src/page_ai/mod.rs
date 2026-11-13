@@ -1,8 +1,6 @@
 //! Pages summarized, translated or simplified by the AI, shown over them.
 
 mod cards;
-mod follow;
-mod groups;
 pub mod menu;
 pub mod paint;
 
@@ -29,6 +27,7 @@ pub use mareader_engine::page_ai::follow::{Follow, State, allowance, doing};
 pub use mareader_engine::page_ai::groups::{
     Batch, Group, Read, TRIES, groups, room_for, size_for, span_of,
 };
+pub use mareader_engine::page_ai::ledger::Ledger;
 pub use mareader_engine::page_ai::state::{
     Around, Asked, Cover, Drawn, Handle, Index, Key, Loose, News, Run, Showing, Who, canned, poll,
 };
@@ -109,51 +108,16 @@ struct BubbleMenu {
 
 /// The page AI's state across panes.
 #[derive(Default)]
+/// The page AI's state across panes.
+#[derive(Default)]
 pub struct PageAi {
-    loose: Loose,
-    runs: Vec<Run>,
-    next_run: u64,
-    showing: HashMap<Key, Showing>,
+    /// What a run keeps; the pixels stay here beside it.
+    pub ledger: Ledger,
     cards: cards::Cards,
-    /// By layout: a book's results laid in keep its own pages' places.
-    index: HashMap<u64, Index>,
-    /// The layout each pane's results were last counted in.
-    aligned: HashMap<PaneId, u64>,
-    /// Results as laid into a book's pages, by id.
-    made: HashMap<AiPageId, Arc<Insert>>,
-    /// Each book result's text, from where to where, as last indexed.
-    spans: HashMap<AiPageId, (Anchor, Anchor)>,
-    /// Each PDF result's first and last page, as last indexed.
-    covers: HashMap<AiPageId, (usize, usize)>,
-    /// What each pane's book was last asked to lay in.
-    wants: HashMap<PaneId, Arc<Inserts>>,
-    /// Results read once, by id.
-    parsed: HashMap<AiPageId, Option<Arc<Rewritten>>>,
-    /// Each pane's bubbles as last drawn, to tell which was pressed.
-    drawn: HashMap<PaneId, Drawn>,
     menu: Option<Menu>,
     menu_rect: Option<Rect>,
-    /// The menu's pages, kept while their wash fades after it.
-    washed: Option<(PaneId, Vec<usize>)>,
-    /// The right-clicked word in the washed page, lit beside it.
-    washed_word: Option<mareader_speech::Spot>,
-    filter: String,
     bubble_menu: Option<BubbleMenu>,
     bubble_rect: Option<Rect>,
-    /// Each pane's continuous run.
-    follows: HashMap<PaneId, follow::Follow>,
-    /// Each pane's picked pages, asked in groups.
-    batches: HashMap<PaneId, groups::Batch>,
-    /// What the groups have to say, for the next frame's toasts.
-    notes: Vec<String>,
-    /// The menu's "Remember my choice".
-    remember: bool,
-    /// Tests: runs answer at once with the page's own text.
-    canned: bool,
-    /// Tests and shots: runs stop at their words so far.
-    held: bool,
-    /// Tests: pages ahead are read on the frame.
-    inline: bool,
 }
 
 /// The task a menu row means, as kept; Translate needs a language.
@@ -270,137 +234,55 @@ impl PageAi {
         match book.filter(|b| main.book(*b).is_some()) {
             Some(id) => (main, id),
             None => {
-                let id = loose_book(&mut self.loose.0, name);
-                (&mut self.loose.0, id)
+                let id = loose_book(&mut self.ledger.loose.0, name);
+                (&mut self.ledger.loose.0, id)
             }
-        }
-    }
-
-    fn lib<'a>(
-        &'a self,
-        main: &'a Library,
-        book: Option<BookId>,
-        name: &str,
-    ) -> (&'a Library, BookId) {
-        match book.filter(|b| main.book(*b).is_some()) {
-            Some(id) => (main, id),
-            None => (&self.loose.0, loose_id(name)),
         }
     }
 
     fn saved<'a>(&'a self, main: &'a Library, id: AiPageId) -> Option<&'a AiPage> {
-        main.ai_page(id).or_else(|| self.loose.0.ai_page(id))
+        main.ai_page(id).or_else(|| self.ledger.loose.0.ai_page(id))
+    }
+
+    /// Starts or carries on `pane`'s run; what it says goes to `out`.
+    pub fn follow(
+        &mut self,
+        asked: Asked<'_>,
+        main: &Library,
+        task: AiTask,
+        fresh: bool,
+        now: f64,
+        out: &mut Commands,
+    ) {
+        self.ledger.follow(asked, main, task, fresh, now);
+        self.toasts(out);
+    }
+
+    /// Carries a stopped run on from where it was; its words go to `out`.
+    pub fn resume(&mut self, asked: Asked<'_>, main: &Library, now: f64, out: &mut Commands) {
+        self.ledger.resume(asked, main, now);
+        self.toasts(out);
+    }
+
+    /// Moves each run along one frame, and says what the groups asked.
+    pub fn tick(&mut self, ctx: &Context, a: &Around<'_>, out: &mut Commands) {
+        self.ledger.repaint = crate::repaint::of(ctx);
+        let now = ctx.input(|i| i.time);
+        self.ledger.tick(a, now);
+        self.toasts(out);
+    }
+
+    /// What the runs asked to be said, as toasts.
+    fn toasts(&mut self, out: &mut Commands) {
+        for why in self.ledger.notes.drain(..) {
+            out.push(Sent::Ui(UiCommand::Notify(Toast::info(why))));
+        }
     }
 
     /// Writes `task` for the page; it shows over the page as it comes.
     pub fn run(&mut self, asked: Asked<'_>, task: AiTask, now: f64, out: &mut Commands) {
-        self.redo(asked, task, None, now, out);
-    }
-
-    /// Writes the page's text; the same ask under way just shows.
-    fn begin(
-        &mut self,
-        who: &Who<'_>,
-        (page, last): (usize, usize),
-        task: AiTask,
-        (source, span): (Source, PageSpan),
-        redo_of: Option<AiPageId>,
-        now: f64,
-    ) -> Result<u64, &'static str> {
-        let key = (who.pane, who.layout, page);
-        let same = |r: &&Run| r.layout == who.layout && r.task == task && r.span == span;
-        let live = |r: &&Run| r.failed.is_none() && !r.requeue;
-        if let Some(id) = self.runs.iter().find(same).filter(live).map(|r| r.id) {
-            self.show_on(key, Slot::Run(id), now);
-            return Ok(id);
-        }
-        self.runs
-            .retain(|r| !(r.layout == who.layout && r.task == task && r.span == span));
-        let pages = last.saturating_sub(page) + 1;
-        let handle = match (self.canned, self.held) {
-            (_, true) => Handle::Held(Some(canned(&source))),
-            (true, false) => Handle::Canned(Some(canned(&source))),
-            (false, false) => who.ai.start(&task, &source, pages)?,
-        };
-        let preset = who.settings.page_preset(page_task(&task));
-        let by = preset.map_or_else(String::new, |p| match p.name.trim() {
-            "" => p.model.clone(),
-            name => format!("{name} · {}", p.model),
-        });
-        self.next_run += 1;
-        let id = self.next_run;
-        self.runs.push(Run {
-            id,
-            layout: who.layout,
-            page,
-            last: last.max(page),
-            book: who.book,
-            name: who.name.to_owned(),
-            task,
-            span,
-            source: Arc::new(source),
-            by,
-            handle: Some(handle),
-            shown: None,
-            latest: None,
-            shown_at: 0.0,
-            generation: 0,
-            failed: None,
-            redo_of,
-            requeue: false,
-        });
-        self.show_on(key, Slot::Run(id), now);
-        Ok(id)
-    }
-
-    fn redo(
-        &mut self,
-        asked: Asked<'_>,
-        task: AiTask,
-        redo_of: Option<AiPageId>,
-        now: f64,
-        out: &mut Commands,
-    ) -> Option<u64> {
-        let view = asked.documents.ai_view(asked.pane)?;
-        let page = view.document.to_base(asked.page);
-        let note = |s: &str| Sent::Ui(UiCommand::Notify(Toast::info(s.to_owned())));
-        let found = match source_of(&view, asked.documents, page) {
-            Ok(found) => found,
-            Err("loading") => {
-                out.push(note(
-                    "This page's text is still loading. Try again in a moment.",
-                ));
-                return None;
-            }
-            Err(_) => {
-                out.push(note("This page has no text to work on."));
-                return None;
-            }
-        };
-        if found.0.is_blank() {
-            let scan = matches!(*view.document, Document::Pdf(_));
-            let why = match scan {
-                true => "This page has no text to work on. It may be a scanned image.",
-                false => "This page has no text to work on.",
-            };
-            out.push(note(why));
-            return None;
-        }
-        let who = Who {
-            pane: asked.pane,
-            layout: view.layout,
-            book: asked.book,
-            name: asked.name,
-            ai: asked.ai,
-            settings: asked.settings,
-        };
-        match self.begin(&who, (page, page), task, found, redo_of, now) {
-            Ok(id) => Some(id),
-            Err(why) => {
-                out.push(note(why));
-                None
-            }
-        }
+        self.ledger.redo(asked, task, None, now);
+        self.toasts(out);
     }
 
     /// Writes a result's task again, replacing it once done.
@@ -417,7 +299,7 @@ impl PageAi {
                 Some(p) => (p.task.clone(), Some(id), p.span.clone()),
                 None => return,
             },
-            Slot::Run(id) => match self.runs.iter().find(|r| r.id == id) {
+            Slot::Run(id) => match self.ledger.runs.iter().find(|r| r.id == id) {
                 Some(r) => (r.task.clone(), r.redo_of, r.span.clone()),
                 None => return,
             },
@@ -429,12 +311,13 @@ impl PageAi {
         });
         if let Some((layout, from, to)) = group {
             if let Slot::Run(id) = slot {
-                self.runs.retain(|r| r.id != id);
+                self.ledger.runs.retain(|r| r.id != id);
             }
-            self.redo_group(asked, layout, (task, from, to), old);
+            self.ledger.redo_group(asked, layout, (task, from, to), old);
             return;
         }
-        self.redo(asked, task, old, now, out);
+        self.ledger.redo(asked, task, old, now);
+        self.toasts(out);
     }
 
     /// Takes in what the AI wrote; kept results go to the book.
@@ -445,9 +328,10 @@ impl PageAi {
         gpu: Option<&Gpu>,
         out: &mut Commands,
     ) {
+        self.ledger.repaint = crate::repaint::of(ctx);
         let now = ctx.input(|i| i.time);
         let mut done = Vec::new();
-        for run in &mut self.runs {
+        for run in &mut self.ledger.runs {
             for news in poll(run.handle.as_mut()) {
                 match news {
                     News::Partial(r) => {
@@ -460,7 +344,7 @@ impl PageAi {
                     }
                     News::Done(Err(f)) => {
                         run.handle = None;
-                        let batch = (self.batches.values())
+                        let batch = (self.ledger.batches.values())
                             .find(|b| b.runs.iter().any(|(id, _)| *id == run.id));
                         // A busy model takes the group later, as slots free.
                         if f.why == Why::InUse && batch.is_some() {
@@ -468,7 +352,7 @@ impl PageAi {
                             continue;
                         }
                         let mut said = say(&f);
-                        if self.follows.values().any(|w| w.runs.contains(&run.id)) {
+                        if self.ledger.follows.values().any(|w| w.runs.contains(&run.id)) {
                             said.push_str(" Continuous mode stopped.");
                         }
                         if batch.is_some_and(|b| b.waiting_any()) {
@@ -495,7 +379,7 @@ impl PageAi {
             .filter(|r| r.failed.is_some())
             .map(|r| r.id)
             .collect();
-        self.showing
+        self.ledger.showing
             .retain(|_, s| !matches!(s.slot, Slot::Run(id) if failed.contains(&id)));
         for (id, result) in done {
             self.keep(main, id, result);
@@ -507,10 +391,10 @@ impl PageAi {
 
     /// Saves run `id`'s result; whatever showed it shows the saved one.
     fn keep(&mut self, main: &mut Library, id: u64, result: Rewritten) {
-        let Some(i) = self.runs.iter().position(|r| r.id == id) else {
+        let Some(i) = self.ledger.runs.iter().position(|r| r.id == id) else {
             return;
         };
-        let run = self.runs.remove(i);
+        let run = self.ledger.runs.remove(i);
         let new = NewAiPage {
             task: run.task.clone(),
             span: run.span.clone(),
@@ -526,40 +410,40 @@ impl PageAi {
         if let Some(old) = run.redo_of.filter(|o| *o != saved) {
             lib.set_ai_pages_alive(&[old], false, wall);
         }
-        self.parsed.insert(saved, Some(Arc::new(result)));
+        self.ledger.parsed.insert(saved, Some(Arc::new(result)));
         match run.span {
             PageSpan::Blocks { from, to } => {
-                self.spans.insert(saved, (anchor(from), anchor(to)));
+                self.ledger.spans.insert(saved, (anchor(from), anchor(to)));
             }
             PageSpan::Page { page } => {
-                self.covers.insert(saved, (page, page));
+                self.ledger.covers.insert(saved, (page, page));
             }
             PageSpan::Pages { from, to } => {
-                self.covers.insert(saved, (from, to));
+                self.ledger.covers.insert(saved, (from, to));
             }
         }
         let was = |s: &Showing| {
             s.slot == Slot::Run(id) || run.redo_of.is_some_and(|o| s.slot == Slot::Saved(o))
         };
-        let keys: Vec<(Key, f64)> = (self.showing.iter())
+        let keys: Vec<(Key, f64)> = (self.ledger.showing.iter())
             .filter(|(_, s)| was(s))
             .map(|(k, s)| (*k, s.since))
             .collect();
         for (key, since) in keys {
-            self.show_on(key, Slot::Saved(saved), since);
+            self.ledger.show_on(key, Slot::Saved(saved), since);
         }
     }
 
     /// A kept result, read once.
     fn result(&mut self, main: &Library, id: AiPageId) -> Option<Arc<Rewritten>> {
-        if let Some(r) = self.parsed.get(&id) {
+        if let Some(r) = self.ledger.parsed.get(&id) {
             return r.clone();
         }
         let page = self.saved(main, id)?;
         let read = serde_json::from_str::<Rewritten>(&page.result)
             .ok()
             .map(Arc::new);
-        self.parsed.insert(id, read.clone());
+        self.ledger.parsed.insert(id, read.clone());
         read
     }
 
@@ -570,17 +454,19 @@ impl PageAi {
         view: &AiView,
         (book, name): (Option<BookId>, &str),
     ) -> Arc<HashMap<usize, Vec<AiPageId>>> {
-        let (lib, id) = self.lib(main, book, name);
+        let (lib, id) = self.ledger.lib(main, book, name);
         let stamp = (lib.ai_pages_stamp(), id);
-        if let Some(index) = self.index.get(&view.layout).filter(|i| i.stamp == stamp) {
+        let kept = self.ledger.index.get(&view.layout);
+        if let Some(index) = kept.filter(|i| i.stamp == stamp) {
             return Arc::clone(&index.pages);
         }
         let pages = lib.ai_pages(id);
         let mut h = DefaultHasher::new();
         pages.iter().for_each(|p| p.id.hash(&mut h));
         let key = h.finish();
-        if self.index.get(&view.layout).is_some_and(|i| i.key == key) {
-            let index = self.index.get_mut(&view.layout);
+        let found = self.ledger.index.get(&view.layout);
+        if found.is_some_and(|i| i.key == key) {
+            let index = self.ledger.index.get_mut(&view.layout);
             return (index.map(|i| {
                 i.stamp = stamp;
                 Arc::clone(&i.pages)
@@ -604,20 +490,20 @@ impl PageAi {
                 map.entry(page).or_default().push(p.id);
             }
         }
-        if self.index.len() > 8 {
-            self.index.clear();
-            self.spans.clear();
-            self.covers.clear();
+        if self.ledger.index.len() > 8 {
+            self.ledger.index.clear();
+            self.ledger.spans.clear();
+            self.ledger.covers.clear();
         }
-        self.spans.extend(spans);
-        self.covers.extend(covers);
+        self.ledger.spans.extend(spans);
+        self.ledger.covers.extend(covers);
         let pages = Arc::new(map);
         let index = Index {
             key,
             stamp,
             pages: Arc::clone(&pages),
         };
-        self.index.insert(view.layout, index);
+        self.ledger.index.insert(view.layout, index);
         pages
     }
 
@@ -631,10 +517,10 @@ impl PageAi {
         (book, name): (Option<BookId>, &str),
     ) -> PaneAi {
         let now = ctx.input(|i| i.time);
-        let pill = self.pill(pane, now).or_else(|| self.group_pill(pane));
+        let pill = self.ledger.pill(pane, now).or_else(|| self.ledger.group_pill(pane));
         let wash = self.wash(ctx, pane);
         let Some(view) = documents.ai_view(pane) else {
-            self.drawn.remove(&pane);
+            self.ledger.drawn.remove(&pane);
             return PaneAi {
                 overlays: Vec::new(),
                 pill,
@@ -643,7 +529,7 @@ impl PageAi {
         };
         self.prune(main);
         self.align(main, pane, &view, (book, name));
-        let index = self.index(main, &view, (book, name));
+        let index = self.ledger.index(main, &view, (book, name));
         let groups = self.spread_groups(main, pane, &view);
         let mut overlays = Vec::new();
         let mut drawn = Vec::new();
@@ -671,7 +557,7 @@ impl PageAi {
                 let own = view.document.to_base(page);
                 let key = (pane, view.layout, own);
                 if view.document.base_pages(page).is_empty()
-                    && let Some(shown) = self.showing.get(&key)
+                    && let Some(shown) = self.ledger.showing.get(&key)
                 {
                     drawn.push((page, vec![(shown.slot, own)]));
                 }
@@ -693,7 +579,7 @@ impl PageAi {
             });
             drawn.push((page, slots));
         }
-        self.drawn.insert(pane, (view.layout, drawn));
+        self.ledger.drawn.insert(pane, (view.layout, drawn));
         PaneAi {
             overlays,
             pill,
@@ -710,14 +596,14 @@ impl PageAi {
     ) -> Vec<(usize, usize, Slot)> {
         // A book lays kept groups in; only runs still writing spread.
         if view.document.is_reflowable() {
-            return (self.showing.iter())
+            return (self.ledger.showing.iter())
                 .filter(|((p, l, _), _)| *p == pane && *l == view.layout)
                 .filter(|(_, s)| self.carded(pane, view, s.slot))
                 .filter_map(|(_, s)| {
                     let Slot::Run(id) = s.slot else {
                         return None;
                     };
-                    let run = self.runs.iter().find(|r| r.id == id)?;
+                    let run = self.ledger.runs.iter().find(|r| r.id == id)?;
                     (run.last > run.page).then_some((run.page, run.last, s.slot))
                 })
                 .collect();
@@ -730,7 +616,7 @@ impl PageAi {
                 .find(|r| r.id == id)
                 .map(|r| r.span.clone()),
         };
-        (self.showing.iter())
+        (self.ledger.showing.iter())
             .filter(|((p, l, _), _)| *p == pane && *l == view.layout)
             .filter_map(|(_, s)| match span(s.slot)? {
                 PageSpan::Pages { from, to } => Some((from, to, s.slot)),
@@ -748,10 +634,11 @@ impl PageAi {
         index: &HashMap<usize, Vec<AiPageId>>,
     ) -> Vec<(Slot, paint::Bubble)> {
         let saved = index.get(&own).map_or(&[][..], Vec::as_slice);
-        let runs = (self.runs.iter())
+        let runs = (self.ledger.runs.iter())
             .filter(|r| r.layout == view.layout && r.page == own)
             .filter(|r| r.redo_of.is_none_or(|o| !saved.contains(&o)));
-        let active = self.showing.get(&(pane, view.layout, own)).map(|s| s.slot);
+        let shown = self.ledger.showing.get(&(pane, view.layout, own));
+        let active = shown.map(|s| s.slot);
         let here = match &*view.document {
             Document::Epub { book, .. } => extract::span(&book.base_excerpts(own), book.blocks()),
             Document::Pdf(_) => None,
@@ -761,7 +648,7 @@ impl PageAi {
             let Some(p) = self.saved(main, *id) else {
                 continue;
             };
-            let redoing = self.runs.iter().find(|r| r.redo_of == Some(*id));
+            let redoing = self.ledger.runs.iter().find(|r| r.redo_of == Some(*id));
             let covered = pages_of(&view.document, &p.span).filter(|(a, b)| b > a);
             // A group is checked against all the pages it was asked for.
             let stale = match (&p.span, here, covered) {
@@ -824,30 +711,30 @@ impl PageAi {
             Slot::Saved(id) => id,
             // A redo writes behind the laid result; its bubble turns.
             Slot::Run(run) => {
-                let run = self.runs.iter().find(|r| r.id == run);
+                let run = self.ledger.runs.iter().find(|r| r.id == run);
                 match run.and_then(|r| r.redo_of) {
                     Some(old) if view.document.shows(old.0) => return false,
                     _ => return true,
                 }
             }
         };
-        let asked = self.wants.get(&pane).map_or(0, |w| w.key);
+        let asked = self.ledger.wants.get(&pane).map_or(0, |w| w.key);
         let laid = view.document.inserts_key() == asked;
         !laid && !view.document.shows(id.0)
     }
 
     /// Re-counts `pane`'s shown results once new type moves its pages.
     fn align(&mut self, main: &Library, pane: PaneId, view: &AiView, who: (Option<BookId>, &str)) {
-        let old = self.aligned.insert(pane, view.layout);
+        let old = self.ledger.aligned.insert(pane, view.layout);
         if old.is_none_or(|o| o == view.layout) {
             return;
         }
-        let (lib, book) = self.lib(main, who.0, who.1);
+        let (lib, book) = self.ledger.lib(main, who.0, who.1);
         let page_of = |span: &PageSpan| match span {
             PageSpan::Page { page } | PageSpan::Pages { from: page, .. } => Some(*page),
             PageSpan::Blocks { from, .. } => base_page(&view.document, *from),
         };
-        let moved: Vec<(Key, Option<usize>)> = (self.showing.iter())
+        let moved: Vec<(Key, Option<usize>)> = (self.ledger.showing.iter())
             .filter(|((p, l, _), _)| *p == pane && *l != view.layout)
             .map(|(key, shown)| {
                 let page = match shown.slot {
@@ -855,7 +742,7 @@ impl PageAi {
                         let p = lib.ai_page(id).filter(|p| p.book.value == book);
                         p.and_then(|p| page_of(&p.span))
                     }
-                    Slot::Run(id) => (self.runs.iter())
+                    Slot::Run(id) => (self.ledger.runs.iter())
                         .find(|r| r.id == id && r.book == who.0 && r.name == who.1)
                         .and_then(|r| page_of(&r.span)),
                 };
@@ -863,18 +750,18 @@ impl PageAi {
             })
             .collect();
         for (key, page) in moved {
-            let Some(shown) = self.showing.remove(&key) else {
+            let Some(shown) = self.ledger.showing.remove(&key) else {
                 continue;
             };
             let Some(page) = page else {
                 continue;
             };
             if let Slot::Run(id) = shown.slot
-                && let Some(r) = self.runs.iter_mut().find(|r| r.id == id)
+                && let Some(r) = self.ledger.runs.iter_mut().find(|r| r.id == id)
             {
                 (r.layout, r.page) = (view.layout, page);
             }
-            self.showing.insert((pane, view.layout, page), shown);
+            self.ledger.showing.insert((pane, view.layout, page), shown);
         }
     }
 
@@ -888,17 +775,17 @@ impl PageAi {
     ) -> Option<Arc<Inserts>> {
         let view = documents.ai_view(pane)?;
         let Document::Epub { book, .. } = &*view.document else {
-            self.wants.remove(&pane);
+            self.ledger.wants.remove(&pane);
             return None;
         };
         self.prune(main);
         self.align(main, pane, &view, who);
         // A redo keeps the result it redoes in the pages until done.
-        let mut ids: Vec<AiPageId> = (self.showing.iter())
+        let mut ids: Vec<AiPageId> = (self.ledger.showing.iter())
             .filter(|((p, l, _), _)| *p == pane && *l == view.layout)
             .filter_map(|(_, s)| match s.slot {
                 Slot::Saved(id) => Some(id),
-                Slot::Run(id) => self.runs.iter().find(|r| r.id == id)?.redo_of,
+                Slot::Run(id) => self.ledger.runs.iter().find(|r| r.id == id)?.redo_of,
             })
             .collect();
         ids.sort_unstable();
@@ -907,12 +794,12 @@ impl PageAi {
             true => 0,
             false => hash(("inserts", &ids)).max(1),
         };
-        if let Some(w) = self.wants.get(&pane).filter(|w| w.key == key) {
+        if let Some(w) = self.ledger.wants.get(&pane).filter(|w| w.key == key) {
             return Some(Arc::clone(w));
         }
         let mut list = Vec::new();
         for id in ids {
-            if let Some(made) = self.made.get(&id) {
+            if let Some(made) = self.ledger.made.get(&id) {
                 list.push(Arc::clone(made));
                 continue;
             }
@@ -939,14 +826,14 @@ impl PageAi {
                 blocks: Arc::new(blocks),
                 language,
             });
-            if self.made.len() > MAX_MADE {
-                self.made.clear();
+            if self.ledger.made.len() > MAX_MADE {
+                self.ledger.made.clear();
             }
-            self.made.insert(id, Arc::clone(&made));
+            self.ledger.made.insert(id, Arc::clone(&made));
             list.push(made);
         }
         let inserts = Arc::new(Inserts { key, list });
-        self.wants.insert(pane, Arc::clone(&inserts));
+        self.ledger.wants.insert(pane, Arc::clone(&inserts));
         Some(inserts)
     }
 
@@ -960,11 +847,11 @@ impl PageAi {
         slot: Slot,
         main: &Library,
     ) -> Option<paint::Shown> {
-        let since = self.showing.get(&(pane, view.layout, own))?.since;
+        let since = self.ledger.showing.get(&(pane, view.layout, own))?.since;
         let old = match slot {
             Slot::Saved(id) => id,
             Slot::Run(id) => {
-                let r = self.runs.iter().find(|r| r.id == id)?;
+                let r = self.ledger.runs.iter().find(|r| r.id == id)?;
                 match (&r.shown, r.redo_of) {
                     (Some(shown), _) => {
                         let ident = hash((id, r.shown_at.to_bits()));
@@ -1121,9 +1008,12 @@ impl PageAi {
         let Some((layout, slot, own)) = self.slot_at(pane, page, index) else {
             return;
         };
-        if let Slot::Run(id) = slot
-            && self.runs.iter().any(|r| r.id == id && r.failed.is_some())
-        {
+        let runs = &self.ledger.runs;
+        let failed = match slot {
+            Slot::Run(id) => runs.iter().any(|r| r.id == id && r.failed.is_some()),
+            Slot::Saved(_) => false,
+        };
+        if failed {
             self.menu = None;
             self.bubble_menu = Some(BubbleMenu {
                 pane,
@@ -1134,47 +1024,17 @@ impl PageAi {
             return;
         }
         let key = (pane, layout, own);
-        match self.showing.get(&key) {
+        match self.ledger.showing.get(&key) {
             Some(s) if s.slot == slot => {
-                self.showing.remove(&key);
+                self.ledger.showing.remove(&key);
             }
-            _ => self.show_on(key, slot, now),
-        }
-    }
-
-    /// Shows `slot` on own page `key`; others of the same text give way.
-    fn show_on(&mut self, key: Key, slot: Slot, now: f64) {
-        // Only one result of any text is laid in, or covers a PDF's page.
-        if let Some(mine) = self.covering(slot) {
-            let (pane, layout, _) = key;
-            let overlaps: Vec<Key> = (self.showing.iter())
-                .filter(|((p, l, _), _)| *p == pane && *l == layout)
-                .filter(|(_, s)| self.covering(s.slot).is_some_and(|c| c.meets(mine)))
-                .map(|(k, _)| *k)
-                .collect();
-            for k in overlaps {
-                self.showing.remove(&k);
-            }
-        }
-        self.showing.insert(key, Showing { slot, since: now });
-    }
-
-    /// What `slot` covers; a book's run lays nothing in, so none.
-    fn covering(&self, slot: Slot) -> Option<Cover> {
-        match slot {
-            Slot::Saved(id) => (self.spans.get(&id).map(|(a, b)| Cover::Text(*a, *b)))
-                .or_else(|| self.covers.get(&id).map(|(a, b)| Cover::Pages(*a, *b))),
-            Slot::Run(id) => match self.runs.iter().find(|r| r.id == id)?.span {
-                PageSpan::Page { page } => Some(Cover::Pages(page, page)),
-                PageSpan::Pages { from, to } => Some(Cover::Pages(from, to)),
-                PageSpan::Blocks { .. } => None,
-            },
+            _ => self.ledger.show_on(key, slot, now),
         }
     }
 
     /// The bubble `index` on page `page`: its layout, slot and own page.
     fn slot_at(&self, pane: PaneId, page: usize, index: usize) -> Option<(u64, Slot, usize)> {
-        let (layout, pages) = self.drawn.get(&pane)?;
+        let (layout, pages) = self.ledger.drawn.get(&pane)?;
         let slots = &pages.iter().find(|(p, _)| *p == page)?.1;
         let (slot, own) = *slots.get(index)?;
         Some((*layout, slot, own))
@@ -1182,7 +1042,7 @@ impl PageAi {
 
     /// Shows `slot` over the page, or the page itself.
     pub fn show_result(&mut self, pane: PaneId, page: usize, slot: Option<Slot>, now: f64) {
-        let Some((layout, pages)) = self.drawn.get(&pane) else {
+        let Some((layout, pages)) = self.ledger.drawn.get(&pane) else {
             return;
         };
         let layout = *layout;
@@ -1191,12 +1051,12 @@ impl PageAi {
         match slot {
             Some(slot) => {
                 if let Some((_, own)) = slots.iter().find(|(s, _)| *s == slot) {
-                    self.show_on((pane, layout, *own), slot, now);
+                    self.ledger.show_on((pane, layout, *own), slot, now);
                 }
             }
             None => {
                 for (_, own) in slots {
-                    self.showing.remove(&(pane, layout, own));
+                    self.ledger.showing.remove(&(pane, layout, own));
                 }
             }
         }
@@ -1206,7 +1066,7 @@ impl PageAi {
     pub fn text_of(&mut self, main: &Library, slot: Slot) -> Option<String> {
         let result = match slot {
             Slot::Saved(id) => self.result(main, id)?,
-            Slot::Run(id) => self.runs.iter().find(|r| r.id == id)?.shown.clone()?,
+            Slot::Run(id) => self.ledger.runs.iter().find(|r| r.id == id)?.shown.clone()?,
         };
         Some(extract::plain(&result))
     }
@@ -1217,27 +1077,27 @@ impl PageAi {
             Slot::Saved(id) => {
                 let wall = mareader_engine::library::wall_ms();
                 if main.set_ai_pages_alive(&[id], false, wall) == 0 {
-                    self.loose.0.set_ai_pages_alive(&[id], false, wall);
+                    self.ledger.loose.0.set_ai_pages_alive(&[id], false, wall);
                 }
                 self.forget(id);
-                self.runs.retain(|r| r.redo_of != Some(id));
+                self.ledger.runs.retain(|r| r.redo_of != Some(id));
             }
-            Slot::Run(id) => self.runs.retain(|r| r.id != id),
+            Slot::Run(id) => self.ledger.runs.retain(|r| r.id != id),
         }
-        self.showing.retain(|_, s| s.slot != slot);
+        self.ledger.showing.retain(|_, s| s.slot != slot);
     }
 
     /// Drops a gone result's text from every cache.
     fn forget(&mut self, id: AiPageId) {
-        self.parsed.remove(&id);
-        self.made.remove(&id);
-        self.spans.remove(&id);
-        self.covers.remove(&id);
+        self.ledger.parsed.remove(&id);
+        self.ledger.made.remove(&id);
+        self.ledger.spans.remove(&id);
+        self.ledger.covers.remove(&id);
     }
 
     /// Takes down results deleted or erased elsewhere, text and all.
     fn prune(&mut self, main: &Library) {
-        let gone: Vec<AiPageId> = (self.showing.values())
+        let gone: Vec<AiPageId> = (self.ledger.showing.values())
             .filter_map(|s| match s.slot {
                 Slot::Saved(id) => self.saved(main, id).is_none().then_some(id),
                 Slot::Run(_) => None,
@@ -1245,18 +1105,18 @@ impl PageAi {
             .collect();
         for id in gone {
             self.forget(id);
-            self.showing.retain(|_, s| s.slot != Slot::Saved(id));
+            self.ledger.showing.retain(|_, s| s.slot != Slot::Saved(id));
         }
     }
 
     /// Forgets a closed pane: what it showed, drew and followed.
     pub fn close_pane(&mut self, pane: PaneId) {
-        self.stop_follow(pane);
-        self.stop_groups(pane);
-        self.showing.retain(|(p, ..), _| *p != pane);
-        self.drawn.remove(&pane);
-        self.aligned.remove(&pane);
-        self.wants.remove(&pane);
+        self.ledger.stop_follow(pane);
+        self.ledger.stop_groups(pane);
+        self.ledger.showing.retain(|(p, ..), _| *p != pane);
+        self.ledger.drawn.remove(&pane);
+        self.ledger.aligned.remove(&pane);
+        self.ledger.wants.remove(&pane);
         if self.menu.as_ref().is_some_and(|m| m.pane == pane) {
             self.menu = None;
         }
@@ -1270,12 +1130,12 @@ impl PageAi {
         let open = self.menu.as_ref().is_some_and(|m| m.pane == pane);
         let id = Id::new(("page-ai-wash", pane));
         let alpha = ctx.animate_bool_with_time(id, open, WASH_FADE);
-        let (at, pages) = self.washed.as_ref()?;
+        let (at, pages) = self.ledger.washed.as_ref()?;
         if *at != pane {
             return None;
         }
         if alpha <= 0.0 && !open {
-            self.washed = None;
+            self.ledger.washed = None;
             return None;
         }
         let hovered = ctx.data(|d| d.get_temp::<bool>(aloud_hot(pane)));
@@ -1284,7 +1144,7 @@ impl PageAi {
         Some(paint::Wash {
             pages: pages.clone(),
             alpha,
-            word: self.washed_word,
+            word: self.ledger.washed_word,
             hot,
         })
     }
@@ -1303,12 +1163,12 @@ impl PageAi {
 
     /// The right-clicked word lit in `pane`, at or in it; for tests.
     pub fn washed_word(&self, pane: PaneId) -> Option<mareader_speech::Spot> {
-        self.washed(pane).and(self.washed_word)
+        self.ledger.washed(pane).and(self.ledger.washed_word)
     }
 
     /// The pages washed in `pane`, while the menu shows or fades; for tests.
     pub fn washed(&self, pane: PaneId) -> Option<&[usize]> {
-        let (at, pages) = self.washed.as_ref()?;
+        let (at, pages) = self.ledger.washed.as_ref()?;
         (*at == pane).then_some(pages.as_slice())
     }
 
@@ -1321,10 +1181,10 @@ impl PageAi {
         aloud: Option<mareader_engine::read_aloud::ReadFrom>,
     ) {
         self.bubble_menu = None;
-        self.filter.clear();
-        self.remember = false;
-        self.washed = Some((pane, vec![page]));
-        self.washed_word = aloud.and_then(|a| a.at);
+        self.ledger.filter.clear();
+        self.ledger.remember = false;
+        self.ledger.washed = Some((pane, vec![page]));
+        self.ledger.washed_word = aloud.and_then(|a| a.at);
         self.menu = Some(Menu {
             pane,
             page,
@@ -1344,9 +1204,9 @@ impl PageAi {
             return;
         };
         self.bubble_menu = None;
-        self.filter.clear();
-        self.washed = Some((pane, pages.clone()));
-        self.washed_word = None;
+        self.ledger.filter.clear();
+        self.ledger.washed = Some((pane, pages.clone()));
+        self.ledger.washed_word = None;
         self.menu = Some(Menu {
             pane,
             page,
@@ -1404,22 +1264,22 @@ impl PageAi {
         };
         let slot = Slot::Saved(id);
         let key = (asked.pane, view.layout, page);
-        self.showing.insert(key, Showing { slot, since: now });
+        self.ledger.showing.insert(key, Showing { slot, since: now });
         true
     }
 
     /// Whether `pane` shows a result over a page on screen now.
     pub fn on_screen(&self, pane: PaneId) -> bool {
-        let Some((layout, pages)) = self.drawn.get(&pane) else {
+        let Some((layout, pages)) = self.ledger.drawn.get(&pane) else {
             return false;
         };
         let mut slots = pages.iter().flat_map(|(_, slots)| slots);
-        slots.any(|(_, own)| self.showing.contains_key(&(pane, *layout, *own)))
+        slots.any(|(_, own)| self.ledger.showing.contains_key(&(pane, *layout, *own)))
     }
 
     /// Tests: the kept results' tasks and spans, oldest first.
     pub fn kept(&self, main: &Library, who: (Option<BookId>, &str)) -> Vec<(AiTask, PageSpan)> {
-        let (lib, book) = self.lib(main, who.0, who.1);
+        let (lib, book) = self.ledger.lib(main, who.0, who.1);
         let pages = lib.ai_pages(book).into_iter();
         pages.map(|p| (p.task.clone(), p.span.clone())).collect()
     }
@@ -1434,17 +1294,17 @@ impl PageAi {
     /// Tests: results are set on the frame, not on a thread.
     pub fn set_inline(&mut self, inline: bool) {
         self.cards.set_inline(inline);
-        self.inline = inline;
+        self.ledger.inline = inline;
     }
 
     /// Tests and shots: runs show their words but never finish.
     pub fn set_held(&mut self, held: bool) {
-        self.held = held;
+        self.ledger.held = held;
     }
 
     /// Tests: runs answer at once, in capitals, with no AI.
     pub fn set_canned(&mut self, canned: bool) {
-        self.canned = canned;
+        self.ledger.canned = canned;
     }
 
     /// Whether `pane` shows a result over `page`.
@@ -1454,13 +1314,14 @@ impl PageAi {
 
     /// Whether the page shows a result in `pane`, for the menu.
     fn showing_on(&self, pane: PaneId, page: usize) -> Option<Slot> {
-        let (layout, pages) = self.drawn.get(&pane)?;
+        let (layout, pages) = self.ledger.drawn.get(&pane)?;
         let Some((_, slots)) = pages.iter().find(|(p, _)| *p == page) else {
             // Off screen: a book's pages there are taken as its own.
-            return self.showing.get(&(pane, *layout, page)).map(|s| s.slot);
+            let shown = self.ledger.showing.get(&(pane, *layout, page));
+            return shown.map(|s| s.slot);
         };
         slots.iter().find_map(|(_, own)| {
-            let shown = self.showing.get(&(pane, *layout, *own))?;
+            let shown = self.ledger.showing.get(&(pane, *layout, *own))?;
             Some(shown.slot)
         })
     }

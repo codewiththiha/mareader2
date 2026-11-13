@@ -189,7 +189,7 @@ fn simplify_asks_how_and_can_remember_continuous() -> Out {
     simplify_on(&mut h, true)?;
     let start = h.state().settings().ai.tasks.simplify.start;
     assert_eq!(start, PageStart::Continuous);
-    assert!(h.state().page_ai().following(pane).is_some());
+    assert!(h.state().page_ai().ledger.following(pane).is_some());
     Ok(())
 }
 
@@ -207,7 +207,7 @@ fn a_task_set_to_this_page_runs_without_asking() -> Out {
     h.get_by_label("Simplify page").click();
     h.run_steps(3);
     assert!(h.query_by_label("Continuous").is_none(), "no second step");
-    assert!(h.state().page_ai().following(pane).is_none());
+    assert!(h.state().page_ai().ledger.following(pane).is_none());
     assert!(
         h.state().page_ai().shows(pane, 0),
         "the page is being written"
@@ -222,7 +222,7 @@ fn the_pill_stops_continuous_mode() -> Out {
     simplify_on(&mut h, false)?;
     h.get_by_label("Stop").click();
     h.run_steps(3);
-    assert!(h.state().page_ai().following(pane).is_none());
+    assert!(h.state().page_ai().ledger.following(pane).is_none());
     Ok(())
 }
 
@@ -239,7 +239,7 @@ fn going_far_away_pauses_then_asks_to_carry_on_there() -> Out {
     h.get_by_label("Continue").click();
     h.run_steps(3);
     assert!(h.query_by_label("Continue").is_none());
-    assert!(h.state().page_ai().following(pane).is_some());
+    assert!(h.state().page_ai().ledger.following(pane).is_some());
     assert!(h.state().page_ai().shows(pane, 30), "it carries on there");
     Ok(())
 }

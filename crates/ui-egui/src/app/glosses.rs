@@ -114,7 +114,7 @@ impl MareaderApp {
             let done = match follow {
                 false if last > page => {
                     let pages: Vec<usize> = (page..=last).collect();
-                    self.ui.page_ai.run_pages(asked, &pages, task);
+                    self.ui.page_ai.ledger.run_pages(asked, &pages, task);
                     true
                 }
                 true if self.ui.page_ai.can_read(&asked) => {
@@ -241,7 +241,7 @@ impl MareaderApp {
 
     fn pill_gloss(&mut self, ctx: &Context, out: &mut Commands, pane: PaneId, gloss: Gloss) {
         match gloss {
-            Gloss::Pill(crate::page_ai::PillPress::Stop) => self.ui.page_ai.stop_pill(pane),
+            Gloss::Pill(crate::page_ai::PillPress::Stop) => self.ui.page_ai.ledger.stop_pill(pane),
             Gloss::Pill(crate::page_ai::PillPress::Continue) => {
                 let Some(reading) = self.ui.documents.reading(pane) else {
                     return;

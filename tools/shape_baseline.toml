@@ -78,7 +78,6 @@ paths = ["crates/animated-icons/src/source.rs", "crates/epub/src/generated.rs"]
 "crates/ui-egui/src/library/view/face.rs" = 513
 "crates/ui-egui/src/library_panel.rs" = 1356
 "crates/ui-egui/src/notes_panel.rs" = 725
-"crates/ui-egui/src/page_ai/follow.rs" = 508
 "crates/ui-egui/src/page_ai/menu.rs" = 804
 "crates/ui-egui/src/page_ai/mod.rs" = 1687
 "crates/ui-egui/src/pages.rs" = 552
@@ -113,6 +112,7 @@ paths = ["crates/animated-icons/src/source.rs", "crates/epub/src/generated.rs"]
 "tools/phonon-parity/src/main.rs" = 553
 
 [functions]
+"crates/engine/src/page_ai/groups.rs::step_batch" = 90
 "crates/engine/src/word_list.rs::step" = 92
 "crates/epub/src/book.rs::assemble_book" = 110
 "crates/epub/src/convert/markdown.rs::write" = 122
@@ -172,7 +172,6 @@ paths = ["crates/animated-icons/src/source.rs", "crates/epub/src/generated.rs"]
 "crates/ui-egui/src/notes_panel.rs::bookmark" = 109
 "crates/ui-egui/src/notes_panel.rs::entry" = 98
 "crates/ui-egui/src/notes_panel.rs::show" = 118
-"crates/ui-egui/src/page_ai/groups.rs::step_batch" = 92
 "crates/ui-egui/src/page_ai/menu.rs::bubble_menu" = 134
 "crates/ui-egui/src/page_ai/menu.rs::tasks" = 156
 "crates/ui-egui/src/page_ai/paint.rs::pill" = 82

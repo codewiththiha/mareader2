@@ -125,7 +125,7 @@ impl PageAi {
             (true, _) => self.menu = None,
             (false, Some(menu)) => {
                 if step == Step::Languages && menu.step != Step::Languages {
-                    self.filter.clear();
+                    self.ledger.filter.clear();
                 }
                 menu.step = step;
             }
@@ -324,7 +324,7 @@ impl PageAi {
             return false;
         }
         let shown = self.showing_on(pane, page).is_some();
-        let following = self.following(pane);
+        let following = self.ledger.following(pane);
         if shown || following.is_some() {
             widgets::menu_rule(ui);
         }
@@ -368,7 +368,7 @@ impl PageAi {
             return false;
         }
         widgets::menu_rule(ui);
-        let remember = self.remember;
+        let remember = self.ledger.remember;
         let how = |continuous| How {
             continuous,
             remember,
@@ -398,7 +398,7 @@ impl PageAi {
         ui.horizontal(|ui| {
             ui.add_space(ui.spacing().button_padding.x);
             let label = RichText::new("Remember my choice").size(t.text_small);
-            ui.checkbox(&mut self.remember, label)
+            ui.checkbox(&mut self.ledger.remember, label)
                 .on_hover_text("Change it later in Settings › AI");
         });
         ui.add_space(2.0);
@@ -419,17 +419,17 @@ impl PageAi {
             return false;
         }
         ui.add_space(2.0);
-        let edit = TextEdit::singleline(&mut self.filter)
+        let edit = TextEdit::singleline(&mut self.ledger.filter)
             .hint_text("Find a language")
             .desired_width(f32::INFINITY);
         let field = ui.add(edit);
         let name = |b: &mut egui::accesskit::Node| b.set_label(FIND);
         ui.ctx().accesskit_node_builder(field.id, name);
-        if !field.has_focus() && self.filter.is_empty() {
+        if !field.has_focus() && self.ledger.filter.is_empty() {
             field.request_focus();
         }
         ui.add_space(2.0);
-        let find = self.filter.trim().to_lowercase();
+        let find = self.ledger.filter.trim().to_lowercase();
         let matches = |tag: &str, name: &str| {
             find.is_empty()
                 || name.to_lowercase().contains(&find)
@@ -507,7 +507,7 @@ impl PageAi {
                     return Rect::NOTHING;
                 }
             },
-            Slot::Run(id) => match self.runs.iter().find(|r| r.id == id) {
+            Slot::Run(id) => match self.ledger.runs.iter().find(|r| r.id == id) {
                 Some(r) => (
                     label(&r.task),
                     r.by.clone(),
