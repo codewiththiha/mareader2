@@ -35,7 +35,7 @@ pub use organizing::{
 };
 pub use question::{Kind, Question};
 pub use runs::{Beat, DELAY, Phase, Run, RunId, Runs};
-pub use searching::{Field, Listing, Lit, Reveal, Search, Shape};
+pub use searching::{Field, Listing, Lit, RING_END, RING_HOLD, Reveal, Search, Shape};
 pub use shelving::Crumb;
 pub use state::{State, Status, wall_ms};
 
