@@ -9,7 +9,7 @@ const MOST_WORDS: usize = 3;
 const MOST_CHARS: usize = 40;
 
 /// The tag a line wears when both accents show.
-fn tag(dialect: Dialect) -> &'static str {
+pub(super) fn tag(dialect: Dialect) -> &'static str {
     match dialect {
         Dialect::American => "US",
         Dialect::British => "UK",
@@ -17,7 +17,7 @@ fn tag(dialect: Dialect) -> &'static str {
 }
 
 /// The tag a stand-in accent wears, as `≈ UK`.
-fn near_tag(dialect: Dialect) -> &'static str {
+pub(super) fn near_tag(dialect: Dialect) -> &'static str {
     match dialect {
         Dialect::American => "≈ US",
         Dialect::British => "≈ UK",
@@ -167,7 +167,7 @@ pub fn stand_in(english: &str, dialect: Dialect) -> String {
 }
 
 /// Whether `word` is English short enough to sound out.
-fn speakable(word: &str) -> bool {
+pub(super) fn speakable(word: &str) -> bool {
     let fits = |c: char| c.is_ascii_alphabetic() || matches!(c, '\'' | '-' | ' ');
     !word.is_empty()
         && word.len() <= MOST_CHARS
@@ -178,7 +178,7 @@ fn speakable(word: &str) -> bool {
 
 /// The phonemes, or None where a word wasn't known.
 #[cfg_attr(target_arch = "wasm32", allow(dead_code))]
-fn understood(phonemes: &str) -> Option<String> {
+pub(super) fn understood(phonemes: &str) -> Option<String> {
     let said = phonemes.trim();
     let known = !said.is_empty() && !said.contains(mareader_g2p::UNKNOWN);
     known.then(|| said.to_owned())

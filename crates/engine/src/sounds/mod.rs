@@ -11,7 +11,7 @@ use mareader_settings::PronunciationSettings;
 use mareader_speech::{Item, PRONUNCIATION, Shelf, Stage};
 
 use crate::dict::Download;
-use lines::{speakable, understood};
+use lines::{near_tag, speakable, tag, understood};
 
 mod lines;
 
