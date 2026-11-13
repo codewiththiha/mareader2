@@ -20,7 +20,7 @@ pub mod view;
 use std::path::Path;
 
 use egui::Context;
-use mareader_library::{BookId, Format, Library, Opened, Position, SpinePosition, display_title};
+use mareader_library::{BookId, Format, Library, Position, SpinePosition, display_title};
 use mareader_session::Document;
 use mareader_workspace::PaneId;
 
@@ -30,7 +30,7 @@ pub use add::ADD_MENU;
 pub use covers::Covers;
 use mareader_engine::command::Command;
 pub use mareader_engine::library::{Ask, Bound, Field, Heard, Listing, Paused, Proposal, Spot};
-use mareader_engine::library::{Job, News, Out, Probe, State, Status, wall_ms};
+use mareader_engine::library::{Job, Out, Probe, State, Status, wall_ms};
 use mareader_engine::toast::Toast;
 pub use menu::LIBRARY_VIEW_MENU;
 pub use menus::{Organizer, organize_rows};
@@ -119,49 +119,7 @@ impl LibraryState {
     /// Takes in finished disk work.
     pub fn receive(&mut self, ctx: &Context, out: &mut Commands) {
         let now = ctx.input(|i| i.time);
-        for news in self.io.poll() {
-            match news {
-                News::Loaded(loaded) => {
-                    // Opens before loading can't have touched the model.
-                    let loaded = *loaded;
-                    self.model = loaded.library;
-                    self.status = match loaded.writable {
-                        true => Status::Ready,
-                        false => Status::ReadOnly,
-                    };
-                    let notes = loaded.notes.into_iter().map(Toast::error);
-                    out.extend(notes.map(|t| Sent::Ui(UiCommand::Notify(t))));
-                    let held = self.waiting.drain(..);
-                    out.extend(held.map(|r| Sent::Engine(Command::Open(r))));
-                    // Gone files and new books, found where they're kept.
-                    self.rescan(now);
-                }
-                News::Measured(probe, measure) => {
-                    let opened = Opened {
-                        path: probe.path,
-                        measure,
-                        format: probe.format,
-                        title: probe.title,
-                        author: probe.author,
-                    };
-                    self.model.record_open_as(opened, wall_ms(), probe.book);
-                }
-                News::WriteFailed(e) => out.push(Sent::Ui(UiCommand::Notify(Toast::error(e)))),
-                News::Walked(done) => self.engine(out, |s, a| s.walked(*done, now, a)),
-                News::Files(done) => self.engine(out, |s, a| s.measured(*done, now, a)),
-                News::Copied(done) => self.engine(out, |s, a| s.copied(*done, now, a)),
-                News::Checked(gone) => self.checked(&gone),
-                News::Relinked(relink, measured) => {
-                    self.engine(out, |s, a| s.relink_measured(relink, measured, a))
-                }
-                News::Sought {
-                    book,
-                    folder,
-                    found,
-                } => self.engine(out, |s, a| s.sought_found(book, &folder, found, a)),
-                News::Beat(beat) => self.runs.beat(beat),
-            }
-        }
+        self.engine(out, |s, a| s.receive(now, a));
     }
 
     /// Records opens and positions; true if a file went to be measured.

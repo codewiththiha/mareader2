@@ -18,7 +18,7 @@ mod held;
 mod io;
 mod landing;
 mod moving;
-
+mod news;
 mod opening;
 mod organizing;
 mod question;

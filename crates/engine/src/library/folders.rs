@@ -214,6 +214,37 @@ impl State {
         (known, contents)
     }
 
+    /// Rescans when the window comes back, and after files settle.
+    ///
+    /// Answers the wait the shell owes a repaint for a settling file.
+    pub fn tick(&mut self, now: f64, focused: bool) -> Option<f64> {
+        // Removals and replacements free store copies; they go now.
+        let swept = self.model.take_swept();
+        if let Some(store) = self.folder.as_ref().map(|f| f.store())
+            && !swept.is_empty()
+        {
+            self.io.send(Job::Delete {
+                store,
+                paths: swept,
+            });
+        }
+        let back = focused && !self.folders.focused;
+        self.folders.focused = focused;
+        let rested = self.folders.last.is_none_or(|t| now - t >= RESCAN_GAP);
+        let watched = self.model.folders().any(|f| f.owes_walk());
+        if back && rested && watched && self.status != Status::Loading {
+            self.rescan(now);
+        }
+        let at = self.folders.settle_at?;
+        match now >= at {
+            true => {
+                self.rescan(now);
+                None
+            }
+            false => Some(at - now),
+        }
+    }
+
     /// Re-checks known files and walks watched folders, quietly.
     pub fn rescan(&mut self, now: f64) {
         if self.status == Status::Loading {
