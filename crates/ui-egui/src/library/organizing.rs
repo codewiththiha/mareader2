@@ -91,7 +91,8 @@ impl LibraryState {
 
     /// A paused run's card shows while nothing else runs or waits.
     fn paused_card(&mut self) {
-        self.runs.finish(self.organizer.paused_card.take());
+        let ended = self.organizer.paused_card.take();
+        self.runs.finish(ended);
         let Some(paused) = self.organizer.paused.as_ref() else {
             return;
         };
@@ -106,8 +107,8 @@ impl LibraryState {
             true => format!("{} to review", counted(paused.books.len(), "book", "books")),
             false => paused.said(),
         };
-        let run = self.runs.start(label, phase);
         let (done, total) = (paused.done, paused.total);
+        let run = self.runs.start(label, phase);
         let name = String::new();
         self.runs.beat(Beat {
             run,
@@ -179,7 +180,8 @@ impl LibraryState {
                 });
             }
             Heard::Plan(plan) => {
-                self.runs.finish(self.organizer.run.take());
+                let ended = self.organizer.run.take();
+                self.runs.finish(ended);
                 if plan.placed.is_empty() {
                     self.organizer_end();
                     let said = "The AI found no shelf that suits these books.";
@@ -208,9 +210,11 @@ impl LibraryState {
 
     /// The run stopped, or its plan was applied or let go: books move again.
     pub fn organizer_end(&mut self) {
-        self.runs.finish(self.organizer.run.take());
+        let ended = self.organizer.run.take();
+        self.runs.finish(ended);
         let paused = self.organizer.paused.take();
-        self.runs.finish(self.organizer.paused_card.take());
+        let ended_card = self.organizer.paused_card.take();
+        self.runs.finish(ended_card);
         self.organizer = Organizer::default();
         // A run that ends frees its books, or they never move again.
         self.state.held.clear();
