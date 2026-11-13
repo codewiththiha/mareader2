@@ -2,7 +2,7 @@
 
 use std::collections::BTreeSet;
 
-use mareader_library::{Book, BookId, Origin, ShelfId};
+use mareader_library::{Book, BookId, ShelfId};
 
 use super::LibraryState;
 use super::runs::{Beat, Phase};
@@ -312,6 +312,8 @@ impl LibraryState {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    use mareader_library::Origin;
 
     /// `copies` imported books, then one read in place.
     fn library(copies: usize) -> LibraryState {
