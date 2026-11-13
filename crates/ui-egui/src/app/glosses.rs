@@ -322,7 +322,7 @@ impl MareaderApp {
         let looking = self.ui.dict.card_word().is_some() || dict.window.open;
         if others && (looking || self.route() == Route::Dictionary) {
             // Copied out first: `list_voices` borrows the reader mutably.
-            self.ui.read_aloud.list_voices(ctx, &aloud_look);
+            self.ui.read_aloud.list_voices(&aloud_look);
         }
         let saying = self.ui.read_aloud.saying();
         let (speakers, offers) = self.ui.read_aloud.speakers(&aloud_look, others);

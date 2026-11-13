@@ -13,7 +13,7 @@ use mareader_workspace::PaneId;
 
 use super::card::Lyrics;
 use super::control::{Act, View};
-use super::{Lit, Span, TICK, follow, place_name};
+use super::{Lit, Span, follow, place_name};
 use crate::documents::{Documents, Reading};
 use mareader_engine::read_aloud::parts::{self, Part};
 
@@ -206,7 +206,7 @@ impl Spoken {
         self.engine = settings.engine.clone();
         self.build = mareader_speech::build_of(&self.engine, settings.build(), shelf);
         self.voice = settings.voice().map(str::to_owned);
-        self.tone = tone(settings);
+        self.tone = mareader_engine::read_aloud::tone(settings);
         self.knobs = settings.knobs();
         let wake = Arc::clone(&self.wake);
         match mareader_speech::open(&self.engine, self.build, shelf, wake) {
@@ -280,7 +280,7 @@ impl Spoken {
             return;
         }
         let voice = settings.voice().map(str::to_owned);
-        let tone = tone(settings);
+        let tone = mareader_engine::read_aloud::tone(settings);
         let Some(v) = self.voicer.as_mut() else {
             return;
         };
@@ -655,7 +655,7 @@ impl Spoken {
         }
         if self.relaid {
             // Nothing more is said until the place is found.
-            ctx.request_repaint_after(TICK);
+            ctx.request_repaint_after(mareader_engine::read_aloud::TICK);
             return true;
         }
         // Paused, a step still fetches the sentence it lands on.
@@ -673,7 +673,7 @@ impl Spoken {
         let Some(reading) = here else {
             self.jump = None;
             if !self.paused && !self.finished {
-                ctx.request_repaint_after(TICK);
+                ctx.request_repaint_after(mareader_engine::read_aloud::TICK);
             }
             return true;
         };
@@ -692,7 +692,7 @@ impl Spoken {
         follow(documents, reading, settings, page, &mut self.followed);
         self.reveal(documents, (reading.pane, clear), settings, turned);
         if !self.paused && !self.finished {
-            ctx.request_repaint_after(TICK);
+            ctx.request_repaint_after(mareader_engine::read_aloud::TICK);
         }
         true
     }
@@ -954,14 +954,6 @@ impl Drop for Spoken {
         if let Some(v) = self.voicer.as_mut() {
             v.stop();
         }
-    }
-}
-
-pub(super) fn tone(settings: &ReadAloudSettings) -> Tone {
-    Tone {
-        rate: settings.rate,
-        pitch: settings.pitch,
-        volume: settings.volume,
     }
 }
 

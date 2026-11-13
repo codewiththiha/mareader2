@@ -240,7 +240,7 @@ impl Desk for Front<'_> {
             &mut self.app.ui.read_aloud.booth,
             &self.app.ui.read_aloud.shelf,
         );
-        booth.try_voice_of(self.ctx, &settings, shelf, voice);
+        booth.try_voice_of(&settings, shelf, voice);
     }
 
     fn stop_voice_try(&mut self) {

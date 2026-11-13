@@ -1,11 +1,27 @@
-//! Reading aloud as rules: which words are lit, and how long is left.
+//! Reading aloud as rules: which words are lit, how long is left, who speaks.
 
+pub mod booth;
 pub mod countdown;
 pub mod parts;
 pub mod words;
 
+use std::time::Duration;
+
 use mareader_session::Anchor;
-use mareader_speech::Spot;
+use mareader_settings::ReadAloudSettings;
+use mareader_speech::{Spot, Tone};
+
+/// How often the lit phrase is checked while it plays.
+pub const TICK: Duration = Duration::from_millis(50);
+
+/// The tone `settings` pick, as a voice hears it.
+pub fn tone(settings: &ReadAloudSettings) -> Tone {
+    Tone {
+        rate: settings.rate,
+        pitch: settings.pitch,
+        volume: settings.volume,
+    }
+}
 
 /// Where reading starts: the place or character under the pointer, or the page.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]

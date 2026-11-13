@@ -20,23 +20,20 @@ use crate::ui_command::{Commands, Sent, UiCommand};
 use crate::{motion, widgets};
 use mareader_engine::command::Command;
 use mareader_engine::dict::Download;
-use mareader_engine::read_aloud::parts;
+use mareader_engine::read_aloud::{ReadFrom, TICK, parts};
 
 mod ask;
-mod booth;
 mod card;
 mod control;
 mod edges;
 pub mod marker;
 mod spoken;
 
-pub use booth::Booth;
 use control::{Act, Fit, View};
 use edges::Resize;
+pub use mareader_engine::read_aloud::booth::Booth;
 use spoken::Spoken;
 
-/// How often the lit phrase is checked while it plays.
-const TICK: Duration = Duration::from_millis(50);
 /// Seconds the player takes to rise into place.
 const APPEAR: f64 = 0.22;
 /// Seconds the pill takes to open into the card, and back.
@@ -73,8 +70,6 @@ pub struct Offer {
 pub struct Lit {
     pub span: Span,
 }
-
-use mareader_engine::read_aloud::ReadFrom;
 
 /// Where the words read are: by place in the book, or on its pages.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -584,6 +579,11 @@ impl ReadAloud {
         settings.engine = mareader_speech::SYSTEM.to_owned();
     }
 
+    pub fn attach_repaint(&mut self, repaint: mareader_engine::repaint::Repaint) {
+        self.booth.attach(repaint.clone());
+        self.word.attach(repaint);
+    }
+
     pub fn active(&self) -> bool {
         self.session.is_some()
     }
@@ -827,7 +827,7 @@ impl ReadAloud {
         settings: &ReadAloudSettings,
         (word, voice): (&str, Option<&str>),
     ) -> Result<(), String> {
-        self.word.open(ctx, &settings.engine, settings, &self.shelf);
+        self.word.open(&settings.engine, settings, &self.shelf);
         self.word.say_as(settings, voice, word);
         self.said_at = ctx.input(|i| i.time);
         if let Some(why) = self.word.fault() {
@@ -915,7 +915,7 @@ impl ReadAloud {
     }
 
     /// Opens a system engine once to list its voices, while none are known.
-    pub fn list_voices(&mut self, ctx: &Context, settings: &ReadAloudSettings) {
+    pub fn list_voices(&mut self, settings: &ReadAloudSettings) {
         let engine = settings.engine.as_str();
         let model = mareader_speech::MODELS.iter().any(|m| m.id == engine);
         let tried = self.listed_once.iter().any(|e| e == engine);
@@ -923,7 +923,7 @@ impl ReadAloud {
             return;
         }
         self.listed_once.push(engine.to_owned());
-        self.word.open(ctx, engine, settings, &self.shelf);
+        self.word.open(engine, settings, &self.shelf);
         self.keep_listing();
     }
 
@@ -1000,7 +1000,7 @@ impl ReadAloud {
         if !self.word.is_open() {
             return;
         }
-        self.word.tick(ctx);
+        self.word.tick();
         if !self.word.trying() {
             self.saying = None;
         }

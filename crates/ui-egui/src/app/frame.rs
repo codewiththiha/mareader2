@@ -26,6 +26,7 @@ impl eframe::App for MareaderApp {
             let waker = Arc::new(move || wake.request_repaint());
             self.ui.page_copy.attach(waker.clone());
             self.session.set_waker(waker);
+            self.ui.read_aloud.attach_repaint(crate::repaint::of(ctx));
         }
         self.restyle(ctx);
     }

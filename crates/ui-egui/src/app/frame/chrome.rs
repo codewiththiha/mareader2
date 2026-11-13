@@ -199,7 +199,7 @@ impl MareaderApp {
 
     pub(super) fn windows(&mut self, ctx: &Context, commands: &mut Commands) {
         let window = self.settings_scope();
-        self.voices_shown(ctx);
+        self.voices_shown();
         let settings = self.settings().clone();
         let voices = crate::settings_window::Voices {
             booth: &self.ui.read_aloud.booth,
