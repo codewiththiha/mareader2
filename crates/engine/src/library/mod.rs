@@ -22,6 +22,7 @@ mod question;
 mod runs;
 mod searching;
 mod seed;
+mod sheeting;
 mod shelving;
 mod state;
 pub use counted::counted;

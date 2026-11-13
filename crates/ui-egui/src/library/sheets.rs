@@ -355,16 +355,6 @@ fn import_note(
 }
 
 impl LibraryState {
-    pub fn sheet(&self) -> Option<&Sheet> {
-        self.sheet.as_ref()
-    }
-
-    /// A sheet or a question is over the page, holding the keys.
-    pub fn sheet_up(&self) -> bool {
-        let review = self.organizer.review().is_some();
-        self.sheet.is_some() || !self.state.asks.is_empty() || review
-    }
-
     /// Does what the page asked; dialogs are the app's.
     pub fn act(&mut self, action: Action, now: f64, out: &mut Commands) {
         match action {
@@ -435,43 +425,4 @@ impl LibraryState {
 }
 
 impl LibraryState {
-    /// The name a book, shelf or link shows now; none once it's gone.
-    pub fn name_of(&self, named: Named) -> Option<String> {
-        let model = &self.model;
-        match named {
-            Named::Book(id) => model.book(id).map(|b| b.title.value.clone()),
-            Named::Shelf(id) => model.shelf(id).map(|s| s.name.value.clone()),
-            Named::Link(id) => model.link(id).map(|l| l.name.value.clone()),
-        }
-    }
-
-    /// Gives it the typed name; a blank one keeps the old.
-    fn rename(&mut self, named: Named, name: &str) {
-        if matches!(self.sheet, Some(Sheet::Rename(_))) {
-            self.close_sheet();
-        }
-        self.renaming = None;
-        let now = mareader_engine::library::wall_ms();
-        match named {
-            Named::Book(id) => {
-                self.model.rename_book(id, name, now);
-            }
-            Named::Shelf(id) => {
-                self.model.rename_shelf(id, name, now).ok();
-            }
-            Named::Link(id) => {
-                self.model.rename_link(id, name, now);
-            }
-        }
-    }
-
-    /// Drops the sheet asking to replace the paused run, if it's up.
-    pub fn close_replace(&mut self) {
-        if matches!(
-            self.sheet,
-            Some(mareader_engine::library::Sheet::Replace(_))
-        ) {
-            self.close_sheet();
-        }
-    }
 }
