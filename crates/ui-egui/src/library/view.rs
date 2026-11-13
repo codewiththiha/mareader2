@@ -106,7 +106,7 @@ pub fn show(ui: &mut Ui, library: &mut LibraryState, view: &View, top: f32, out:
     let paused = library
         .organizer()
         .paused()
-        .map(super::organizing::Paused::short);
+        .map(super::Paused::short);
     let (scope, at) = (library.scope, library.at());
     let picks = library.picks().clone();
     let unfolded = library.unfolded().clone();

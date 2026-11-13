@@ -10,6 +10,7 @@ use mareader_library::{
 mod books;
 mod counted;
 mod duplicating;
+mod filing;
 mod find;
 mod held;
 mod moving;

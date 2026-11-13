@@ -73,7 +73,6 @@ paths = ["crates/animated-icons/src/source.rs", "crates/epub/src/generated.rs"]
 "crates/ui-egui/src/library/asks.rs" = 514
 "crates/ui-egui/src/library/folders.rs" = 726
 "crates/ui-egui/src/library/menus.rs" = 558
-"crates/ui-egui/src/library/organizing.rs" = 763
 "crates/ui-egui/src/library/search.rs" = 745
 "crates/ui-egui/src/library/view.rs" = 1083
 "crates/ui-egui/src/library/view/face.rs" = 513

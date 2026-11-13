@@ -11,7 +11,6 @@ mod io;
 mod living;
 pub(crate) mod menu;
 mod menus;
-pub mod organizing;
 mod remove_alert;
 mod review;
 pub mod runs;
@@ -39,6 +38,7 @@ use mareader_engine::documents::OpenRequest;
 use mareader_engine::library::{Out, State, Status, wall_ms};
 use mareader_engine::toast::Toast;
 use mareader_library::picks::{PickAction, Picks};
+pub use mareader_engine::library::{Ask, Bound, Heard, Paused, Proposal, Spot};
 pub use menu::LIBRARY_VIEW_MENU;
 pub use menus::{Organizer, organize_rows};
 pub use search::{Field, Listing};
@@ -108,6 +108,11 @@ impl LibraryState {
                 Out::Relink(relink) => self.io.send(Job::Relink(relink)),
             }
         }
+    }
+
+    /// What the AI's run reports; the engine's words become the app's.
+    pub fn heard(&mut self, heard: Heard, out: &mut Commands) {
+        self.engine(out, |state, asked| state.heard(heard, asked));
     }
 
     /// Books a filing run holds: they open, but they don't move.

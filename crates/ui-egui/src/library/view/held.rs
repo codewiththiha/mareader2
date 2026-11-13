@@ -7,7 +7,7 @@ use egui::{Color32, CornerRadius, FontId, Pos2, Rect, Response, Ui, pos2};
 use mareader_library::BookId;
 
 use super::{Cx, face, line};
-use crate::library::organizing::{Bound, Proposal};
+use crate::library::{Bound, Proposal};
 use crate::motion;
 use mareader_library::picks::Pick;
 

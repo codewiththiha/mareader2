@@ -276,7 +276,7 @@ fn moved(
 /// A new run would replace the paused one: start over, or carry on?
 fn replace(
     ui: &mut Ui,
-    paused: &super::organizing::Paused,
+    paused: &super::Paused,
     picked: &Option<Vec<mareader_library::BookId>>,
     t: &Tokens,
 ) -> Option<Action> {
@@ -415,7 +415,7 @@ impl LibraryState {
             Action::Pick(action) => self.picks.apply(action),
             Action::Book(action) => self.engine(out, |s, a| s.book_act(action, a)),
             Action::Search(action) => self.search_act(action, now),
-            Action::ApplyOrganized => self.apply_organized(out),
+            Action::ApplyOrganized => self.engine(out, |s, a| s.apply_organized(a)),
             Action::DiscardOrganized | Action::StopOrganizing => self.organizer_end(),
             Action::UndoOrganized(done) => self.undo_organized(&done),
             // Dialogs need the app's files, and the AI its service.
@@ -462,6 +462,16 @@ impl LibraryState {
             Named::Link(id) => {
                 self.model.rename_link(id, name, now);
             }
+        }
+    }
+
+    /// Drops the sheet asking to replace the paused run, if it's up.
+    pub fn close_replace(&mut self) {
+        if matches!(
+            self.sheet,
+            Some(mareader_engine::library::Sheet::Replace(_))
+        ) {
+            self.close_sheet();
         }
     }
 }

@@ -193,7 +193,7 @@ impl MareaderApp {
     }
 
     /// Runs `ask`; a finished paused run needs no model to show its plan.
-    pub(super) fn start_organizing(&mut self, ask: &ui_library::organizing::Ask, resume: bool) {
+    pub(super) fn start_organizing(&mut self, ask: &ui_library::Ask, resume: bool) {
         let ai = &self.settings().ai;
         let ready = resume
             && self
@@ -227,7 +227,7 @@ impl MareaderApp {
     /// The run's news, into the library; an ended run's steps are read back.
     pub(super) fn take_organized(&mut self) {
         let heard = self.ui.ai.organized();
-        use ui_library::organizing::Heard;
+        use ui_library::Heard;
         let over = |h: &Heard| !matches!(h, Heard::Progress { .. });
         let empty = |h: &Heard| matches!(h, Heard::Plan(p) if p.placed.is_empty());
         if heard.iter().any(empty) {

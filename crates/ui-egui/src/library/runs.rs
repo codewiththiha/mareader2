@@ -149,3 +149,77 @@ fn ring(ui: &Ui, centre: Pos2, fraction: Option<f32>, now: f64, t: &Tokens) {
         painter.text(centre, Align2::CENTER_CENTER, percent, font, t.ink);
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    use crate::library::{Heard, LibraryState, Proposal, Spot};
+    use crate::ui_command::UiCommand;
+    use mareader_library::{Book, BookId, Origin};
+
+    /// `copies` imported books, then one read in place.
+    fn library(copies: usize) -> LibraryState {
+        let mut state = LibraryState::default();
+        state.seed_copies(copies);
+        state.seed(1);
+        state
+    }
+
+    /// The imported books, in a steady order.
+    fn ids(state: &LibraryState) -> Vec<BookId> {
+        let model = &state.model;
+        let stored = |b: &&Book| b.home().is_some_and(|l| l.origin == Origin::Store);
+        let mut ids: Vec<BookId> = model.books().filter(stored).map(|b| b.id).collect();
+        ids.sort();
+        ids
+    }
+
+    #[test]
+    fn a_run_holds_its_books_until_its_plan_is_let_go() {
+        let mut state = library(4);
+        let all = ids(&state);
+        state.organizing(all.clone(), "Fast");
+        assert!(!state.held.is_empty());
+        assert!(!state.picks.active(), "a run doesn't start selecting");
+        assert!(state.ask_organize(None).is_err(), "one run at a time");
+        let mut out = Commands::new();
+        let progress = Heard::Progress {
+            filing: true,
+            done: 1,
+            total: 2,
+        };
+        state.heard(progress, &mut out);
+        assert_eq!(state.runs.list().len(), 1);
+        let first = all.first().copied().unwrap_or(BookId(0));
+        let plan = Proposal {
+            shelves: vec![("Poems".into(), None)],
+            placed: vec![(first, Spot::New(0))],
+            left: Vec::new(),
+        };
+        state.heard(Heard::Plan(plan), &mut out);
+        assert!(state.runs.list().is_empty(), "the card goes with the run");
+        assert!(state.organizer().review().is_some());
+        assert!(state.held.contains(&first));
+        state.act(
+            mareader_engine::library::Action::ApplyOrganized,
+            0.0,
+            &mut out,
+        );
+        assert!(state.held.is_empty());
+        assert_eq!(state.model.shelves_of(first).len(), 1);
+        let undo = out.iter().find_map(|c| match c {
+            Sent::Ui(UiCommand::Notify(t)) => t.undo.clone(),
+            _ => None,
+        });
+        let Some(undo) = undo else {
+            panic!("an Undo toast")
+        };
+        let Command::Library(action) = *undo else {
+            panic!("a library undo")
+        };
+        state.act(action, 0.0, &mut out);
+        assert!(state.model.shelves_of(first).is_empty());
+        assert_eq!(state.model.shelves().count(), 0);
+    }
+}

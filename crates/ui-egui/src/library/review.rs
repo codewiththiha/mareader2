@@ -5,7 +5,7 @@ use std::collections::BTreeMap;
 use egui::{Align, Layout, RichText, ScrollArea, Ui, vec2};
 use mareader_library::{BookId, Library};
 
-use super::organizing::{Proposal, Spot};
+use super::{Proposal, Spot};
 use crate::icons::Icon;
 use crate::modal::{buttons, primary, title};
 use crate::theme::{self, Tokens};

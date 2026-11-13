@@ -8,8 +8,8 @@ use mareader_settings::AiSettings;
 use mareader_study::Explainer;
 
 #[cfg(not(target_arch = "wasm32"))]
-use crate::library::organizing::{Ask, Proposal, Spot};
-use crate::library::organizing::{Heard, Paused};
+use crate::library::{Ask, Proposal, Spot};
+use crate::library::{Heard, Paused};
 #[cfg(not(target_arch = "wasm32"))]
 use mareader_engine::toast::Toast;
 
