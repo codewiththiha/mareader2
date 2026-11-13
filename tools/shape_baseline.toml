@@ -90,7 +90,6 @@ paths = ["crates/animated-icons/src/source.rs", "crates/epub/src/generated.rs"]
 "crates/ui-egui/src/settings_window.rs" = 1202
 "crates/ui-egui/src/settings_window/models.rs" = 1070
 "crates/ui-egui/src/settings_window/read_aloud.rs" = 694
-"crates/ui-egui/src/sounds.rs" = 632
 "crates/ui-egui/src/study/marks.rs" = 512
 "crates/ui-egui/src/study/mod.rs" = 1312
 "crates/ui-egui/src/thumbnails/picks.rs" = 520

@@ -46,6 +46,7 @@ pub mod scope;
 pub mod scripts;
 pub mod session;
 pub mod settings;
+pub mod sounds;
 pub mod stable_hash;
 pub mod study;
 pub mod texts;

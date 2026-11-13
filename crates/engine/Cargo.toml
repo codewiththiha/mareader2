@@ -15,6 +15,7 @@ mareader-audio = { workspace = true }
 mareader-cefr = { workspace = true }
 mareader-dict = { workspace = true }
 mareader-epub = { workspace = true }
+mareader-g2p = { workspace = true }
 mareader-library = { workspace = true }
 mareader-pdf = { workspace = true }
 mareader-reflow = { workspace = true }
