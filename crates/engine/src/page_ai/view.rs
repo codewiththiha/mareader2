@@ -9,9 +9,13 @@
 use std::ops::Range;
 use std::sync::Arc;
 
+use mareader_library::{AiTask, PageSpan};
 use mareader_session::{DocId, Document, TextLayer, Typography};
-use mareader_settings::ModelPreset;
+use mareader_settings::{ModelPreset, PageTask};
 use mareader_workspace::PaneId;
+
+use super::extract::{self, Source};
+use super::state::Handle;
 
 /// One pane's document as the page AI sees it, as of last frame.
 #[derive(Clone, Debug)]
@@ -71,4 +75,57 @@ pub trait Views {
 pub trait Models {
     /// How many tasks at once the attached model takes; none without one.
     fn capacity(&self, preset: &ModelPreset) -> Option<u32>;
+
+    /// Starts `task` over `source`'s `pages`; the writer answers as it goes.
+    fn start(
+        &self,
+        task: &AiTask,
+        source: &Source,
+        pages: usize,
+    ) -> Result<Handle, &'static str>;
+}
+
+/// The settings' task a kept task belongs to.
+pub fn page_task(task: &AiTask) -> PageTask {
+    match task {
+        AiTask::Summary | AiTask::Points => PageTask::Summarize,
+        AiTask::Translate { .. } => PageTask::Translate,
+        AiTask::Simplify => PageTask::Simplify,
+    }
+}
+
+/// A book's own pages `from` to `to` as one span of its text.
+pub fn group_span(document: &Document, (from, to): (usize, usize)) -> Option<[[usize; 2]; 2]> {
+    let Document::Epub { book, .. } = document else {
+        return None;
+    };
+    let excerpts: Vec<_> = (from..=to).flat_map(|p| book.base_excerpts(p)).collect();
+    extract::span(&excerpts, book.blocks())
+}
+
+/// Own page `page`'s text, to send or show beside a result.
+pub fn source_of(
+    view: &AiView,
+    documents: &dyn Views,
+    page: usize,
+) -> Result<(Source, PageSpan), &'static str> {
+    match &*view.document {
+        Document::Epub { book, .. } => {
+            let blocks = book.blocks();
+            let span = extract::span(&book.base_excerpts(page), blocks).ok_or("blank")?;
+            let source = extract::book(blocks, span);
+            let [from, to] = span;
+            Ok((source, PageSpan::Blocks { from, to }))
+        }
+        Document::Pdf(_) => {
+            let layer = documents.text_layer(view.doc, page).ok_or("loading")?;
+            let near: Vec<_> = [page.checked_sub(1), Some(page + 1)]
+                .into_iter()
+                .flatten()
+                .filter_map(|p| documents.text_layer(view.doc, p))
+                .collect();
+            let near: Vec<_> = near.iter().map(|l| &l.text).collect();
+            Ok((extract::pdf(&layer.text, &near), PageSpan::Page { page }))
+        }
+    }
 }

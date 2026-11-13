@@ -4,6 +4,7 @@ use mareader_library::{MarkId, Style};
 use mareader_workspace::PaneId;
 
 pub mod asking;
+pub mod loose;
 pub mod words;
 
 /// What the card and the mark menu ask of the app.

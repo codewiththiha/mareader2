@@ -11,8 +11,6 @@ mod restyle;
 
 use std::cell::RefCell;
 use std::collections::HashMap;
-use std::hash::{DefaultHasher, Hash, Hasher};
-use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::mpsc::{Receiver, TryRecvError};
 
@@ -21,9 +19,9 @@ use mareader_appearance::Rgb;
 use mareader_cefr::Role;
 use mareader_engine::session::Waker;
 use mareader_engine::study::asking::{self, Got, Said};
+use mareader_engine::study::loose::{loose_book, loose_content};
 use mareader_library::{
-    BookId, ContentId, DeviceId, Format, Library, Mark, MarkId, MarkKind, Measure, NewMark, Opened,
-    Pen, Spot, Style,
+    BookId, DeviceId, Library, Mark, MarkId, MarkKind, NewMark, Pen, Spot, Style,
 };
 use mareader_settings::{GlossSettings, HighlightSettings};
 use mareader_study::{Explainer, Failure, Unavailable, WordInfo};
@@ -239,33 +237,6 @@ impl Default for Study {
             listed: RefCell::default(),
         }
     }
-}
-
-/// Records session document `name` in `loose`, where its marks are kept.
-pub(crate) fn loose_book(loose: &mut Library, name: &str) -> BookId {
-    let opened = Opened {
-        path: PathBuf::from(format!("session:{name}")),
-        measure: Measure {
-            content: loose_content(name),
-            stamp: Default::default(),
-        },
-        format: Format::Pdf,
-        title: name.to_owned(),
-        author: None,
-    };
-    loose.record_open(opened, 0)
-}
-
-/// Session document `name`'s id in a loose library.
-pub(crate) fn loose_id(name: &str) -> BookId {
-    BookId::original(loose_content(name))
-}
-
-/// A document outside the library, known by its name for the session.
-fn loose_content(name: &str) -> ContentId {
-    let mut h = DefaultHasher::new();
-    name.hash(&mut h);
-    ContentId(u128::from(h.finish()))
 }
 
 impl Study {
@@ -1181,7 +1152,10 @@ fn ink(m: &Mark, look: &HighlightSettings) -> marks::Ink {
 #[cfg(test)]
 #[allow(clippy::unwrap_used, clippy::expect_used)]
 mod tests {
+    use std::path::PathBuf;
+
     use mareader_library::Gloss as MarkGloss;
+    use mareader_library::{ContentId, Format, Measure, Opened};
     use mareader_study::Canned;
 
     use super::*;

@@ -3,100 +3,23 @@
 use egui::Context;
 use mareader_engine::page_ai::read::{self, Read};
 use mareader_engine::session::Waker;
-use mareader_library::{AiTask, BookId, Library};
+use mareader_library::{AiTask, Library};
 use mareader_session::Document;
-use mareader_settings::{AiSettings, ModelPreset, language_name};
 use mareader_workspace::PaneId;
 use std::collections::HashSet;
 use std::sync::Arc;
-use std::sync::mpsc::{Receiver, TryRecvError};
+use std::sync::mpsc::TryRecvError;
 
-use crate::documents::Documents;
 use crate::ui_command::Commands;
 
 use super::paint::{Pill, Ring};
-use super::{Asked, PageAi, Showing, Who, page_task, source_of};
+use super::{Asked, Around, Follow, PageAi, Showing, State, Who, allowance, doing, source_of};
 use mareader_engine::page_ai::Slot;
 
 /// Seconds the page keeps still before the run acts on it.
 const STILL: f64 = 1.2;
 /// Pages past the run's ends that still count as reading it.
 const SLACK: usize = 2;
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum State {
-    Going,
-    /// The reader went far from the run's pages.
-    Away,
-    /// Still, far from them: the pill asks whether to carry on.
-    Asking,
-}
-
-/// A pane's continuous run.
-pub(super) struct Follow {
-    /// The layout its pages are counted in: a book's own.
-    layout: u64,
-    task: AiTask,
-    book: Option<BookId>,
-    name: String,
-    /// Pages asked: from `from` up to, not with, `next`.
-    from: usize,
-    next: usize,
-    /// The page count it was asked in; a new layout starts afresh.
-    pages: usize,
-    /// The page read, and since when its result showed.
-    dwell: Option<(usize, f64)>,
-    dwell_secs: f64,
-    /// The last page whose stay asked more.
-    fired: Option<usize>,
-    /// The page last seen, and since when.
-    seen: (usize, f64),
-    state: State,
-    /// Runs it started, and pages found without text.
-    pub(super) runs: Vec<u64>,
-    blank: HashSet<usize>,
-    reading: Vec<Receiver<Read>>,
-    /// Pages being read off the frame.
-    pending: usize,
-}
-
-/// What a continuous run looks at each frame.
-pub struct Around<'a> {
-    pub main: &'a Library,
-    pub documents: &'a Documents,
-    pub ai: &'a crate::ai::Ai,
-    pub settings: &'a AiSettings,
-}
-
-/// The pill's words for a task: what it does, and its verb.
-pub(super) fn doing(task: &AiTask) -> (String, &'static str) {
-    match task {
-        AiTask::Translate { language } => {
-            let name = language_name(language).unwrap_or(language);
-            (format!("Translating to {name}"), "translating")
-        }
-        AiTask::Simplify => ("Simplifying pages".to_owned(), "simplifying"),
-        AiTask::Summary | AiTask::Points => ("Summarizing pages".to_owned(), "summarizing"),
-    }
-}
-
-/// Pages asked at once: the setting, or fewer if the model has less room.
-fn allowance(ai: &crate::ai::Ai, settings: &AiSettings, task: &AiTask) -> usize {
-    let cap = usize::from(settings.tasks.pages.at_once.max(1));
-    let preset = settings.page_preset(page_task(task));
-    let room = preset.and_then(|p| capacity(ai, p));
-    room.map_or(cap, |r| cap.min(r.max(1) as usize))
-}
-
-#[cfg(not(target_arch = "wasm32"))]
-pub(super) fn capacity(ai: &crate::ai::Ai, p: &ModelPreset) -> Option<u32> {
-    ai.board().map(|b| b.capacity(p))
-}
-
-#[cfg(target_arch = "wasm32")]
-pub(super) fn capacity(_: &crate::ai::Ai, _: &ModelPreset) -> Option<u32> {
-    None
-}
 
 impl PageAi {
     /// Starts the pane's continuous run here; `fresh` rewrites a kept page.

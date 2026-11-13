@@ -4,8 +4,15 @@
 use std::path::PathBuf;
 use std::sync::Arc;
 
+use mareader_engine::page_ai::extract::Source;
+use mareader_engine::page_ai::state::Handle;
 use mareader_engine::page_ai::view::Models;
+use mareader_library::AiTask;
 use mareader_settings::{AiSettings, ModelPreset};
+#[cfg(not(target_arch = "wasm32"))]
+use mareader_engine::page_ai::state::{News, Writing};
+#[cfg(not(target_arch = "wasm32"))]
+use mareader_settings::{SummaryStyle, language_name};
 use mareader_study::Explainer;
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -170,6 +177,49 @@ impl Models for Ai {
     #[cfg(target_arch = "wasm32")]
     fn capacity(&self, _: &ModelPreset) -> Option<u32> {
         None
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    fn start(
+        &self,
+        task: &AiTask,
+        source: &Source,
+        pages: usize,
+    ) -> Result<Handle, &'static str> {
+        let rewrite = match task {
+            AiTask::Summary => mareader_assist::Rewrite::Summarize(SummaryStyle::Paragraphs),
+            AiTask::Points => mareader_assist::Rewrite::Summarize(SummaryStyle::Points),
+            AiTask::Translate { language } => {
+                let name = language_name(language).unwrap_or(language);
+                mareader_assist::Rewrite::Translate(name.to_owned())
+            }
+            AiTask::Simplify => mareader_assist::Rewrite::Simplify,
+        };
+        let job = mareader_assist::PageJob {
+            rewrite,
+            pieces: source.pieces.clone(),
+            pages,
+        };
+        let off = "The AI service couldn't start. Restart the app to try again.";
+        let live = self.rewrite(job).ok_or(off)?;
+        Ok(Handle::Live(Box::new(live)))
+    }
+
+    #[cfg(target_arch = "wasm32")]
+    fn start(&self, _: &AiTask, _: &Source, _: usize) -> Result<Handle, &'static str> {
+        Err("Page AI needs the desktop app.")
+    }
+}
+
+/// The service's own line to its model, as a run reads it.
+#[cfg(not(target_arch = "wasm32"))]
+impl Writing for mareader_assist::Rewriting {
+    fn news(&mut self) -> Vec<News> {
+        let came = mareader_assist::Rewriting::poll(self).into_iter().map(|n| match n {
+            mareader_assist::Rewrote::Partial(r) => News::Partial(r),
+            mareader_assist::Rewrote::Done(r) => News::Done(r),
+        });
+        came.collect()
     }
 }
 

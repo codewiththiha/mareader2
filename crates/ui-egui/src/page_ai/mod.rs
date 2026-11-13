@@ -15,17 +15,25 @@ use mareader_library::{AiPage, AiPageId, AiTask, BookId, Library, NewAiPage, Pag
 use mareader_reflow::{PAGE_WIDTH, Typography};
 use mareader_session::{Anchor, Document, Insert, Inserts, Scale};
 use mareader_settings::{AiSettings, PageTask, SummaryStyle, language_name};
-use mareader_study::page::{Out, Piece, Rewritten};
+use mareader_study::page::Rewritten;
 use mareader_study::{Failure, Why};
 use mareader_workspace::PaneId;
 
 use crate::documents::{AiView, Documents};
 use crate::gpu::Gpu;
 use crate::ui_command::{Commands, Sent, UiCommand};
-pub use follow::Around;
 use mareader_engine::page_ai::extract::{self, Source};
 use mareader_engine::stable_hash::hash;
 use mareader_engine::toast::Toast;
+pub use mareader_engine::page_ai::follow::{Follow, State, allowance, doing};
+pub use mareader_engine::page_ai::groups::{
+    Batch, Group, Read, TRIES, groups, room_for, size_for, span_of,
+};
+pub use mareader_engine::page_ai::state::{
+    Around, Asked, Cover, Drawn, Handle, Index, Key, Loose, News, Run, Showing, Who, canned, poll,
+};
+pub use mareader_engine::page_ai::view::{group_span, page_task, source_of};
+pub use mareader_engine::study::loose::{loose_book, loose_id};
 pub use paint::{Overlay, Pill, PillPress};
 
 /// Seconds a result takes to fade in over its page.
@@ -44,28 +52,6 @@ const MAX_MADE: usize = 64;
 
 use mareader_engine::page_ai::Slot;
 
-/// A page to work on, as the app gathers it.
-pub struct Asked<'a> {
-    pub pane: PaneId,
-    pub page: usize,
-    pub book: Option<BookId>,
-    /// The document's name: a session's results are kept by it.
-    pub name: &'a str,
-    pub documents: &'a Documents,
-    pub ai: &'a crate::ai::Ai,
-    pub settings: &'a AiSettings,
-}
-
-/// Who a run is for, and what it asks with.
-struct Who<'a> {
-    pane: PaneId,
-    layout: u64,
-    book: Option<BookId>,
-    name: &'a str,
-    ai: &'a crate::ai::Ai,
-    settings: &'a AiSettings,
-}
-
 /// What pdf_view draws of the page AI in one pane.
 #[derive(Clone, Default)]
 pub struct PaneAi {
@@ -75,66 +61,8 @@ pub struct PaneAi {
     pub wash: Option<paint::Wash>,
 }
 
-/// A run's line to its writer.
-enum Handle {
-    #[cfg(not(target_arch = "wasm32"))]
-    Live(mareader_assist::Rewriting),
-    /// Tests and shots: the answer, given on the first look.
-    Canned(Option<Rewritten>),
-    /// Tests and shots: the answer as words so far, never done.
-    Held(Option<Rewritten>),
-}
-
-/// A result being written.
-struct Run {
-    id: u64,
-    /// The layout its page is counted in: a book's own pages.
-    layout: u64,
-    page: usize,
-    /// Its last own page: past `page` for a group.
-    last: usize,
-    book: Option<BookId>,
-    name: String,
-    task: AiTask,
-    span: PageSpan,
-    source: Arc<Source>,
-    by: String,
-    handle: Option<Handle>,
-    /// What has come, as last set, and how many times it came.
-    shown: Option<Arc<Rewritten>>,
-    latest: Option<Rewritten>,
-    shown_at: f64,
-    generation: u64,
-    failed: Option<String>,
-    /// The kept result it will replace.
-    redo_of: Option<AiPageId>,
-    /// Turned away by a busy model: its group is asked again.
-    requeue: bool,
-}
-
-/// A pane's layout, and each page's bubbles with their own pages.
-type Drawn = (u64, Vec<(usize, Vec<(Slot, usize)>)>);
-
-/// A pane, a layout and one of its own pages.
-type Key = (PaneId, u64, usize);
-
 /// A result to place: its task, span, words, source and identity.
 type What = (AiTask, PageSpan, Arc<Rewritten>, Option<Arc<Source>>, u64);
-
-/// The result a pane shows over a page, and since when.
-#[derive(Clone, Copy, Debug, PartialEq)]
-struct Showing {
-    slot: Slot,
-    since: f64,
-}
-
-/// A book's results by the page each starts on, for one layout.
-struct Index {
-    key: u64,
-    /// The results' stamp and book it was counted at: unchanged, no recount.
-    stamp: (u64, BookId),
-    pages: Arc<HashMap<usize, Vec<AiPageId>>>,
-}
 
 /// What the page menu shows.
 #[derive(Clone, Debug, PartialEq)]
@@ -177,32 +105,6 @@ struct BubbleMenu {
     page: usize,
     slot: Slot,
     at: Pos2,
-}
-
-/// What a result covers: a book's text, or a PDF's pages, both in.
-#[derive(Clone, Copy, Debug, PartialEq)]
-enum Cover {
-    Text(Anchor, Anchor),
-    Pages(usize, usize),
-}
-
-impl Cover {
-    fn meets(self, other: Self) -> bool {
-        match (self, other) {
-            (Self::Text(a, b), Self::Text(c, d)) => a < d && c < b,
-            (Self::Pages(a, b), Self::Pages(c, d)) => a <= d && c <= b,
-            _ => false,
-        }
-    }
-}
-
-/// Results of documents outside the library, for the session.
-struct Loose(Library);
-
-impl Default for Loose {
-    fn default() -> Self {
-        Self(Library::new(mareader_library::DeviceId(0)))
-    }
 }
 
 /// The page AI's state across panes.
@@ -281,15 +183,6 @@ fn label(task: &AiTask) -> String {
     }
 }
 
-/// The settings' task a kept task belongs to.
-pub fn page_task(task: &AiTask) -> PageTask {
-    match task {
-        AiTask::Summary | AiTask::Points => PageTask::Summarize,
-        AiTask::Translate { .. } => PageTask::Translate,
-        AiTask::Simplify => PageTask::Simplify,
-    }
-}
-
 /// Why a page couldn't be done, in the reader's words.
 fn say(f: &Failure) -> String {
     let why = match f.why {
@@ -329,15 +222,6 @@ fn pages_of(document: &Document, span: &PageSpan) -> Option<(usize, usize)> {
     }
 }
 
-/// A book's own pages `from` to `to` as one span of its text.
-fn group_span(document: &Document, (from, to): (usize, usize)) -> Option<[[usize; 2]; 2]> {
-    let Document::Epub { book, .. } = document else {
-        return None;
-    };
-    let excerpts: Vec<_> = (from..=to).flat_map(|p| book.base_excerpts(p)).collect();
-    extract::span(&excerpts, book.blocks())
-}
-
 /// What a group's page past its result says, as a block to set.
 fn group_note(task: &AiTask, (from, to): (usize, usize)) -> Arc<Vec<mareader_reflow::Block>> {
     use mareader_reflow::{Block, Content, Emphasis, Role, Text};
@@ -375,33 +259,6 @@ fn anchor([block, offset]: [usize; 2]) -> Anchor {
     Anchor { block, offset }
 }
 
-/// Own page `page`'s text, to send or show beside a result.
-fn source_of(
-    view: &AiView,
-    documents: &Documents,
-    page: usize,
-) -> Result<(Source, PageSpan), &'static str> {
-    match &*view.document {
-        Document::Epub { book, .. } => {
-            let blocks = book.blocks();
-            let span = extract::span(&book.base_excerpts(page), blocks).ok_or("blank")?;
-            let source = extract::book(blocks, span);
-            let [from, to] = span;
-            Ok((source, PageSpan::Blocks { from, to }))
-        }
-        Document::Pdf(_) => {
-            let layer = documents.text_layer(view.doc, page).ok_or("loading")?;
-            let near: Vec<_> = [page.checked_sub(1), Some(page + 1)]
-                .into_iter()
-                .flatten()
-                .filter_map(|p| documents.text_layer(view.doc, p))
-                .collect();
-            let near: Vec<_> = near.iter().map(|l| &l.text).collect();
-            Ok((extract::pdf(&layer.text, &near), PageSpan::Page { page }))
-        }
-    }
-}
-
 impl PageAi {
     /// The book's library: the app's, else the session's for `name`.
     fn shelf<'a>(
@@ -413,7 +270,7 @@ impl PageAi {
         match book.filter(|b| main.book(*b).is_some()) {
             Some(id) => (main, id),
             None => {
-                let id = crate::study::loose_book(&mut self.loose.0, name);
+                let id = loose_book(&mut self.loose.0, name);
                 (&mut self.loose.0, id)
             }
         }
@@ -427,7 +284,7 @@ impl PageAi {
     ) -> (&'a Library, BookId) {
         match book.filter(|b| main.book(*b).is_some()) {
             Some(id) => (main, id),
-            None => (&self.loose.0, crate::study::loose_id(name)),
+            None => (&self.loose.0, loose_id(name)),
         }
     }
 
@@ -463,7 +320,7 @@ impl PageAi {
         let handle = match (self.canned, self.held) {
             (_, true) => Handle::Held(Some(canned(&source))),
             (true, false) => Handle::Canned(Some(canned(&source))),
-            (false, false) => start(who.ai, &task, &source, pages)?,
+            (false, false) => who.ai.start(&task, &source, pages)?,
         };
         let preset = who.settings.page_preset(page_task(&task));
         let by = preset.map_or_else(String::new, |p| match p.name.trim() {
@@ -1609,79 +1466,3 @@ impl PageAi {
     }
 }
 
-/// The page's own text in capitals: a stand-in answer.
-fn canned(source: &Source) -> Rewritten {
-    let outs = source
-        .pieces
-        .iter()
-        .enumerate()
-        .map(|(i, piece)| match piece {
-            Piece::Text { role, text, .. } => Out::Text {
-                role: *role,
-                text: text.to_uppercase(),
-                code: Vec::new(),
-                from: Some(i),
-            },
-            Piece::Kept(_) => Out::Kept(i),
-        });
-    Rewritten {
-        outs: outs.collect(),
-        missing: 0,
-    }
-}
-
-/// News from a run.
-enum News {
-    Partial(Rewritten),
-    Done(Result<Rewritten, Failure>),
-}
-
-#[cfg(not(target_arch = "wasm32"))]
-fn start(
-    ai: &crate::ai::Ai,
-    task: &AiTask,
-    source: &Source,
-    pages: usize,
-) -> Result<Handle, &'static str> {
-    let rewrite = match task {
-        AiTask::Summary => mareader_assist::Rewrite::Summarize(SummaryStyle::Paragraphs),
-        AiTask::Points => mareader_assist::Rewrite::Summarize(SummaryStyle::Points),
-        AiTask::Translate { language } => {
-            let name = language_name(language).unwrap_or(language);
-            mareader_assist::Rewrite::Translate(name.to_owned())
-        }
-        AiTask::Simplify => mareader_assist::Rewrite::Simplify,
-    };
-    let job = mareader_assist::PageJob {
-        rewrite,
-        pieces: source.pieces.clone(),
-        pages,
-    };
-    let off = "The AI service couldn't start. Restart the app to try again.";
-    ai.rewrite(job).map(Handle::Live).ok_or(off)
-}
-
-#[cfg(target_arch = "wasm32")]
-fn start(_: &crate::ai::Ai, _: &AiTask, _: &Source, _: usize) -> Result<Handle, &'static str> {
-    Err("Page AI needs the desktop app.")
-}
-
-fn poll(handle: Option<&mut Handle>) -> Vec<News> {
-    match handle {
-        None => Vec::new(),
-        Some(Handle::Canned(answer)) => answer
-            .take()
-            .map(|r| News::Done(Ok(r)))
-            .into_iter()
-            .collect(),
-        Some(Handle::Held(answer)) => answer.take().map(News::Partial).into_iter().collect(),
-        #[cfg(not(target_arch = "wasm32"))]
-        Some(Handle::Live(live)) => {
-            let news = live.poll().into_iter().map(|n| match n {
-                mareader_assist::Rewrote::Partial(r) => News::Partial(r),
-                mareader_assist::Rewrote::Done(r) => News::Done(r),
-            });
-            news.collect()
-        }
-    }
-}
