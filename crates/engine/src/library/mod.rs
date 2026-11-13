@@ -15,12 +15,14 @@ mod held;
 mod moving;
 
 mod question;
+mod runs;
 mod shelving;
 mod state;
 pub use counted::counted;
 pub use find::folder_name;
 pub use moving::listed;
 pub use question::{Kind, Question};
+pub use runs::{Beat, DELAY, Phase, Run, RunId, Runs};
 pub use shelving::Crumb;
 pub use state::{State, Status, wall_ms};
 
