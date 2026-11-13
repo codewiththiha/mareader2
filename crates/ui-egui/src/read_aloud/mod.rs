@@ -1,5 +1,6 @@
 //! Reads a narrated book aloud: its player, the phrase lit, the bar.
 
+use std::ops::Range;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -21,7 +22,7 @@ use crate::ui_command::{Commands, Sent, UiCommand};
 use crate::{motion, widgets};
 use mareader_engine::command::Command;
 use mareader_engine::dict::Download;
-use mareader_engine::read_aloud::place::{follow, place_name};
+use mareader_engine::read_aloud::place::{Panes, Stand, follow, place_name};
 use mareader_engine::read_aloud::{ReadFrom, TICK, parts};
 
 mod ask;
@@ -29,14 +30,14 @@ mod card;
 mod control;
 mod edges;
 pub mod marker;
-mod spoken;
 
 use control::Fit;
 use edges::Resize;
 pub use mareader_engine::read_aloud::booth::Booth;
+use mareader_engine::read_aloud::feed::Start;
 pub use mareader_engine::read_aloud::lit::{Lit, Span};
 use mareader_engine::read_aloud::player::{Act, Lyrics, View};
-use spoken::Spoken;
+use mareader_engine::read_aloud::spoken::Spoken;
 
 /// Seconds the player takes to rise into place.
 const APPEAR: f64 = 0.22;
@@ -326,7 +327,7 @@ impl Session {
     fn ours(&self, reading: &Reading) -> bool {
         match self {
             Self::Narrated(s) => s.ours(reading),
-            Self::Spoken(s) => s.ours(reading),
+            Self::Spoken(s) => s.ours(&reading.stand()),
         }
     }
 
@@ -334,7 +335,7 @@ impl Session {
     fn rehome(&mut self, reading: &Reading) -> bool {
         match self {
             Self::Narrated(s) => s.rehome(reading),
-            Self::Spoken(s) => s.rehome(reading),
+            Self::Spoken(s) => s.rehome(&reading.stand()),
         }
     }
 
@@ -643,21 +644,22 @@ impl ReadAloud {
         // A selection is read just as it is, so by the voice.
         if reading.document.narration().is_none() || until.is_some() {
             let start = match (from, at) {
-                (Some(anchor), _) => spoken::Start::Anchor(anchor),
-                (None, Some(spot)) => spoken::Start::Spot(spot),
-                (None, None) => spoken::Start::Spot(Spot {
+                (Some(anchor), _) => Start::Anchor(anchor),
+                (None, Some(spot)) => Start::Spot(spot),
+                (None, None) => Start::Spot(Spot {
                     page: reading.current,
                     char: 0,
                 }),
             };
+            let stand = reading.stand();
             if let Some(Session::Spoken(s)) = self.session.as_mut()
-                && s.reads(reading)
+                && s.reads(&stand)
             {
-                s.restart(reading, (start, until), (settings, &self.shelf));
+                s.restart(&stand, (start, until), (settings, &self.shelf));
                 return;
             }
             let on = (settings, &self.shelf);
-            let spoken = Spoken::new(ctx, reading, (start, until), on);
+            let spoken = Spoken::new(crate::repaint::of(ctx), &stand, (start, until), on);
             self.session = Some(Session::Spoken(Box::new(spoken)));
             return;
         }
@@ -728,11 +730,12 @@ impl ReadAloud {
         let here = here.filter(|r| session.ours(r));
         self.away = here.is_none();
         let here = here.as_ref();
+        let stand = here.map(Reading::stand);
         let going = match session {
             Session::Narrated(s) => s.tick(ctx, documents, here, settings),
             Session::Spoken(s) => {
                 let rise = self.shape.rise;
-                s.tick(ctx, documents, here, (settings, &self.shelf, rise))
+                s.tick(documents, stand.as_ref(), (settings, &self.shelf, rise))
             }
         };
         if !going {
@@ -1799,6 +1802,30 @@ fn over(paper: [f32; 3], target: [f32; 3]) -> Color32 {
         out
     };
     Color32::from_rgba_unmultiplied(r, g, b, (alpha * 255.0).round() as u8)
+}
+
+/// The reader turns and lights the panes the front end holds.
+impl Panes for Documents {
+    fn go_to(&mut self, pane: PaneId, page: usize) {
+        Documents::go_to(self, pane, page);
+    }
+
+    fn reveal_said(&mut self, pane: PaneId, page: usize, chars: Range<usize>, clear: f32) -> bool {
+        Documents::reveal_said(self, pane, page, chars, clear)
+    }
+}
+
+/// A pane's book, as the reader below the front end sees it.
+impl Reading {
+    /// Where it stands: its pane, its book, and the page showing.
+    pub fn stand(&self) -> Stand {
+        Stand {
+            pane: self.pane,
+            doc: self.doc,
+            document: Arc::clone(&self.document),
+            current: self.current,
+        }
+    }
 }
 
 #[cfg(test)]

@@ -7,6 +7,7 @@ pub mod lit;
 pub mod parts;
 pub mod place;
 pub mod player;
+pub mod spoken;
 pub mod words;
 
 use std::time::Duration;
