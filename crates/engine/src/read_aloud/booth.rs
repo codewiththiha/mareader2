@@ -345,10 +345,12 @@ mod tests {
 
     #[test]
     fn the_tone_is_the_settings_it_came_from() {
-        let mut settings = ReadAloudSettings::default();
-        settings.rate = 1.5;
-        settings.pitch = 0.75;
-        settings.volume = 0.25;
+        let settings = ReadAloudSettings {
+            rate: 1.5,
+            pitch: 0.75,
+            volume: 0.25,
+            ..Default::default()
+        };
         let tone = tone(&settings);
         assert_eq!(tone.rate, settings.rate);
         assert_eq!(tone.pitch, settings.pitch);
