@@ -27,6 +27,7 @@ use crate::theme::Tokens;
 use crate::thumbnails::{self, ThumbState};
 use crate::ui_command::{Commands, Sent, UiCommand};
 use crate::zoom::ZoomState;
+use mareader_engine::memory::give_back;
 use mareader_engine::pane::ZoomCommand;
 use mareader_engine::pane::{Arrow, ViewMode};
 use mareader_engine::paper::Papers;
@@ -42,18 +43,6 @@ const UPLOADS: Budget = Budget {
     items: 8,
     bytes: 16 << 20,
 };
-
-/// What the caches freed at rest goes back to the system, off the frame.
-fn give_back() {
-    #[cfg(not(target_arch = "wasm32"))]
-    let _ = std::thread::Builder::new()
-        .name("give-back".into())
-        .spawn(|| {
-            // Once the GPU's deferred frees have landed.
-            std::thread::sleep(std::time::Duration::from_secs(1));
-            mareader_memory::give_back();
-        });
-}
 
 use mareader_engine::documents::{DocumentPlace, OpenRequest};
 

@@ -17,6 +17,7 @@ mareader-dict = { workspace = true }
 mareader-epub = { workspace = true }
 mareader-g2p = { workspace = true }
 mareader-library = { workspace = true }
+mareader-memory = { workspace = true }
 mareader-pdf = { workspace = true }
 mareader-reflow = { workspace = true }
 mareader-search = { workspace = true }
