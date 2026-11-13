@@ -3639,12 +3639,15 @@ name = "mareader-engine"
 version = "0.0.5"
 dependencies = [
  "mareader-appearance",
+ "mareader-audio",
  "mareader-cefr",
  "mareader-dict",
  "mareader-epub",
+ "mareader-g2p",
  "mareader-library",
  "mareader-pdf",
  "mareader-reflow",
+ "mareader-search",
  "mareader-session",
  "mareader-settings",
  "mareader-speech",
