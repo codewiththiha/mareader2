@@ -8,6 +8,7 @@ use std::collections::{BTreeSet, HashMap, HashSet, VecDeque};
 use std::path::PathBuf;
 
 use mareader_library::disk::Known;
+use mareader_library::gate::Gate;
 use mareader_library::picks::Pick;
 use mareader_library::{
     Asked, Book, BookId, ContentId, FolderId, Found, Options, Origin, Placement, Plan, Planned,
@@ -139,6 +140,33 @@ impl State {
     /// Closes the sheet; a folder dropped meanwhile asks next.
     pub fn close_sheet(&mut self) {
         self.sheet = self.folders.later.pop_front().map(Sheet::Import);
+    }
+
+    /// The import sheet's answer: through the gate, then a walk.
+    pub fn import_folder(
+        &mut self,
+        root: PathBuf,
+        opts: Options,
+        now: f64,
+        out: &mut Vec<Out>,
+    ) {
+        self.close_sheet();
+        self.folders.opts = Some(opts.clone());
+        let root = std::fs::canonicalize(&root).unwrap_or(root);
+        if self.avoid().iter().any(|own| own.starts_with(&root)) {
+            let note = "That folder holds Mareader's own files; choose one inside it.";
+            out.push(Out::Toast(Toast::error(note)));
+            return;
+        }
+        if opts.mode().copies() && self.store().is_none() {
+            let note = "The library has no folder to keep books in.";
+            out.push(Out::Toast(Toast::error(note)));
+            return;
+        }
+        match self.model.gate(&root, &opts) {
+            Gate::Walk { root, plan } => self.walk(root, opts, plan, now),
+            Gate::Clash(clash) => self.asks.push_back(Question::Clash { clash, opts }),
+        }
     }
 
     /// An import's walk, with a card.

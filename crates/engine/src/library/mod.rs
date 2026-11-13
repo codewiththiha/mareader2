@@ -15,6 +15,7 @@ mod find;
 mod folders;
 mod held;
 mod io;
+mod landing;
 mod moving;
 
 mod opening;
@@ -51,8 +52,8 @@ pub struct Relink {
 
 /// What the library asks the shell for, once its own state is settled.
 ///
-/// The engine never calls upward, and its own workers are its own: a note on
-/// screen and a command for the session are what only the window can do.
+/// The engine never calls upward, and its workers are its own: a note on
+/// screen and a command for the session are what only a window can do.
 pub enum Out {
     /// A note for the reader; the front end decides how it looks.
     Toast(crate::toast::Toast),

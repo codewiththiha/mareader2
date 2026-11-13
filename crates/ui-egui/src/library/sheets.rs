@@ -359,11 +359,15 @@ impl LibraryState {
     pub fn act(&mut self, action: Action, now: f64, out: &mut Commands) {
         match action {
             Action::AskFolder(root) => self.ask_folder(root),
-            Action::ImportFolder { root, opts } => self.import_folder(root, opts, now, out),
+            Action::ImportFolder { root, opts } => {
+                self.engine(out, |s, a| s.import_folder(root, opts, now, a))
+            }
             Action::Rescan => self.rescan(now),
-            Action::Answer(answer, all) => self.answer(answer, all, now, out),
+            Action::Answer(answer, all) => self.engine(out, |s, a| s.answer(answer, all, now, a)),
             Action::CancelAsks => self.state.asks.clear(),
-            Action::Restore { folder, content } => self.restore(folder, content, out),
+            Action::Restore { folder, content } => {
+                self.engine(out, |s, a| s.restore(folder, content, a))
+            }
             Action::AskMoved { folder, book } => {
                 self.sheet = Some(Sheet::Moved { folder, book });
             }

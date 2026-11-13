@@ -147,9 +147,9 @@ impl LibraryState {
                     self.model.record_open_as(opened, wall_ms(), probe.book);
                 }
                 News::WriteFailed(e) => out.push(Sent::Ui(UiCommand::Notify(Toast::error(e)))),
-                News::Walked(done) => self.walked(*done, now, out),
-                News::Files(done) => self.measured(*done, now, out),
-                News::Copied(done) => self.copied(*done, now, out),
+                News::Walked(done) => self.engine(out, |s, a| s.walked(*done, now, a)),
+                News::Files(done) => self.engine(out, |s, a| s.measured(*done, now, a)),
+                News::Copied(done) => self.engine(out, |s, a| s.copied(*done, now, a)),
                 News::Checked(gone) => self.checked(&gone),
                 News::Relinked(relink, measured) => {
                     self.engine(out, |s, a| s.relink_measured(relink, measured, a))

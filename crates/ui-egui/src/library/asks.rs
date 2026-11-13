@@ -1,95 +1,16 @@
-//! Questions waiting for the reader: one queue, one sheet, in order.
+//! The question sheet: what each kind asks, and the answers it offers.
 
 use egui::{Button, RichText, Ui};
 use mareader_library::conflict::next_name;
-use mareader_library::gate::{Answered, Clash};
+use mareader_library::gate::Clash;
 use mareader_library::screen::{Answer, FileAsk, Why};
-use mareader_library::{Copied, Entry, Level, Library, MergeAsk, MoveAsk, Options, Placement};
+use mareader_library::{Entry, Level, Library, MergeAsk, MoveAsk, Placement};
 
-use super::LibraryState;
 use crate::modal::title;
 use crate::theme::Tokens;
-use crate::ui_command::{Commands, Sent, UiCommand};
+use mareader_engine::library::Action;
 use mareader_engine::library::counted;
-use mareader_engine::library::{Action, wall_ms};
-use mareader_engine::toast::Toast;
-use mareader_library::picks::Pick;
-
 use mareader_engine::library::{Kind, Question};
-impl LibraryState {
-    /// The front question answered; `all` answers its kind behind it.
-    pub(super) fn answer(&mut self, answer: Placement, all: bool, now: f64, out: &mut Commands) {
-        let Some(first) = self.state.asks.pop_front() else {
-            return;
-        };
-        let kind = first.kind();
-        let mut batch = vec![first];
-        if all && matches!(kind, Kind::Held | Kind::Merge) {
-            while self.state.asks.front().is_some_and(|q| q.kind() == kind) {
-                batch.extend(self.state.asks.pop_front());
-            }
-        }
-        for question in batch {
-            if !question.offers().contains(&answer) {
-                continue;
-            }
-            match question {
-                Question::Clash { clash, opts } => {
-                    self.answer_clash(&clash, opts, answer, now, out)
-                }
-                q if q.copies(answer, &self.model) => self.copy_for(q, answer, out),
-                q => self.write_answer(q, answer, None, now, out),
-            }
-        }
-    }
-
-    fn answer_clash(
-        &mut self,
-        clash: &Clash,
-        opts: Options,
-        answer: Placement,
-        now: f64,
-        out: &mut Commands,
-    ) {
-        match self.model.answer_clash(clash, answer, wall_ms()) {
-            Answered::Done(Some(shelf)) if answer == Placement::LinkOnly => {
-                let name = self.model.shelf(shelf).map(|s| s.name.value.clone());
-                let note = format!("Linked to “{}”.", name.unwrap_or_default());
-                out.push(Sent::Ui(UiCommand::Notify(Toast::info(note))));
-            }
-            Answered::Done(Some(shelf)) => self.reveal(Pick::Shelf(shelf), now),
-            Answered::Done(None) => {}
-            Answered::Walk { root, plan } => self.walk(root, opts, plan, now),
-        }
-    }
-
-    /// Writes a file's or a merge's answer, its copy made if owed.
-    pub(super) fn write_answer(
-        &mut self,
-        question: Question,
-        answer: Placement,
-        copy: Option<&Copied>,
-        now: f64,
-        out: &mut Commands,
-    ) {
-        let wall = wall_ms();
-        let answered = match &question {
-            Question::Clash { .. } => return,
-            Question::File(ask) => self.model.answer_file(ask, answer, copy, wall),
-            Question::Merge(ask) => self.model.answer_merge(ask, answer, copy, wall),
-            Question::Move(ask) => self.model.answer_move(ask, answer, wall),
-        };
-        match answered {
-            Answer::Reveal(Entry::Book(id)) => self.reveal(Pick::Book(id), now),
-            Answer::Reveal(Entry::Link(id)) => self.reveal(Pick::Link(id), now),
-            Answer::Nothing if copy.is_none() && question.copies(answer, &self.model) => {
-                let note = "The copy couldn't be made, so nothing changed.";
-                out.push(Sent::Ui(UiCommand::Notify(Toast::error(note))));
-            }
-            Answer::Landed(_) | Answer::Linked | Answer::Nothing => {}
-        }
-    }
-}
 
 /// The front question's sheet; Cancel leaves every waiting one.
 pub fn show(ui: &mut Ui, model: &Library, asks: &[&Question], t: &Tokens) -> Option<Action> {

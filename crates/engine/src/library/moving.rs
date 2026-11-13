@@ -3,7 +3,7 @@
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
-use mareader_library::{BookId, Copied, Data, Found, LinkId, Move, Moved, ShelfId};
+use mareader_library::{BookId, Copied, Data, Found, LinkId, Move, Moved, Placement, ShelfId};
 
 use super::Out;
 use super::Question;
@@ -101,6 +101,24 @@ impl State {
         };
         let tag = self.tag(Pending::Duplicate(picks));
         let run = None;
+        self.io.send(Job::Copy(Box::new(CopyIn {
+            tag,
+            run,
+            store,
+            files,
+        })));
+    }
+
+    /// Copies an answer's file first, then writes the answer.
+    pub fn copy_for(&mut self, question: Question, answer: Placement, out: &mut Vec<Out>) {
+        let (Some(store), Some(found)) = (self.store(), question.found().cloned()) else {
+            let note = "The library has no folder to keep books in.";
+            out.push(Out::Toast(Toast::error(note)));
+            return;
+        };
+        let tag = self.tag(Pending::Keep(Box::new(question), answer));
+        let files = vec![found];
+        let (run, store) = (None, store);
         self.io.send(Job::Copy(Box::new(CopyIn {
             tag,
             run,
