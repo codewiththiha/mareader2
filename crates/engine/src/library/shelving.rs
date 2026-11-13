@@ -164,7 +164,7 @@ impl State {
                 let at = at.filter(|&id| self.model.shelf(id).is_some());
                 // Into a shelf the search found: that search is done.
                 if self.goes_down(at) {
-                    out.push(Out::ClearSearch);
+                    self.search.clear();
                 }
                 if self.at != at {
                     self.unfolded.clear();
@@ -176,7 +176,7 @@ impl State {
             }
             ShelfAction::New => {
                 if let Ok(id) = self.model.create_shelf(NEW_SHELF, self.at, now) {
-                    out.push(Out::ClearSearch);
+                    self.search.clear();
                     self.at = Some(id);
                     self.scope = Scope::All;
                 }

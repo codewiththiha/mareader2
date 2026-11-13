@@ -48,7 +48,7 @@ impl State {
                 );
                 out.push(Out::Toast(Toast::info(note)));
             }
-            BookAction::Import { paths, to } => out.push(Out::Import { paths, to }),
+            BookAction::Import { paths, to } => self.import_files(paths, to, out),
             BookAction::ShelveTogether(picks) => {
                 let picks = self.unheld_picks(picks, out);
                 if !picks.is_empty() {

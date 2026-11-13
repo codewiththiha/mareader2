@@ -71,23 +71,6 @@ impl LibraryState {
             match ask {
                 Out::Toast(toast) => out.push(Sent::Ui(UiCommand::Notify(toast))),
                 Out::Command(command) => out.push(Sent::Engine(command)),
-                Out::ClearSearch => {
-                    self.search.clear();
-                }
-                Out::Import { paths, to } => self.import_files(paths, to, out),
-                Out::Copy { work, files } => self.copy_out(Box::new(work), files, out),
-                Out::CopyTwins { picks, files } => self.copy_to_duplicate(picks, files, out),
-                Out::Seek { book, folder } => {
-                    let sought = self.state.sought(book);
-                    if let Some(sought) = sought {
-                        self.io.send(Job::Seek {
-                            book,
-                            folder,
-                            sought,
-                        });
-                    }
-                }
-                Out::Relink(relink) => self.io.send(Job::Relink(relink)),
             }
         }
     }

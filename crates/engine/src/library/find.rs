@@ -5,7 +5,7 @@ use std::path::Path;
 use mareader_library::disk::{FoundAgain, Sought};
 use mareader_library::{BookId, Format, Measure, RelinkError};
 
-use super::{Action, Out, Relink, Sheet, State};
+use super::{Action, Job, Out, Relink, Sheet, State};
 use crate::command::Command;
 
 pub use super::{Finding, Step};
@@ -22,7 +22,7 @@ impl State {
                 let path = std::fs::canonicalize(&path).unwrap_or(path);
                 self.finding(book, Step::Working("Checking the file…".into()));
                 let force = false;
-                out.push(Out::Relink(Relink { book, path, force }));
+                self.io.send(Job::Relink(Relink { book, path, force }));
             }
             Action::UseAnyway(book) => {
                 if let Some(Step::Differs {
@@ -36,12 +36,12 @@ impl State {
                 }
             }
             Action::Seek { book, folder } => {
-                if self.sought(book).is_none() {
+                let Some(sought) = self.sought(book) else {
                     return;
-                }
+                };
                 let name = folder_name(&folder);
                 self.finding(book, Step::Working(format!("Looking in “{name}”…")));
-                out.push(Out::Seek { book, folder });
+                self.io.send(Job::Seek { book, folder, sought });
             }
             _ => {}
         }
@@ -162,4 +162,9 @@ impl State {
 pub fn folder_name(folder: &Path) -> String {
     let name = folder.file_name().map(|n| n.to_string_lossy().into_owned());
     name.unwrap_or_else(|| folder.display().to_string())
+}
+
+pub fn file_name(path: &Path) -> String {
+    let name = path.file_name().map(|n| n.to_string_lossy().into_owned());
+    name.unwrap_or_else(|| path.display().to_string())
 }

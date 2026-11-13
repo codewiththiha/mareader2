@@ -3,8 +3,8 @@
 use std::path::PathBuf;
 
 use mareader_library::{
-    BookId, ContentId, Departure, Design, FolderId, Format, Found, Item, Library, LinkId, Measure,
-    Move, Options, Placement, ShelfId, Target,
+    BookId, ContentId, Departure, Design, FolderId, Format, Item, Library, LinkId, Measure, Move,
+    Options, Placement, ShelfId, Target,
 };
 
 mod books;
@@ -27,7 +27,7 @@ mod sheeting;
 mod shelving;
 mod state;
 pub use counted::counted;
-pub use find::folder_name;
+pub use find::{file_name, folder_name};
 pub use folders::{Folders, Going, Pending, RESCAN_GAP, SETTLE_WAIT, Screening, offline};
 pub use io::{Copies, CopyIn, Files, Io, Job, Measured, News, Probe, Tag, Walk, Walked};
 pub use moving::listed;
@@ -51,28 +51,13 @@ pub struct Relink {
 
 /// What the library asks the shell for, once its own state is settled.
 ///
-/// The engine never calls upward: work that belongs to the window - a file
-/// dialog, a worker, a note on screen - comes back out as one of these.
+/// The engine never calls upward, and its own workers are its own: a note on
+/// screen and a command for the session are what only the window can do.
 pub enum Out {
     /// A note for the reader; the front end decides how it looks.
     Toast(crate::toast::Toast),
     /// An command for the session to run.
     Command(crate::command::Command),
-    /// Brings `paths` in, landing them in `to` (none: the top level).
-    Import {
-        paths: Vec<PathBuf>,
-        to: Option<ShelfId>,
-    },
-    /// Copies `files` into the store, then `work` goes ahead.
-    Copy { work: CopyWork, files: Vec<Found> },
-    /// Copies `files` into the store, then makes twins of `picks`.
-    CopyTwins { picks: Vec<Pick>, files: Vec<Found> },
-    /// Looks for `book`'s file again, under `folder`.
-    Seek { book: BookId, folder: PathBuf },
-    /// Points `book` at the file at `path`.
-    Relink(Relink),
-    /// The search is over: what it found is being left behind.
-    ClearSearch,
 }
 
 /// Books, shelves and links picked on the page: the library's own item.

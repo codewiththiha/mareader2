@@ -15,9 +15,10 @@ use mareader_library::{
 };
 
 use super::{
-    CopyWork, Job, Phase, Question, RunId, Sheet, State, Status, Tag, Walk, Walked, folder_name,
-    wall_ms,
+    CopyWork, Files, Job, Out, Phase, Question, RunId, Sheet, State, Status, Tag, Walk, Walked,
+    file_name, folder_name, wall_ms,
 };
+use crate::toast::Toast;
 
 /// Seconds between rescans when the window keeps regaining focus.
 pub const RESCAN_GAP: f64 = 2.0;
@@ -241,6 +242,32 @@ impl State {
         if self.folders.walking.is_empty() && std::mem::take(&mut self.folders.again) {
             self.rescan(now);
         }
+    }
+
+    /// Files picked or dropped: folders ask, files are measured.
+    pub fn import_files(&mut self, paths: Vec<PathBuf>, to: Option<ShelfId>, out: &mut Vec<Out>) {
+        let (dirs, files): (Vec<PathBuf>, Vec<PathBuf>) =
+            paths.into_iter().partition(|p| p.is_dir());
+        for dir in dirs {
+            self.ask_folder(dir);
+        }
+        if files.is_empty() {
+            return;
+        }
+        if self.store().is_none() {
+            let note = "The library has no folder to keep books in.";
+            out.push(Out::Toast(Toast::error(note)));
+            return;
+        }
+        let label = match files.as_slice() {
+            [one] => file_name(one),
+            many => format!("{} files", many.len()),
+        };
+        let run = Some(self.runs.start(label, Phase::Reading));
+        let tag = self.tag(Pending::Files(to, run));
+        let paths = files;
+        self.io
+            .send(Job::Files(Box::new(Files { tag, run, paths })));
     }
 
     /// A moved book shown on the open folder shelf too.

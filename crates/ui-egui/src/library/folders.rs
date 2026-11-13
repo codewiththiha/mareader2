@@ -1,7 +1,7 @@
 //! Folder runs: imports, quiet rescans, loose files and restores.
 
 use std::collections::HashMap;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 use egui::Context;
 use mareader_library::gate::Gate;
@@ -12,10 +12,11 @@ use mareader_library::{
 use super::LibraryState;
 use super::runs::{Phase, RunId};
 use crate::ui_command::{Commands, Sent, UiCommand};
+use mareader_engine::library::Question;
+use mareader_engine::library::file_name;
 use mareader_engine::library::folder_name;
 pub use mareader_engine::library::offline;
 use mareader_engine::library::{Copies, CopyIn, Files, Job, Measured, Walk, Walked};
-use mareader_engine::library::{CopyWork, Question};
 use mareader_engine::library::{Going, Pending, RESCAN_GAP, SETTLE_WAIT, Screening};
 use mareader_engine::library::{Sheet, Status, wall_ms};
 use mareader_engine::toast::Toast;
@@ -203,45 +204,6 @@ impl LibraryState {
         }
     }
 
-    /// Copies books read in place, then finishes the gesture.
-    pub(super) fn copy_out(&mut self, work: Box<CopyWork>, files: Vec<Found>, out: &mut Commands) {
-        let Some(store) = self.store() else {
-            let note = "The library has no folder to keep books in.";
-            out.push(Sent::Ui(UiCommand::Notify(Toast::error(note))));
-            return;
-        };
-        let tag = self.tag(Pending::Depart(work));
-        let run = None;
-        self.io.send(Job::Copy(Box::new(CopyIn {
-            tag,
-            run,
-            store,
-            files,
-        })));
-    }
-
-    /// Copies the books a duplicate wants, then makes the duplicates.
-    pub(super) fn copy_to_duplicate(
-        &mut self,
-        picks: Vec<Pick>,
-        files: Vec<Found>,
-        out: &mut Commands,
-    ) {
-        let Some(store) = self.store() else {
-            let note = "The library has no folder to keep books in.";
-            out.push(Sent::Ui(UiCommand::Notify(Toast::error(note))));
-            return;
-        };
-        let tag = self.tag(Pending::Duplicate(picks));
-        let run = None;
-        self.io.send(Job::Copy(Box::new(CopyIn {
-            tag,
-            run,
-            store,
-            files,
-        })));
-    }
-
     /// Copies an answer's file first, then writes the answer.
     pub(super) fn copy_for(&mut self, question: Question, answer: Placement, out: &mut Commands) {
         let (Some(store), Some(found)) = (self.store(), question.found().cloned()) else {
@@ -258,37 +220,6 @@ impl LibraryState {
             store,
             files,
         })));
-    }
-
-    /// Files picked or dropped: folders ask, files are measured.
-    pub(super) fn import_files(
-        &mut self,
-        paths: Vec<PathBuf>,
-        to: Option<ShelfId>,
-        out: &mut Commands,
-    ) {
-        let (dirs, files): (Vec<PathBuf>, Vec<PathBuf>) =
-            paths.into_iter().partition(|p| p.is_dir());
-        for dir in dirs {
-            self.ask_folder(dir);
-        }
-        if files.is_empty() {
-            return;
-        }
-        if self.store().is_none() {
-            let note = "The library has no folder to keep books in.";
-            out.push(Sent::Ui(UiCommand::Notify(Toast::error(note))));
-            return;
-        }
-        let label = match files.as_slice() {
-            [one] => file_name(one),
-            many => format!("{} files", many.len()),
-        };
-        let run = Some(self.runs.start(label, Phase::Reading));
-        let tag = self.tag(Pending::Files(to, run));
-        let paths = files;
-        self.io
-            .send(Job::Files(Box::new(Files { tag, run, paths })));
     }
 
     pub(super) fn measured(&mut self, done: Measured, now: f64, out: &mut Commands) {
@@ -475,9 +406,4 @@ fn landed_note(name: &str, landed: &Landed, found: usize, waiting: usize) -> Str
         1 => format!("{said} 1 waits for your choice."),
         n => format!("{said} {n} wait for your choice."),
     }
-}
-
-fn file_name(path: &Path) -> String {
-    let name = path.file_name().map(|n| n.to_string_lossy().into_owned());
-    name.unwrap_or_else(|| path.display().to_string())
 }

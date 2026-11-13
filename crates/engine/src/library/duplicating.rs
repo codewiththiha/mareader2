@@ -22,7 +22,7 @@ impl State {
         match files.is_empty() {
             // Shelf links and empty shelves copy no bytes.
             true => self.duplicated(&picks, &HashMap::new(), out),
-            false => out.push(Out::CopyTwins { picks, files }),
+            false => self.copy_to_duplicate(picks, files, out),
         }
     }
 

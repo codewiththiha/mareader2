@@ -8,7 +8,7 @@ use mareader_library::{BookId, Copied, Data, Found, LinkId, Move, Moved, ShelfId
 use super::Out;
 use super::Question;
 use super::books::counted;
-use super::{PickAction, Sheet, State, wall_ms};
+use super::{CopyIn, Job, Pending, Pick, PickAction, Sheet, State, wall_ms};
 use crate::command::Command;
 use crate::toast::Toast;
 
@@ -71,8 +71,42 @@ impl State {
         let files: Vec<Found> = books.iter().filter_map(|b| self.found_of(*b)).collect();
         match files.is_empty() {
             true => self.departed(work, &HashMap::new(), out),
-            false => out.push(Out::Copy { work: *work, files }),
+            false => self.copy_out(work, files, out),
         }
+    }
+
+    /// Copies books read in place, then finishes the gesture.
+    pub fn copy_out(&mut self, work: Box<CopyWork>, files: Vec<Found>, out: &mut Vec<Out>) {
+        let Some(store) = self.store() else {
+            let note = "The library has no folder to keep books in.";
+            out.push(Out::Toast(Toast::error(note)));
+            return;
+        };
+        let tag = self.tag(Pending::Depart(work));
+        let run = None;
+        self.io.send(Job::Copy(Box::new(CopyIn {
+            tag,
+            run,
+            store,
+            files,
+        })));
+    }
+
+    /// Copies the books a duplicate wants, then makes the duplicates.
+    pub fn copy_to_duplicate(&mut self, picks: Vec<Pick>, files: Vec<Found>, out: &mut Vec<Out>) {
+        let Some(store) = self.store() else {
+            let note = "The library has no folder to keep books in.";
+            out.push(Out::Toast(Toast::error(note)));
+            return;
+        };
+        let tag = self.tag(Pending::Duplicate(picks));
+        let run = None;
+        self.io.send(Job::Copy(Box::new(CopyIn {
+            tag,
+            run,
+            store,
+            files,
+        })));
     }
 
     /// A book as the copier takes it: its file read in place.
