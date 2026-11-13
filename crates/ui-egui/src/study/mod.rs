@@ -14,12 +14,13 @@ use std::collections::HashMap;
 use std::hash::{DefaultHasher, Hash, Hasher};
 use std::path::PathBuf;
 use std::sync::Arc;
-use std::sync::mpsc::{Receiver, TryRecvError, channel};
+use std::sync::mpsc::{Receiver, TryRecvError};
 
 use egui::{Context, Pos2, Rect};
 use mareader_appearance::Rgb;
 use mareader_cefr::Role;
-use mareader_library::Gloss as MarkGloss;
+use mareader_engine::session::Waker;
+use mareader_engine::study::asking::{self, Got, Said};
 use mareader_library::{
     BookId, ContentId, DeviceId, Format, Library, Mark, MarkId, MarkKind, Measure, NewMark, Opened,
     Pen, Spot, Style,
@@ -170,45 +171,6 @@ struct Note {
     placeholder: bool,
     /// Frames left to give the field focus, as the card measures first.
     focus: u8,
-}
-
-/// What a worker sends back: the answer so far, then the end.
-enum Got {
-    Partial(WordInfo),
-    Done(Result<Said, Failure>),
-}
-
-/// A finished answer and who gave it.
-#[derive(Clone, Debug, PartialEq)]
-struct Said {
-    info: WordInfo,
-    by: String,
-}
-
-impl Said {
-    fn of(mark: &Mark) -> Option<Self> {
-        let g = mark.gloss.value.as_ref()?;
-        let info = WordInfo {
-            pos: g.pos.clone(),
-            meaning: g.meaning.clone(),
-            synonyms: g.synonyms.clone(),
-            usages: g.usages.clone(),
-        };
-        Some(Self {
-            info,
-            by: g.by.clone(),
-        })
-    }
-
-    fn gloss(&self) -> MarkGloss {
-        MarkGloss {
-            pos: self.info.pos.clone(),
-            meaning: self.info.meaning.clone(),
-            synonyms: self.info.synonyms.clone(),
-            usages: self.info.usages.clone(),
-            by: self.by.clone(),
-        }
-    }
 }
 
 /// Answers, the open card and menu, and marks kept by no library.
@@ -680,21 +642,9 @@ impl Study {
             }
             return;
         }
-        let (tx, rx) = channel();
-        let (word, context, ctx) = (word.to_owned(), context.to_owned(), ctx.clone());
-        std::thread::spawn(move || {
-            let partial = |info| {
-                let _ = tx.send(Got::Partial(info));
-                ctx.request_repaint();
-            };
-            let done = explainer.explain(&word, &context, &partial);
-            let said = done.map(|i| Said {
-                info: i.clamped(),
-                by,
-            });
-            let _ = tx.send(Got::Done(said));
-            ctx.request_repaint();
-        });
+        let ctx = ctx.clone();
+        let wake: Waker = Arc::new(move || ctx.request_repaint());
+        let rx = asking::ask(wake, explainer, by, word.to_owned(), context.to_owned());
         self.asking.insert(key, rx);
     }
 
@@ -1231,6 +1181,7 @@ fn ink(m: &Mark, look: &HighlightSettings) -> marks::Ink {
 #[cfg(test)]
 #[allow(clippy::unwrap_used, clippy::expect_used)]
 mod tests {
+    use mareader_library::Gloss as MarkGloss;
     use mareader_study::Canned;
 
     use super::*;
