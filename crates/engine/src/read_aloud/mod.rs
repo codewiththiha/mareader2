@@ -3,7 +3,9 @@
 pub mod booth;
 pub mod countdown;
 pub mod feed;
+pub mod lit;
 pub mod parts;
+pub mod player;
 pub mod words;
 
 use std::time::Duration;

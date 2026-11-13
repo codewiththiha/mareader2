@@ -9,6 +9,7 @@ use egui::{
     Color32, CornerRadius, CursorIcon, FontId, Galley, Mesh, Pos2, Rect, Sense, Shadow, Stroke, Ui,
     pos2, vec2,
 };
+use mareader_engine::read_aloud::player::Lyrics;
 
 use crate::icons::Icon;
 use crate::theme::{self, Tokens};
@@ -33,22 +34,6 @@ pub(super) const LABEL: &str = "Show where it's reading";
 /// The compact line's type size, and seconds a new sentence takes to rise.
 const COMPACT_SIZE: f32 = 15.0;
 const ENTER: f64 = 0.3;
-
-/// The sentences round the one said, and which of its words are lit.
-#[derive(Clone, Debug, PartialEq)]
-pub(super) struct Lyrics {
-    pub before: Option<String>,
-    pub now: String,
-    /// Each word's bytes in `now`.
-    pub words: Vec<Range<usize>>,
-    /// The words lit, by index.
-    pub lit: Range<usize>,
-    pub preferred: Range<usize>,
-    pub heard: usize,
-    pub after: Option<String>,
-    /// Tells one sentence from the next.
-    pub key: u64,
-}
 
 /// What the card says about the book.
 pub(super) struct About<'a> {

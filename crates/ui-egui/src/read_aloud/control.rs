@@ -10,7 +10,7 @@ use egui::{
     UiBuilder, pos2, vec2,
 };
 use mareader_audio::RATES;
-use mareader_engine::{command::Command, read_aloud::parts::Kind};
+use mareader_engine::{command::Command, read_aloud::parts::Kind, read_aloud::player::{Act, View}};
 use mareader_settings::{Highlight, Player, ReadAloudSettings};
 
 /// The pill's height, and its buttons'.
@@ -25,51 +25,6 @@ const TRACK_LEAST: f32 = 56.0;
 const TRACK_EASY: f32 = 110.0;
 const TIME_W: f32 = 66.0;
 const SPEED_W: f32 = 54.0;
-
-/// What the player shows this frame.
-pub(super) struct View<'a> {
-    pub playing: bool,
-    /// The voice is there to play with.
-    pub ready: bool,
-    pub loading: bool,
-    pub back: bool,
-    pub next: bool,
-    /// What a step moves by: "sentence" or "phrase".
-    pub unit: &'static str,
-    /// The part read in that can be left: a table, list, figure or aside.
-    pub escape: Option<Kind>,
-    /// The part reading holds at to ask about.
-    pub ask: Option<Kind>,
-    /// How much is read, 0 to 1, and seconds likely left and in all.
-    pub at: Option<f32>,
-    pub left: Option<f64>,
-    pub total: Option<f64>,
-    pub seek: bool,
-    /// A fault, or the end; shown in place of the track.
-    pub note: Option<(String, bool)>,
-    /// Where a share of the track lands, as a page and chapter.
-    pub hint: &'a dyn Fn(f32) -> Option<String>,
-    /// Narrated books skip their notes.
-    pub narrated: bool,
-}
-
-/// What the player was asked.
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub(super) enum Act {
-    Back,
-    Toggle,
-    Next,
-    Escape,
-    /// The part asked about: read it, or pass it over.
-    Answer(bool),
-    /// To this share of the track.
-    Seek(f32),
-    Stop,
-    /// The card, or the pill.
-    Card(bool),
-    /// Back to the words read, in their pane.
-    Reveal,
-}
 
 /// Which parts fit: the track always, the time and speed when room allows.
 #[derive(Clone, Copy, Debug, PartialEq)]

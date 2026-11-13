@@ -30,9 +30,11 @@ mod edges;
 pub mod marker;
 mod spoken;
 
-use control::{Act, Fit, View};
+use control::Fit;
 use edges::Resize;
 pub use mareader_engine::read_aloud::booth::Booth;
+pub use mareader_engine::read_aloud::lit::{Lit, Span};
+use mareader_engine::read_aloud::player::{Act, Lyrics, View};
 use spoken::Spoken;
 
 /// Seconds the player takes to rise into place.
@@ -64,19 +66,6 @@ pub struct Offer {
     pub model: &'static mareader_speech::Model,
     /// Its full tag, as the model's voices name it: `fr-FR`.
     pub tag: &'static str,
-}
-
-/// The words being read, to paint in their pane.
-#[derive(Clone, Debug, PartialEq)]
-pub struct Lit {
-    pub span: Span,
-}
-
-/// Where the words read are: by place in the book, or on its pages.
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub enum Span {
-    Anchors { start: Anchor, end: Anchor },
-    Chars { start: Spot, end: Spot },
 }
 
 /// A narrated book being read aloud in one pane: its own recordings.
@@ -395,7 +384,7 @@ impl Session {
         }
     }
 
-    fn lyrics(&self) -> Option<card::Lyrics> {
+    fn lyrics(&self) -> Option<Lyrics> {
         match self {
             Self::Narrated(_) => None,
             Self::Spoken(s) => s.lyrics(),
@@ -1193,7 +1182,7 @@ impl ReadAloud {
                 rate: settings.rate,
             };
             let left = shape.countdown.show(estimate, now);
-            let view = control::View { left, ..view };
+            let view = View { left, ..view };
             let about = s.about(stage.title);
             let lyrics = s.lyrics();
             // Compact grows up from the bar; full widens into a card.
@@ -1531,7 +1520,7 @@ fn orb_rect(room: Rect, obstacle: Rect, toast: Option<Rect>) -> Rect {
         .unwrap_or(Rect::from_min_size(room.min, size))
 }
 
-fn fit_orb_text(lyrics: &card::Lyrics, mut fits: impl FnMut(&str) -> bool) -> &str {
+fn fit_orb_text(lyrics: &Lyrics, mut fits: impl FnMut(&str) -> bool) -> &str {
     let get = |range: &std::ops::Range<usize>| {
         let first = lyrics.words.get(range.start)?;
         let last = lyrics.words.get(range.end.checked_sub(1)?)?;
@@ -1551,7 +1540,7 @@ fn fit_orb_text(lyrics: &card::Lyrics, mut fits: impl FnMut(&str) -> bool) -> &s
     get(&word).unwrap_or(lyrics.now.as_str())
 }
 
-fn show_orb(ctx: &Context, rect: Rect, view: &View<'_>, lyrics: Option<&card::Lyrics>) -> bool {
+fn show_orb(ctx: &Context, rect: Rect, view: &View<'_>, lyrics: Option<&Lyrics>) -> bool {
     egui::Area::new(Id::new("read-aloud-orb"))
         .order(Order::Foreground)
         .fixed_pos(rect.min)
@@ -1842,7 +1831,7 @@ mod tests {
 
     #[test]
     fn orb_text_uses_the_largest_fitting_group_and_tracks_the_heard_word() {
-        let mut lyrics = card::Lyrics {
+        let mut lyrics = Lyrics {
             before: None,
             now: "one two three four".to_owned(),
             words: vec![0..3, 4..7, 8..13, 14..18],

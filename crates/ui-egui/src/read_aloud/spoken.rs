@@ -11,12 +11,12 @@ use mareader_settings::{Highlight, Pass, ReadAloudSettings, Skips};
 use mareader_speech::{Event, Heard, Shelf, Spot, Tone, Voicer, Waker};
 use mareader_workspace::PaneId;
 
-use super::card::Lyrics;
-use super::control::{Act, View};
-use super::{Lit, Span, follow, place_name};
+use super::{follow, place_name};
 use crate::documents::{Documents, Reading};
 pub use mareader_engine::read_aloud::feed::{Counts, Reach, Said, Start, enough, spawn};
+use mareader_engine::read_aloud::lit::{Lit, Span};
 use mareader_engine::read_aloud::parts::{self, Part};
+use mareader_engine::read_aloud::player::{Act, Lyrics, View};
 
 /// Sentences kept behind the voice, for stepping back.
 const BEHIND: usize = 200;
