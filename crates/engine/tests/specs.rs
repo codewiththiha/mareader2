@@ -14,7 +14,7 @@ use mareader_engine::settings::Tab;
 use mareader_engine::study::Action as StudyAction;
 use mareader_library::{BookId, Pen, View};
 use mareader_speech::{Item, KOKORO, Spot};
-use mareader_workspace::{PaneId, SplitAxis};
+use mareader_workspace::{Bounds, Edge, PaneId, SplitAxis};
 
 #[test]
 fn ids_are_unique_dotted_and_summaries_say_something() {
@@ -63,6 +63,16 @@ fn pane_intents() -> Vec<Command> {
     vec![
         Command::Split(SplitAxis::Horizontal),
         Command::FocusPane(pane),
+        Command::SwapPanes {
+            pane,
+            other: PaneId(2),
+        },
+        Command::MovePane {
+            pane,
+            other: PaneId(2),
+            edge: Edge::Right,
+            area: Bounds::new(0.0, 0.0, 900.0, 700.0),
+        },
         Command::CyclePane { forward: true },
         Command::ClosePane(pane),
         Command::SetRatio(vec![], 0.5),

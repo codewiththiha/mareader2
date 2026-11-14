@@ -1,6 +1,6 @@
 //! The selection bar, Explain, marks and the word card, headless.
 
-use crate::common::{ai_reader as reader, find, page};
+use crate::common::{Dials, ai_reader as reader, find, page};
 use egui::accesskit::Role;
 use egui::{Event, Modifiers, PointerButton, Pos2, Rect};
 use egui_kittest::Harness;
@@ -335,10 +335,9 @@ fn the_bar_highlights_and_underlines_and_a_click_offers_removal() -> Out {
 fn asking_for_a_colour_each_time_never_offers_the_ai_look() -> Out {
     use mareader_settings::{BarItem, PickColor};
     let mut h = reader(&[("pdf", "sample:5")]);
-    let look = &mut h.state_mut().settings_mut().study.highlights;
-    look.pick = PickColor::Ask;
-    look.bar.push(BarItem::Highlight(Pen::Half));
-    let violet = look.ai.color.to_hex();
+    let violet = h.state().settings().study.highlights.ai.color.to_hex();
+    h.dial(|s| s.study.highlights.pick = PickColor::Ask);
+    h.dial(|s| s.study.highlights.bar.push(BarItem::Highlight(Pen::Half)));
     select(&mut h, 0, "quick");
     h.get_by_label("Highlight").click();
     h.run();

@@ -11,7 +11,7 @@ use mareader_ui_egui::page_ai::menu::FIND;
 use mareader_ui_egui::selection::Sheet;
 use mareader_ui_egui::ui_command::{Sent, UiCommand};
 
-use crate::common::{ai_reader as reader, find, page};
+use crate::common::{Dials, ai_reader as reader, find, page};
 
 type H = Harness<'static, MareaderApp>;
 type Out = Result<(), Box<dyn std::error::Error>>;
@@ -434,11 +434,8 @@ fn the_page_asked_about_is_washed_while_its_menu_is_open() -> Out {
 #[test]
 fn remembered_language_uses_translate_submenu_without_extra_row() -> Out {
     let mut h = reader(&[("pdf", "sample:5"), ("provider", "ollama")]);
-    {
-        let translate = &mut h.state_mut().settings_mut().ai.tasks.translate;
-        translate.language = Some("ja".to_owned());
-        translate.recent = vec!["ja".to_owned(), "my".to_owned()];
-    }
+    h.dial(|s| s.ai.tasks.translate.language = Some("ja".to_owned()));
+    h.dial(|s| s.ai.tasks.translate.recent = vec!["ja".to_owned(), "my".to_owned()]);
     let (_, sheet) = page(&h, 0)?;
     press(&mut h, margin(sheet), PointerButton::Secondary);
     assert!(h.query_by_label("Translate page").is_some());

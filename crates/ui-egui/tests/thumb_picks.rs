@@ -6,7 +6,7 @@ use egui_kittest::kittest::Queryable;
 use mareader_engine::host::Machine;
 use mareader_ui_egui::MareaderApp;
 
-use crate::common::Window;
+use crate::common::{Dials, Window};
 
 type H = Harness<'static, MareaderApp>;
 
@@ -191,8 +191,8 @@ fn picked_menu_offers_quick_tiles_and_clears_or_selects_all() {
 fn translation_submenu_offers_recent_and_all_languages() {
     let mut h = reader();
     h.state_mut().set_option("provider", "openai").unwrap();
-    h.state_mut().settings_mut().ai.tasks.translate.pick("fr");
-    h.state_mut().settings_mut().ai.tasks.translate.pick("my");
+    h.dial(|s| s.ai.tasks.translate.pick("fr"));
+    h.dial(|s| s.ai.tasks.translate.pick("my"));
     h.run();
     click(&mut h, 2, Modifiers::COMMAND);
     h.get_by_label("Page 2").click_secondary();

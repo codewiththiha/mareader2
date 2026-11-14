@@ -142,15 +142,15 @@ impl MareaderApp {
         self.ui.lifting = None;
         let moved = match target {
             None => return,
-            Some(LiftTarget::Swap(other)) => self.tree_mut().swap(pane, other),
-            Some(LiftTarget::Dock(other, edge)) => {
-                self.tree_mut().move_to(pane, other, edge, Self::area(ctx))
-            }
+            Some(LiftTarget::Swap(other)) => Command::SwapPanes { pane, other },
+            Some(LiftTarget::Dock(other, edge)) => Command::MovePane {
+                pane,
+                other,
+                edge,
+                area: Self::area(ctx),
+            },
         };
-        if moved.is_err() {
-            let note = "There's no room for the pane there.";
-            self.ui.toasts.push(Toast::info(note));
-        }
+        self.send(moved);
         ctx.request_repaint();
     }
 

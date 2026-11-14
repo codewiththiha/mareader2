@@ -25,23 +25,15 @@ impl MareaderApp {
         self.send(Command::FocusPane(pane));
     }
 
-    /// The tree, writable, for the pane surgery `execute` cannot express:
-    /// a lift and drop, a divider drag.
-    pub(super) fn tree_mut(&mut self) -> &mut mareader_workspace::PaneTree {
-        self.session.tree_mut()
-    }
-
     /// The panes by last focus, latest first.
     pub fn recent(&self) -> &[PaneId] {
         self.session.recent()
     }
 
-    /// Dials set directly, for shots and tests; the app uses `set_field`.
-    pub fn settings_mut(&mut self) -> &mut Settings {
-        self.session.settings_mut()
-    }
-
     /// Takes a whole new settings, through the door.
+    ///
+    /// The settings window's own command, and a fixture's: what a shot
+    /// changes arrives as one write, so no dial is set behind the door.
     pub fn set_settings(&mut self, settings: Settings) {
         self.send(Command::SetSettings(Box::new(settings)));
     }

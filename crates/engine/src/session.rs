@@ -171,14 +171,6 @@ impl Session {
         &self.settings
     }
 
-    /// The settings, writable, for a caller that holds the owner alone.
-    ///
-    /// Tests and shots set dials directly; the app itself goes through
-    /// `execute`, so nothing outside has to know a field's name.
-    pub fn settings_mut(&mut self) -> &mut Settings {
-        &mut self.settings
-    }
-
     pub fn tree(&self) -> &PaneTree {
         &self.tree
     }
@@ -269,10 +261,27 @@ impl Session {
         true
     }
 
-    /// The tree, writable: the app's pane surgery goes through here so the
-    /// engine keeps the one copy.
-    pub fn tree_mut(&mut self) -> &mut PaneTree {
-        &mut self.tree
+    /// Trades two panes' places in the tree.
+    fn swap(&mut self, pane: PaneId, other: PaneId) -> Done {
+        match self.tree.swap(pane, other) {
+            Ok(()) => Done::changed(),
+            Err(_) => self.no_room(),
+        }
+    }
+
+    /// Moves `pane` to `other`'s `edge`, measured against the window's `area`.
+    fn move_to(&mut self, pane: PaneId, other: PaneId, edge: Edge, area: Bounds) -> Done {
+        match self.tree.move_to(pane, other, edge, area) {
+            Ok(()) => Done::changed(),
+            Err(_) => self.no_room(),
+        }
+    }
+
+    /// A pane surgery the tree has no room for: the reader is told.
+    fn no_room(&mut self) -> Done {
+        let why = "There's no room for the pane there.";
+        self.emit(Event::Toast(Toast::info(why)));
+        Done::quiet()
     }
 
     /// Carries out an command that needs no controller: panes and dials.
@@ -292,6 +301,13 @@ impl Session {
                 self.tree.set_ratio(&path, ratio);
                 Done::changed()
             }
+            Command::SwapPanes { pane, other } => self.swap(pane, other),
+            Command::MovePane {
+                pane,
+                other,
+                edge,
+                area,
+            } => self.move_to(pane, other, edge, area),
             Command::SetSettings(settings) => {
                 let mut settings = *settings;
                 settings.sanitize();

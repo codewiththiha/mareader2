@@ -44,7 +44,9 @@ fn dispatch(view: &mut dyn View, intent: Command, now: f64) {
         | Command::LastPage
         | Command::GoTo { .. }
         | Command::Turn { .. } => panes::run(view, intent, now),
-        Command::SetSidebarOverlay(_)
+        Command::MovePane { .. }
+        | Command::SwapPanes { .. }
+        | Command::SetSidebarOverlay(_)
         | Command::SetTitlebarPinned(_)
         | Command::SetSettings(_)
         | Command::SetField { .. }

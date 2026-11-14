@@ -9,6 +9,7 @@ use mareader_engine::command::Command;
 use mareader_engine::host::{Fake, Host, Shared};
 use mareader_engine::library::Action;
 use mareader_pdf::TextLayer;
+use mareader_settings::{DictionaryWindow, Settings};
 use mareader_ui_egui::MareaderApp;
 use mareader_ui_egui::selection::Sheet;
 use mareader_ui_egui::ui_command::Sent;
@@ -213,4 +214,33 @@ pub(crate) fn go_to(h: &mut Harness<'static, MareaderApp>, page: usize) {
     h.state_mut()
         .queue(Sent::Engine(Command::GoTo { pane, page }));
     h.run();
+}
+
+/// The settings window's door, as a fixture takes it.
+///
+/// A suite edits a copy of the settings and sends the copy back as one
+/// command, which is what the window does when a reader changes a dial. No
+/// suite reaches the session's own settings, so the door stays the only way
+/// in, and what a fixture writes is what the settings write.
+pub(crate) trait Dials {
+    /// Edits a copy of the settings, sends it, and answers what the edit did.
+    fn dial<R>(&mut self, change: impl FnOnce(&mut Settings) -> R) -> R;
+}
+
+impl Dials for Harness<'_, MareaderApp> {
+    fn dial<R>(&mut self, change: impl FnOnce(&mut Settings) -> R) -> R {
+        let mut settings = self.state().settings().clone();
+        let out = change(&mut settings);
+        self.state_mut().set_settings(settings);
+        out
+    }
+}
+
+/// The Dictionary's window open at `rect`, as a suite places it.
+pub(crate) fn window_at(rect: [f32; 4]) -> DictionaryWindow {
+    DictionaryWindow {
+        open: true,
+        minimized: false,
+        rect: Some(rect),
+    }
 }

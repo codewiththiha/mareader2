@@ -506,10 +506,12 @@ fn main() -> Result<(), String> {
                 layer.tables.first().map(|_| page)
             })
             .ok_or("no table in the book")?;
-        harness.state_mut().settings_mut().read_aloud.skips.tables = mareader_settings::Skip {
+        let mut settings = harness.state().settings().clone();
+        settings.read_aloud.skips.tables = mareader_settings::Skip {
             on: true,
             ask: true,
         };
+        harness.state_mut().set_settings(settings);
         let from = mareader_engine::read_aloud::ReadFrom {
             anchor: None,
             at: Some(mareader_speech::Spot {

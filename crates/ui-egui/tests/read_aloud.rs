@@ -10,7 +10,7 @@ use mareader_ui_egui::park::PEEK;
 use mareader_ui_egui::read_aloud::Span;
 use mareader_ui_egui::ui_command::{Sent, UiCommand};
 
-use crate::common::press;
+use crate::common::{Dials, press, window_at};
 
 /// A sample PDF, read by the engine that says nothing.
 fn reader(pages: usize) -> Harness<'static, MareaderApp> {
@@ -212,7 +212,7 @@ fn a_sentence_below_the_fold_is_brought_into_view() {
 fn the_player_shows_time_left_and_seeks_to_a_page() {
     let mut h = reader(3);
     // Wide enough for the time, which the narrowest leaves out.
-    h.state_mut().settings_mut().read_aloud.player_width = Some(560.0);
+    h.dial(|s| s.read_aloud.player_width = Some(560.0));
     start(&mut h, ReadFrom::default());
     h.run_steps(2);
     let _ = h.get_by_label_contains("left");
@@ -634,7 +634,7 @@ fn the_player_opens_into_a_card_when_the_page_stops_following() {
     assert!(!carded(&h), "the words are in sight");
     let _ = h.get_by_label("Expand player");
     // Not followed, the words will drift away: the card shows them.
-    h.state_mut().settings_mut().read_aloud.follow = false;
+    h.dial(|s| s.read_aloud.follow = false);
     h.run_steps(2);
     assert!(carded(&h));
     h.run_steps(30);
@@ -644,7 +644,7 @@ fn the_player_opens_into_a_card_when_the_page_stops_following() {
     h.run_steps(2);
     assert!(!carded(&h), "asked by hand, the pill stays");
     // Followed again, it stays a pill; asked, the card comes back.
-    h.state_mut().settings_mut().read_aloud.follow = true;
+    h.dial(|s| s.read_aloud.follow = true);
     h.run_steps(2);
     assert!(!carded(&h));
     h.run_steps(30);
@@ -658,7 +658,7 @@ fn a_scroll_hidden_highlight_makes_the_dictionary_yield_to_the_player() {
     use mareader_settings::Player;
 
     let mut h = reader(3);
-    h.state_mut().settings_mut().read_aloud.player = Player::Full;
+    h.dial(|s| s.read_aloud.player = Player::Full);
     start(&mut h, ReadFrom::default());
     h.get_by_label("Pause").click();
     h.run_steps(300);
@@ -670,10 +670,7 @@ fn a_scroll_hidden_highlight_makes_the_dictionary_yield_to_the_player() {
     let height = 420.0_f32.min(compact.top() - room_top - 16.0);
     assert!(height > 240.0, "not enough room for the test: {height}");
     let top = compact.top() - height - 4.0;
-    let window = &mut h.state_mut().settings_mut().dictionary.window;
-    window.open = true;
-    window.minimized = false;
-    window.rect = Some([100.0, top, 300.0, height]);
+    h.dial(|s| s.dictionary.window = window_at([100.0, top, 300.0, height]));
     h.run_steps(30);
     let home = h.state().dict().window_rect().expect("dictionary home");
     assert!(
@@ -845,9 +842,9 @@ fn a_book_gone_from_disk_says_so_and_reading_goes_on() {
 fn bar_only_stays_a_bar_until_asked_and_full_keeps_it_open() {
     use mareader_settings::Player;
     let mut h = reader(3);
-    h.state_mut().settings_mut().read_aloud.player = Player::Bar;
+    h.dial(|s| s.read_aloud.player = Player::Bar);
     start(&mut h, ReadFrom::default());
-    h.state_mut().settings_mut().read_aloud.follow = false;
+    h.dial(|s| s.read_aloud.follow = false);
     h.run_steps(2);
     assert!(!carded(&h), "bar only waits to be asked");
     h.get_by_label("Expand player").click();
@@ -855,7 +852,7 @@ fn bar_only_stays_a_bar_until_asked_and_full_keeps_it_open() {
     assert!(carded(&h));
     let _ = h.get_by_label("Show where it's reading");
     // Switched to full, it stays open while it changes shape.
-    h.state_mut().settings_mut().read_aloud.player = Player::Full;
+    h.dial(|s| s.read_aloud.player = Player::Full);
     h.run_steps(30);
     assert!(carded(&h));
     let _ = h.get_by_label("Show where it's reading");
@@ -1159,7 +1156,7 @@ fn a_table_can_be_asked_about_or_passed_over() {
         on: true,
         ask: true,
     };
-    h.state_mut().settings_mut().read_aloud.skips.tables = ask;
+    h.dial(|s| s.read_aloud.skips.tables = ask);
     let at = first_table(&h).expect("the sample has a table");
     let before = Spot {
         page: at.page.saturating_sub(1),
@@ -1191,7 +1188,7 @@ fn a_table_can_be_asked_about_or_passed_over() {
     let _ = h.get_by_label("Pause");
     assert!(lit_in_table(&h), "reading the table");
     // Set to skip, it is passed over without a word or a question.
-    h.state_mut().settings_mut().read_aloud.skips.tables.ask = false;
+    h.dial(|s| s.read_aloud.skips.tables.ask = false);
     start(&mut h, from);
     let seen = std::cell::Cell::new(false);
     step_until(&mut h, |h| {
@@ -1248,7 +1245,7 @@ fn a_list_can_be_asked_about_or_passed_over() {
         on: true,
         ask: true,
     };
-    h.state_mut().settings_mut().read_aloud.skips.lists = ask;
+    h.dial(|s| s.read_aloud.skips.lists = ask);
     let at = first_list(&h).expect("the sample has a list");
     let before = Spot {
         page: at.page.saturating_sub(1),
@@ -1280,7 +1277,7 @@ fn a_list_can_be_asked_about_or_passed_over() {
     let _ = h.get_by_label("Pause");
     assert!(h.query_by_label("Skip the rest of this list").is_some());
     // Set to skip, no list is read and nothing is asked.
-    h.state_mut().settings_mut().read_aloud.skips.lists.ask = false;
+    h.dial(|s| s.read_aloud.skips.lists.ask = false);
     start(&mut h, from);
     let seen = std::cell::Cell::new(false);
     let past = |h: &Harness<'static, MareaderApp>| lit(h).is_some_and(|(s, _)| s.page > at.page);
@@ -1367,7 +1364,7 @@ fn a_long_player_confirmation_uses_the_regular_toast() {
 #[test]
 fn changing_speed_sends_a_player_confirmation() {
     let mut h = reader(2);
-    h.state_mut().settings_mut().read_aloud.player_width = Some(650.0);
+    h.dial(|s| s.read_aloud.player_width = Some(650.0));
     start(&mut h, ReadFrom::default());
     h.get_by_label("Pause").click();
     h.run_steps(20);
@@ -1386,7 +1383,7 @@ fn changing_speed_sends_a_player_confirmation() {
 #[test]
 fn player_at_wide_width_minimizes_for_toast_and_restores() {
     let mut h = reader(3);
-    h.state_mut().settings_mut().read_aloud.player_width = Some(720.0);
+    h.dial(|s| s.read_aloud.player_width = Some(720.0));
     start(&mut h, ReadFrom::default());
     h.run_steps(10);
     let bar = h
@@ -1474,10 +1471,9 @@ fn the_players_first_conflict_uses_an_animated_tuck() {
     h.run_steps(300);
     let id = egui::Id::new("read-aloud-bar");
     let home = h.ctx.memory(|m| m.area_rect(id)).expect("the player");
-    let window = &mut h.state_mut().settings_mut().dictionary.window;
-    window.open = true;
-    window.minimized = false;
-    window.rect = Some([home.left() - 100.0, home.top() - 120.0, 500.0, 240.0]);
+    h.dial(|s| {
+        s.dictionary.window = window_at([home.left() - 100.0, home.top() - 120.0, 500.0, 240.0]);
+    });
     let mut moving = None;
     for _ in 0..20 {
         h.run_steps(1);
@@ -1498,11 +1494,8 @@ fn the_players_first_conflict_uses_an_animated_tuck() {
 #[test]
 fn a_covered_player_in_tab_mode_keeps_a_play_button() {
     let mut h = reader(1);
-    h.state_mut().settings_mut().workspace.edge_parking = mareader_settings::EdgeParking::Tab;
-    let window = &mut h.state_mut().settings_mut().dictionary.window;
-    window.open = true;
-    window.minimized = false;
-    window.rect = Some([260.0, 400.0, 380.0, 240.0]);
+    h.dial(|s| s.workspace.edge_parking = mareader_settings::EdgeParking::Tab);
+    h.dial(|s| s.dictionary.window = window_at([260.0, 400.0, 380.0, 240.0]));
     h.run_steps(30);
     start(&mut h, ReadFrom::default());
     h.get_by_label("Pause").click();
@@ -1520,18 +1513,15 @@ fn a_covered_player_in_tab_mode_keeps_a_play_button() {
 #[test]
 fn the_edge_orb_animates_back_when_the_dictionary_closes() {
     let mut h = reader(1);
-    h.state_mut().settings_mut().workspace.edge_parking = mareader_settings::EdgeParking::Tab;
-    let window = &mut h.state_mut().settings_mut().dictionary.window;
-    window.open = true;
-    window.minimized = false;
-    window.rect = Some([260.0, 400.0, 380.0, 240.0]);
+    h.dial(|s| s.workspace.edge_parking = mareader_settings::EdgeParking::Tab);
+    h.dial(|s| s.dictionary.window = window_at([260.0, 400.0, 380.0, 240.0]));
     h.run_steps(30);
     start(&mut h, ReadFrom::default());
     h.get_by_label("Pause").click();
     h.run_steps(360);
     let orb_id = egui::Id::new("read-aloud-orb");
     let from = h.ctx.memory(|m| m.area_rect(orb_id)).expect("edge orb");
-    h.state_mut().settings_mut().dictionary.window.open = false;
+    h.dial(|s| s.dictionary.window.open = false);
     h.run_steps(2);
     let moving = h
         .ctx
@@ -1554,10 +1544,7 @@ fn the_edge_orb_animates_back_when_the_dictionary_closes() {
 #[test]
 fn the_player_peeks_as_its_shell_and_restores_on_click() {
     let mut h = reader(1);
-    let window = &mut h.state_mut().settings_mut().dictionary.window;
-    window.open = true;
-    window.minimized = false;
-    window.rect = Some([260.0, 400.0, 380.0, 240.0]);
+    h.dial(|s| s.dictionary.window = window_at([260.0, 400.0, 380.0, 240.0]));
     h.run_steps(30);
     let dict_home = h.state().dict().window_rect().expect("dictionary window");
 
@@ -1666,17 +1653,14 @@ fn the_last_used_float_keeps_priority_and_shrinks_the_dictionary() {
     let height = 420.0_f32.min(compact.top() - room_top - 16.0);
     assert!(height > 240.0, "not enough room for the test: {height}");
     let top = compact.top() - height - 4.0;
-    let window = &mut h.state_mut().settings_mut().dictionary.window;
-    window.open = true;
-    window.minimized = false;
-    window.rect = Some([150.0, top, 600.0, height]);
+    h.dial(|s| s.dictionary.window = window_at([150.0, top, 600.0, height]));
     h.run_steps(30);
     let home = h.state().dict().window_rect().expect("dictionary home");
     assert!(!home.intersects(compact), "compact player fits: {home:?}");
 
     h.get_by_label("Expand player").click();
     h.run_steps(30);
-    h.state_mut().settings_mut().read_aloud.player = Player::Full;
+    h.dial(|s| s.read_aloud.player = Player::Full);
     h.run_steps(60);
     assert!(h.query_by_label("Collapse player").is_some());
     let full = h.ctx.memory(|m| m.area_rect(id)).expect("full player");
@@ -1711,10 +1695,8 @@ fn a_remembered_skip_belongs_to_one_book_and_can_be_undone() {
     use mareader_engine::documents::OpenRequest;
     let dir = tempfile::tempdir().expect("temporary library");
     let (mut h, kept_path) = epub_from_file(dir.path());
-    h.state_mut().settings_mut().read_aloud.skips.tables = mareader_settings::Skip {
-        on: true,
-        ask: true,
-    };
+    h.dial(|s| s.read_aloud.skips.tables.on = true);
+    h.dial(|s| s.read_aloud.skips.tables.ask = true);
     let at = first_table(&h).expect("the sample has a table");
     let from = ReadFrom {
         anchor: None,

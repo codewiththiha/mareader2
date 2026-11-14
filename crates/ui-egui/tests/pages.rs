@@ -8,7 +8,7 @@ use mareader_settings::StartupFit;
 use mareader_ui_egui::MareaderApp;
 use mareader_ui_egui::ui_command::Sent;
 
-use crate::common::reader_200 as reader;
+use crate::common::{Dials, reader_200 as reader};
 
 type H = Harness<'static, MareaderApp>;
 
@@ -44,7 +44,7 @@ fn no_gap_lets_strip_pages_touch() {
     h.run();
     let s = sheets(&h);
     assert!((s[1].top() - s[0].bottom() - 12.0).abs() < 1.0, "{s:?}");
-    h.state_mut().settings_mut().layout.no_gap = true;
+    h.dial(|s| s.layout.no_gap = true);
     h.run();
     let s = sheets(&h);
     assert!((s[1].top() - s[0].bottom()).abs() < 1.0, "{s:?}");
@@ -54,7 +54,7 @@ fn no_gap_lets_strip_pages_touch() {
 fn the_page_margin_is_air_beside_a_fitted_page() {
     let mut h = reader(&[("pdf", "sample:5")]);
     let edge = sheets(&h)[0];
-    h.state_mut().settings_mut().layout.page_margin = 32.0;
+    h.dial(|s| s.layout.page_margin = 32.0);
     h.run();
     let inset = sheets(&h)[0];
     assert!((edge.width() - inset.width() - 64.0).abs() < 1.0);
@@ -64,7 +64,7 @@ fn the_page_margin_is_air_beside_a_fitted_page() {
 #[test]
 fn documents_open_at_the_default_fit() {
     let mut h = reader(&[]);
-    h.state_mut().settings_mut().layout.startup_fit = StartupFit::Page;
+    h.dial(|s| s.layout.startup_fit = StartupFit::Page);
     h.state_mut().set_option("pdf", "sample:5").ok();
     h.run_steps(3);
     h.run();
@@ -82,7 +82,7 @@ fn a_fit_follows_pages_of_another_size_and_auto_resize_a_set_zoom() {
     let (letter, fit) = zoom(&h);
     assert_eq!(fit, Some(Fit::Width));
     // A fit refits with Scale my zoom off too.
-    h.state_mut().settings_mut().layout.auto_resize = false;
+    h.dial(|s| s.layout.auto_resize = false);
     go(&mut h, 6);
     let want = letter * 612.0 / 792.0;
     assert!(near(&h, want), "{:?} want {want}", zoom(&h));
@@ -97,7 +97,7 @@ fn a_fit_follows_pages_of_another_size_and_auto_resize_a_set_zoom() {
     assert!(near(&h, set), "off, the set zoom holds");
     go(&mut h, 14);
     // On, it keeps its scale: a wide page shows as wide as the last.
-    h.state_mut().settings_mut().layout.auto_resize = true;
+    h.dial(|s| s.layout.auto_resize = true);
     go(&mut h, 13);
     let want = set * 612.0 / 792.0;
     assert!(near(&h, want), "{:?} want {want}", zoom(&h));
@@ -132,7 +132,7 @@ fn a_set_zoom_shrinks_with_the_pane_and_grows_back_only_to_itself() {
     assert!((resize(&mut h, 900.0) - set).abs() < 0.001);
     assert!((resize(&mut h, 1400.0) - set).abs() < 0.001);
     // Off, a set zoom holds whatever the pane does.
-    h.state_mut().settings_mut().layout.auto_resize = false;
+    h.dial(|s| s.layout.auto_resize = false);
     assert!((resize(&mut h, 600.0) - set).abs() < 0.001);
 }
 
@@ -171,7 +171,7 @@ fn always_show_keeps_the_label_under_a_pinned_bar() {
     ]);
     let label = "Pane label: Chapter 1: Opening";
     assert!(h.query_by_label(label).is_none());
-    h.state_mut().settings_mut().layout.floating_label_persist = true;
+    h.dial(|s| s.layout.floating_label_persist = true);
     h.run();
     let _ = h.get_by_label(label);
 }

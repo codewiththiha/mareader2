@@ -688,7 +688,9 @@ fn a_book_read_at_exit_reopens_at_its_place_in_new_type() -> Result<(), String> 
     assert!(saved.contains("\"place\""), "{saved}");
     // Next launch in bigger type: the page differs, the place doesn't.
     let mut again = MareaderApp::kept(dir.path());
-    again.settings_mut().text.font_size = 28.0;
+    let mut settings = again.settings().clone();
+    settings.text.font_size = 28.0;
+    again.set_settings(settings);
     assert!(again.resume());
     let h = launched(again);
     let pane = h.state().active_pane();

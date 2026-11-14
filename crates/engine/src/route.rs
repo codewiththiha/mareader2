@@ -49,6 +49,7 @@ impl Route {
             I::GoTo { .. } | I::Turn { .. } | I::CopyPages { .. } => true,
             I::WordList { .. } | I::WordListWindow { .. } => true,
             I::Split(_) | I::FocusPane(_) | I::ClosePane(_) => true,
+            I::MovePane { .. } | I::SwapPanes { .. } => true,
             I::SetRatio(..) | I::CyclePane { .. } | I::PlaceBook { .. } => true,
             I::SetIndependence(_) | I::SetInkContrast(_) | I::SetQuickText(_) => true,
             I::Explain(_) | I::Highlight { .. } | I::SelectText { .. } => true,

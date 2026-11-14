@@ -11,7 +11,7 @@ use mareader_appearance::{Appearance, Rgb};
 use mareader_library::{BookId, Pen, View};
 use mareader_settings::{DictionarySettings, Settings};
 use mareader_speech::{Model, Spot};
-use mareader_workspace::{DividerPath, PaneId, SplitAxis};
+use mareader_workspace::{Bounds, DividerPath, Edge, PaneId, SplitAxis};
 
 use crate::appearance_menu::QuickText;
 use crate::dict::{Action as DictAction, Download};
@@ -89,6 +89,13 @@ pub enum Command {
     Library(LibraryAction),
     /// Looks the pane's selection up in the dictionaries.
     LookUp(PaneId),
+    /// A lifted pane let go on another's edge: it moves there, in `area`.
+    MovePane {
+        pane: PaneId,
+        other: PaneId,
+        edge: Edge,
+        area: Bounds,
+    },
     /// Highlights the pane's selection and opens a note on it.
     Note(PaneId),
     /// Shows a file in a pane, replacing what it showed.
@@ -174,6 +181,11 @@ pub enum Command {
     StopVoiceTry,
     /// The word card's and the mark menu's asks.
     Study(StudyAction),
+    /// A lifted pane let go on another: the two trade places.
+    SwapPanes {
+        pane: PaneId,
+        other: PaneId,
+    },
     /// Plays or pauses the reading; starts the focused book if none.
     ToggleReadAloud,
     /// Says a line in the voice settings pick; stops that line.

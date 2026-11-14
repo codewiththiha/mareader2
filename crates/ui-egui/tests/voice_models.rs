@@ -9,7 +9,7 @@ use mareader_speech::{Build, Gender, Knob, Model, ModelFile, ModelVoice};
 use mareader_ui_egui::MareaderApp;
 use mareader_ui_egui::ui_command::Sent;
 
-use crate::common::press;
+use crate::common::{Dials, press};
 
 /// Never checked here: only sizes say what is on disk.
 const NO_SUM: &str = "0000000000000000000000000000000000000000000000000000000000000000";
@@ -327,7 +327,7 @@ fn downloaded_engines_fold_to_the_one_in_use() {
     h.run_steps(30);
     assert_eq!(rows(&h), shut);
     // The engine in use keeps its row while shut.
-    h.state_mut().settings_mut().read_aloud.engine = "tiny".to_owned();
+    h.dial(|s| s.read_aloud.engine = "tiny".to_owned());
     h.run_steps(4);
     assert_eq!(rows(&h), shut + 1);
 }
@@ -364,11 +364,11 @@ fn a_model_without_builds_downloads_whole_and_its_sound_can_be_set() {
     let _ = h.get_by_label("Use Cy");
     let slider = h.get_by_role_and_label(egui::accesskit::Role::Slider, "Expression");
     assert_eq!(slider.accesskit_node().numeric_value(), Some(1.0));
-    h.state_mut()
-        .settings_mut()
-        .read_aloud
-        .knobs
-        .insert("solo".into(), [("expression".into(), 0.5)].into());
+    h.dial(|s| {
+        s.read_aloud
+            .knobs
+            .insert("solo".into(), [("expression".into(), 0.5)].into());
+    });
     h.run_steps(2);
     let slider = h.get_by_role_and_label(egui::accesskit::Role::Slider, "Expression");
     assert_eq!(slider.accesskit_node().numeric_value(), Some(0.5));

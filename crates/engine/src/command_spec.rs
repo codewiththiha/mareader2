@@ -95,6 +95,10 @@ pub const SPECS: &[CommandSpec] = &[
         summary: "Looks the pane's selection up in the dictionaries.",
     },
     CommandSpec {
+        id: "pane.move",
+        summary: "Moves a lifted pane to another's edge, in the room the window has.",
+    },
+    CommandSpec {
         id: "mark.note",
         summary: "Highlights the pane's selection and opens a note on it.",
     },
@@ -219,6 +223,10 @@ pub const SPECS: &[CommandSpec] = &[
         summary: "The word card's and the mark menu's asks.",
     },
     CommandSpec {
+        id: "pane.swap",
+        summary: "Trades two panes' places in the tree.",
+    },
+    CommandSpec {
         id: "read.toggle",
         summary: "Plays or pauses the reading; starts the focused book if none.",
     },
@@ -284,6 +292,7 @@ impl Command {
             Command::LastPage => "page.last",
             Command::Library(..) => "library.act",
             Command::LookUp(..) => "word.lookup",
+            Command::MovePane { .. } => "pane.move",
             Command::Note(..) => "mark.note",
             Command::Open(..) => "reader.open",
             Command::OpenBook(..) => "reader.open-book",
@@ -315,6 +324,7 @@ impl Command {
             Command::StopSaying => "word.stop",
             Command::StopVoiceTry => "voice.stop-try",
             Command::Study(..) => "study.act",
+            Command::SwapPanes { .. } => "pane.swap",
             Command::ToggleReadAloud => "read.toggle",
             Command::TryVoice => "voice.try",
             Command::TryVoiceOf(..) => "voice.try-of",
