@@ -9,18 +9,24 @@ use mareader_audio::{Clip, Fetch};
 use mareader_epub::Files;
 use mareader_session::Document;
 
+use crate::host::Shared;
+
 /// Copies older than this are cleared when another clip plays.
 const KEEP: Duration = Duration::from_secs(24 * 60 * 60);
 /// Bytes of a clip that name its copy, with its path and length.
 const NAMED_BY: usize = 64 << 10;
 
-/// Plays `path` of `doc` on a helper thread; false if it couldn't start.
-pub fn play(doc: Arc<Document>, path: String) -> bool {
+/// Copies `path` of `doc` out and hands it to the host, off this thread.
+///
+/// False when the thread could not start; a host that refuses the file says
+/// so by returning false, which nobody here is left to hear.
+pub fn play(host: &Shared, doc: Arc<Document>, path: String) -> bool {
+    let host = Arc::clone(host);
     let spawned = std::thread::Builder::new()
         .name("mareader-play".into())
         .spawn(move || {
-            if let Some(file) = copy_out(&doc, &path) {
-                launch(&file);
+            if let Some(file) = copy_out(host.cache_dir().as_deref(), &doc, &path) {
+                host.open_external(&file);
             }
         });
     spawned.is_ok()
@@ -45,9 +51,15 @@ pub fn fetch(files: Files) -> Fetch {
 }
 
 /// The clip copied out, named by its declared type, never the book's name.
-fn copy_out(doc: &Document, path: &str) -> Option<PathBuf> {
+///
+/// Copies go where the host says files that can be built again go, and in a
+/// temporary folder when the host has nowhere.
+fn copy_out(cache: Option<&Path>, doc: &Document, path: &str) -> Option<PathBuf> {
     let media = doc.media(path)?;
-    let folder = std::env::temp_dir().join("mareader-media");
+    let base = cache
+        .map(Path::to_path_buf)
+        .unwrap_or_else(std::env::temp_dir);
+    let folder = base.join("mareader-media");
     std::fs::create_dir_all(&folder).ok()?;
     prune(&folder);
     let file = folder.join(name(path, &media.data, media.extension));
@@ -112,24 +124,6 @@ fn prune(folder: &Path) {
         }
     }
 }
-
-#[cfg(target_os = "macos")]
-fn launch(file: &Path) {
-    let _ = std::process::Command::new("open").arg(file).status();
-}
-
-#[cfg(windows)]
-fn launch(file: &Path) {
-    let _ = std::process::Command::new("explorer").arg(file).status();
-}
-
-#[cfg(all(unix, not(target_os = "macos")))]
-fn launch(file: &Path) {
-    let _ = std::process::Command::new("xdg-open").arg(file).status();
-}
-
-#[cfg(target_arch = "wasm32")]
-fn launch(_file: &Path) {}
 
 #[cfg(test)]
 mod tests {

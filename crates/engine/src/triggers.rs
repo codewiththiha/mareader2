@@ -7,6 +7,7 @@ use mareader_audio::{Player, Segment};
 use mareader_epub::{Action, Book, Insert, Triggered};
 use mareader_session::Document;
 
+use crate::host::Shared;
 use crate::play::fetch;
 use crate::scripts::Paged;
 use crate::stable_hash::hash;
@@ -94,7 +95,7 @@ pub struct Clips {
 
 impl Clips {
     /// Carries out `clip` from `doc`; true asks the window to pause narration.
-    pub fn act(&mut self, doc: &Arc<Document>, clip: ClipAction) -> bool {
+    pub fn act(&mut self, host: &Shared, doc: &Arc<Document>, clip: ClipAction) -> bool {
         let ClipAction {
             action,
             path,
@@ -102,7 +103,7 @@ impl Clips {
         } = clip;
         if video {
             if action == Action::Play {
-                crate::play::play(Arc::clone(doc), path);
+                crate::play::play(host, Arc::clone(doc), path);
             }
             return false;
         }

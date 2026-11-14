@@ -54,6 +54,7 @@ use crate::ui_command::{Commands, Sent};
 use crate::{keymap, motion, resize, theme};
 use mareader_engine::command::{Command, Independence};
 use mareader_engine::documents::{OpenRequest, Placement};
+use mareader_engine::host::{Fake, Machine, Shared};
 use mareader_engine::pane::ViewMode;
 use mareader_engine::pane_texts::PaneTexts;
 use mareader_engine::read_aloud::ReadFrom;
@@ -122,6 +123,8 @@ impl mareader_study::Explainer for AssistantSample {
 pub struct MareaderApp {
     /// The owner: settings, tree, route, and the door that changes them.
     session: Session,
+    /// The machine it runs on, shared with the session that owns it.
+    host: Shared,
     /// What dies with the window: `MareaderApp` is these two and nothing else.
     ui: UiState,
 }
@@ -152,16 +155,48 @@ struct Staged {
 
 impl Default for MareaderApp {
     fn default() -> Self {
-        Self::with_settings(Settings::default())
+        Self::wired(Machine::default())
     }
 }
 
 impl MareaderApp {
-    pub fn with_settings(mut settings: Settings) -> Self {
-        settings.sanitize();
+    /// An app for a window: what its launch found, on the machine it runs on.
+    ///
+    /// The store an older build wrote is read here and never again, and the
+    /// engine's own files take its place from this launch on.
+    pub fn new(cc: &eframe::CreationContext<'_>, host: Shared, machine: Machine) -> Self {
+        let loaded = crate::import::once(cc.storage, host.state_dir());
+        Self::from_loaded(loaded, &cc.egui_ctx, host, machine)
+    }
+
+    /// The same app with no store to read: a harness's, or a measurement's.
+    pub fn on(ctx: &Context, host: Shared, machine: Machine) -> Self {
+        Self::from_loaded(Loaded::default(), ctx, host, machine)
+    }
+
+    /// An app on a host with no machine: a test's, with nothing on disk.
+    pub fn wired(machine: Machine) -> Self {
+        Self::on(&Context::default(), Arc::new(Fake::default()), machine)
+    }
+
+    /// An app whose own two files live in `dir`, read as a launch reads them.
+    ///
+    /// No service is attached and no store is consulted: a test drives the
+    /// window here, and what it wrote at its last exit is what comes back.
+    pub fn kept(dir: &std::path::Path) -> Self {
+        let host: Shared = Arc::new(Fake::under(dir));
+        let loaded = crate::import::once(None, host.state_dir());
+        Self::from_loaded(loaded, &Context::default(), host, Machine::default())
+    }
+
+    fn built(settings: Settings, ctx: &Context, host: Shared, machine: Machine) -> Self {
         let titlebar = TitleBar::default();
-        Self {
-            session: Session::new(settings),
+        let waker = setup::repainter(ctx);
+        let mut session = Session::new(host.clone(), waker.clone());
+        session.import(settings);
+        let mut app = Self {
+            session,
+            host,
             ui: UiState {
                 titlebar,
                 platform: Platform::current(),
@@ -219,14 +254,8 @@ impl MareaderApp {
                 #[cfg(all(debug_assertions, not(target_arch = "wasm32")))]
                 live: theme::live::LiveTokens::from_env(),
             },
-        }
-    }
-
-    pub fn from_creation(cc: &eframe::CreationContext<'_>) -> Self {
-        let dir = crate::import::state_dir();
-        let loaded = crate::import::once(cc.storage, dir.clone());
-        let mut app = Self::from_loaded(loaded);
-        app.save_to(dir);
+        };
+        app.wire(ctx, &machine, &waker);
         app
     }
 
@@ -234,12 +263,12 @@ impl MareaderApp {
     ///
     /// Unreadable settings arrive repaired section by section, and the notes
     /// that say so go to stderr and to one toast.
-    pub fn from_loaded(loaded: Loaded) -> Self {
+    pub fn from_loaded(loaded: Loaded, ctx: &Context, host: Shared, machine: Machine) -> Self {
         for note in &loaded.notes {
             eprintln!("mareader: {note}");
         }
         let repaired = !loaded.notes.is_empty();
-        let mut app = Self::with_settings(loaded.settings);
+        let mut app = Self::built(loaded.settings, ctx, host, machine);
         app.ui.last = loaded.last;
         if repaired {
             app.ui.toasts.push(Toast::error(REPAIRED));

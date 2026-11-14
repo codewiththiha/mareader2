@@ -386,7 +386,7 @@ impl MareaderApp {
             out,
         );
         if let Some(read) = self.ui.page_copy.poll() {
-            ctx.copy_text(read.text);
+            self.host.set_clipboard(read.text);
             self.ui.toasts.push(read.toast);
         }
         self.ui

@@ -1,12 +1,20 @@
 //! The keys the engine owns, and the ones it leaves to a front end.
 
+use std::sync::Arc;
+
 use super::*;
+use crate::host::Fake;
 use crate::library::{Action, SearchAction};
 use crate::session::Session;
 use mareader_appearance::{BaseMode, NoiseMode};
 use mareader_library::{CoverFit, Home, Layout, SortKey};
 use mareader_session::Source;
 use mareader_settings::{AppearanceMenuStyle, LibraryClick, Settings};
+
+/// A session on a host with no machine, so its settings are the defaults.
+fn bare() -> Session {
+    Session::new(Arc::new(Fake::default()), Arc::new(|| {}))
+}
 
 /// The command a key asks for, or why the question has no answer.
 fn parsed(key: &str, value: &str) -> Result<Vec<Command>, String> {
@@ -18,7 +26,7 @@ fn parsed(key: &str, value: &str) -> Result<Vec<Command>, String> {
 
 /// A session with the key carried out, so a setting can be looked at.
 fn written(key: &str, value: &str) -> Result<Session, String> {
-    let mut session = Session::new(Settings::default());
+    let mut session = bare();
     for command in parsed(key, value)? {
         let done = session.apply(command);
         if let Some(why) = done.refused {
@@ -132,7 +140,7 @@ fn a_key_the_front_end_keeps_is_not_here() {
 
 #[test]
 fn a_path_the_settings_do_not_have_is_refused() {
-    let mut session = Session::new(Settings::default());
+    let mut session = bare();
     let done = session.apply(Command::SetField {
         path: "no.such.dial".into(),
         value: "1".into(),

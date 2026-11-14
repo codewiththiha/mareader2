@@ -278,6 +278,8 @@ pub(super) fn own_key(app: &mut MareaderApp, key: &str, value: &str) -> Option<R
         "dictionaries" => Some(app.option_dictionaries(key, value)),
         #[cfg(not(target_arch = "wasm32"))]
         "cefr" => Some(app.option_cefr(key, value)),
+        #[cfg(not(target_arch = "wasm32"))]
+        "ai_dir" => Some(app.option_ai_dir(key, value)),
         "dict_window" => Some(app.option_dict_window(key, value)),
         "dict_fold" => Some(app.option_dict_fold(key, value)),
         "dict_page" => Some(app.option_dict_page(key, value)),
@@ -313,6 +315,16 @@ impl MareaderApp {
             .attach(PathBuf::from(value), Arc::new(|| {}))?;
         self.ui.vocab.set_inline(inline);
         self.set_field("study.cefr.enabled", true)?;
+        Ok(())
+    }
+
+    /// The AI service's folder, as a shot names one to answer Explain.
+    #[cfg(not(target_arch = "wasm32"))]
+    fn option_ai_dir(&mut self, _key: &str, value: &str) -> Result<(), String> {
+        let root = PathBuf::from(value);
+        self.ui.ai.attach(&egui::Context::default(), root, None);
+        // A run stopped before quitting waits on its card.
+        self.ui.library.set_paused(self.ui.ai.paused());
         Ok(())
     }
 

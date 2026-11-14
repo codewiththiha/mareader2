@@ -17,7 +17,30 @@ fn harness(
     size: egui::Vec2,
     max_steps: u64,
 ) -> Harness<'static, MareaderApp> {
-    let mut app = MareaderApp::default();
+    built(MareaderApp::default(), options, defaults, size, max_steps)
+}
+
+/// [`reader_200`], with the engine's own two files kept in `dir`.
+pub(crate) fn reader_kept(
+    dir: &std::path::Path,
+    options: &[(&str, &str)],
+) -> Harness<'static, MareaderApp> {
+    built(
+        MareaderApp::kept(dir),
+        options,
+        &[("workers", "0")],
+        egui::vec2(900.0, 700.0),
+        200,
+    )
+}
+
+fn built(
+    mut app: MareaderApp,
+    options: &[(&str, &str)],
+    defaults: &[(&str, &str)],
+    size: egui::Vec2,
+    max_steps: u64,
+) -> Harness<'static, MareaderApp> {
     for (k, v) in defaults.iter().chain(options) {
         app.set_option(k, v).ok();
     }

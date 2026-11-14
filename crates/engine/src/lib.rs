@@ -40,7 +40,6 @@ pub mod read_aloud;
 pub mod reading;
 pub mod reading_place;
 pub mod repaint;
-pub mod reveal;
 pub mod route;
 pub mod sample;
 pub mod save;

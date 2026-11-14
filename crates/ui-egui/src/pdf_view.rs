@@ -2,6 +2,7 @@
 
 use egui::emath::GuiRounding as _;
 use egui::scroll_area::{DragScroll, ScrollAreaOutput as ScrollOutput, ScrollSource};
+use mareader_engine::host::Shared;
 use mareader_engine::reading::Place;
 use mareader_engine::texts::TextLayers;
 use std::sync::Arc;
@@ -629,6 +630,8 @@ pub struct ViewContext {
     pub menu_shot: bool,
     /// The page AI's bubbles and results on the pages shown.
     pub ai: page_ai::PaneAi,
+    /// The machine, so a clip a page links to is handed to its own opener.
+    pub host: Shared,
 }
 
 /// The Layout settings the pages follow.

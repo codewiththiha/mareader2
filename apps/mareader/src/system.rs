@@ -1,13 +1,28 @@
-//! Shows a file in the system's file manager, selected where it can be.
+//! What only this platform can do: its file manager, and its own opener.
+//!
+//! Both run on a helper thread, so a window is never held up by a command
+//! that waits, and both answer only whether that thread could start.
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 /// Starts the file manager on a helper thread; false if it couldn't start.
 pub fn reveal(path: &Path) -> bool {
-    let path = path.to_path_buf();
+    off("mareader-reveal", path, show)
+}
+
+/// Starts the system's own handler for `path` off this thread.
+///
+/// False when the thread could not start; a handler that refuses says nothing
+/// back, as `open` and `xdg-open` both exit before they are watched.
+pub fn open(path: &Path) -> bool {
+    off("mareader-open", path, launch)
+}
+
+fn off(name: &str, path: &Path, run: fn(&Path)) -> bool {
+    let path: PathBuf = path.to_path_buf();
     let spawned = std::thread::Builder::new()
-        .name("mareader-reveal".into())
-        .spawn(move || show(&path));
+        .name(name.into())
+        .spawn(move || run(&path));
     spawned.is_ok()
 }
 
@@ -50,9 +65,6 @@ fn show(path: &Path) {
     let _ = std::process::Command::new("xdg-open").arg(folder).status();
 }
 
-#[cfg(target_arch = "wasm32")]
-fn show(_path: &Path) {}
-
 /// `file:///a%20b/c.pdf`: bytes outside the unreserved set escaped.
 #[cfg_attr(not(all(unix, not(target_os = "macos"))), allow(dead_code))]
 fn file_uri(path: &Path) -> String {
@@ -65,6 +77,21 @@ fn file_uri(path: &Path) -> String {
         }
     }
     uri
+}
+
+#[cfg(target_os = "macos")]
+fn launch(path: &Path) {
+    let _ = std::process::Command::new("open").arg(path).status();
+}
+
+#[cfg(windows)]
+fn launch(path: &Path) {
+    let _ = std::process::Command::new("explorer").arg(path).status();
+}
+
+#[cfg(all(unix, not(target_os = "macos")))]
+fn launch(path: &Path) {
+    let _ = std::process::Command::new("xdg-open").arg(path).status();
 }
 
 #[cfg(test)]

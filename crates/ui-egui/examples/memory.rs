@@ -491,11 +491,9 @@ fn library(count: usize) -> Result<bool, String> {
     write_books(one, 0, a)?;
     write_books(two, a, b)?;
     write_books(three, b, count)?;
-    let mut app = MareaderApp::default();
+    let mut app = MareaderApp::wired(Machine::library(dir.path().join("library")));
     app.set_option("workers", "0")?;
     app.set_option("library", "show")?;
-    let machine = Machine::library(dir.path().join("library"));
-    app.attach(&egui::Context::default(), machine);
     let mut h = harness(app);
     let mut audit = Audit::default();
     Audit::header();

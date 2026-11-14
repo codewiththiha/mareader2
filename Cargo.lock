@@ -3892,6 +3892,7 @@ name = "mareader-web"
 version = "0.0.5"
 dependencies = [
  "eframe",
+ "mareader-engine",
  "mareader-ui-egui",
  "wasm-bindgen",
  "wasm-bindgen-futures",

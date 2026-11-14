@@ -208,6 +208,15 @@ fn preset_cards_are_wide_enough_for_their_names() {
     );
 }
 
+/// [`with`], with the engine's own two files kept in `dir`.
+fn with_kept(dir: &std::path::Path, options: &[(&str, &str)]) -> Harness<'static, MareaderApp> {
+    let mut app = MareaderApp::kept(dir);
+    for (k, v) in options {
+        app.set_option(k, v).map_err(|e| e.to_string()).ok();
+    }
+    harness(app)
+}
+
 fn with(options: &[(&str, &str)]) -> Harness<'static, MareaderApp> {
     let mut app = MareaderApp::default();
     for (k, v) in options {
@@ -470,11 +479,11 @@ fn split_pane_outline_colour_comes_from_the_workspace_tab() {
 #[test]
 fn settings_survive_a_save_and_relaunch() -> Result<(), String> {
     let dir = tempfile::tempdir().map_err(|e| e.to_string())?;
-    let mut h = with(&[("float", "true"), ("theme", "dim")]);
-    h.state_mut().save_to(Some(dir.path().to_path_buf()));
+    let options = [("float", "true"), ("theme", "dim")];
+    let mut h = with_kept(dir.path(), &options);
     h.state_mut().flush();
-    let found = mareader_ui_egui::import::once(None, Some(dir.path().to_path_buf()));
-    let back = MareaderApp::from_loaded(found);
+    // The next launch reads the two files the engine wrote.
+    let back = MareaderApp::kept(dir.path());
     assert_eq!(back.settings(), h.state().settings());
     assert!(back.settings().chrome.sidebar_overlay);
     Ok(())

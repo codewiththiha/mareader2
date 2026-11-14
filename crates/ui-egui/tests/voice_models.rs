@@ -3,7 +3,7 @@
 use egui_kittest::Harness;
 use egui_kittest::kittest::{NodeT as _, Queryable as _};
 use mareader_engine::command::Command;
-use mareader_engine::host::Machine;
+use mareader_engine::host::{Fake, Machine};
 use mareader_engine::settings::Tab;
 use mareader_speech::{Build, Gender, Knob, Model, ModelFile, ModelVoice};
 use mareader_ui_egui::MareaderApp;
@@ -160,9 +160,12 @@ fn settings(dir: &std::path::Path) -> Harness<'static, MareaderApp> {
         .with_step_dt(1.0 / 60.0)
         .with_max_steps(400)
         .build_eframe(move |cc| {
-            let mut app = MareaderApp::default();
+            let mut app = MareaderApp::on(
+                &cc.egui_ctx,
+                std::sync::Arc::new(Fake::default()),
+                Machine::voices(dir, TINY),
+            );
             app.set_option("set", "read_aloud.engine:\"silent\"").ok();
-            app.attach(&cc.egui_ctx, Machine::voices(dir, TINY));
             app
         });
     h.state_mut()

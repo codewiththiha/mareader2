@@ -9,7 +9,6 @@
 //! Documents, the library and the study tools are still run by front-end
 //! controllers, reached through [`crate::view::View`] until they move here.
 
-use std::path::PathBuf;
 use std::sync::Arc;
 
 use mareader_settings::Settings;
@@ -17,9 +16,9 @@ use mareader_workspace::{Bounds, Edge, MAX_PANES, PaneId, PaneTree, TreeError};
 
 use crate::command::Command;
 use crate::event::Event;
-use crate::host::Machine;
+use crate::host::Shared;
 use crate::route::Route;
-use crate::save::{LastDocument, Save};
+use crate::save::{self, LastDocument, Save};
 use crate::toast::Toast;
 
 /// Asks for a frame from any thread; the same alias `speech` exports.
@@ -37,10 +36,10 @@ pub struct Session {
     /// Results not yet drained, oldest first.
     events: Vec<Event>,
     waker: Waker,
+    /// The machine it runs on, held from the moment it is built.
+    host: Shared,
     /// Its own two files; a session with no directory writes nothing.
     save: Save,
-    /// The places its host has; an empty machine attaches nothing.
-    machine: Machine,
 }
 
 /// What an command the session carries out alone came to.
@@ -66,9 +65,23 @@ impl Done {
 }
 
 impl Session {
-    pub fn new(settings: Settings) -> Self {
+    /// A session on `host`, woken by `waker`, holding what its own file says.
+    ///
+    /// The settings come from `settings.json` under [`Host::state_dir`]; a
+    /// file that is not there, or cannot be read, leaves the defaults. A
+    /// launch that found values elsewhere hands them to `Session::import`.
+    ///
+    /// [`Host::state_dir`]: crate::host::Host::state_dir
+    pub fn new(host: Shared, waker: Waker) -> Self {
+        let save = Save::new(host.state_dir());
+        let loaded = save::load(save.dir());
+        let mut settings = loaded.settings;
+        settings.sanitize();
         let tree = PaneTree::new();
         Self {
+            host,
+            waker,
+            save,
             settings,
             active: tree.panes().first().copied().unwrap_or(PaneId(1)),
             tree,
@@ -76,15 +89,16 @@ impl Session {
             route: Route::Reader,
             dict_from: None,
             events: Vec::new(),
-            waker: Arc::new(|| {}),
-            save: Save::default(),
-            machine: Machine::default(),
         }
     }
 
-    /// Where its two files live; none, as in a browser, writes nothing.
-    pub fn save_to(&mut self, dir: Option<PathBuf>) {
-        self.save = Save::new(dir);
+    /// Takes the settings a launch found before the engine's own file.
+    ///
+    /// The one-time import: a browser store's values, or a blob an older build
+    /// left there. A launch that found nothing keeps what `new` read.
+    pub fn import(&mut self, mut settings: Settings) {
+        settings.sanitize();
+        self.settings = settings;
     }
 
     /// Whether it has somewhere to write, so a caller can build what to put.
@@ -116,24 +130,14 @@ impl Session {
         self.save.take_failure()
     }
 
-    /// The places its host has, for a front end wiring its controllers.
-    pub fn machine(&self) -> &Machine {
-        &self.machine
-    }
-
-    /// Takes the places its host has; the front end reads them back to wire.
-    pub fn set_machine(&mut self, machine: Machine) {
-        self.machine = machine;
+    /// The machine it runs on, for a command that reaches the clipboard.
+    pub fn host(&self) -> &Shared {
+        &self.host
     }
 
     /// Says something a front end shows when it drains.
     pub fn report(&mut self, toast: Toast) {
         self.emit(Event::Toast(toast));
-    }
-
-    /// Who to ask for a frame; until set, a wake does nothing.
-    pub fn set_waker(&mut self, waker: Waker) {
-        self.waker = waker;
     }
 
     /// Asks the front end for a frame.

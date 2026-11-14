@@ -10,13 +10,16 @@ use mareader_engine::host::Machine;
 use mareader_ui_egui::MareaderApp;
 use mareader_ui_egui::ui_command::Sent;
 
+use desk::Desk;
 use inbox::Inbox;
 use single_instance::Claim;
 
+mod desk;
 mod inbox;
 mod open_files;
 mod reduced_motion;
 mod single_instance;
+mod system;
 #[cfg(any(test, all(target_os = "macos", feature = "traffic-lights")))]
 mod traffic_lights;
 
@@ -136,10 +139,13 @@ fn main() -> eframe::Result {
         "mareader",
         options,
         Box::new(|cc| {
-            let mut app = MareaderApp::from_creation(cc);
-            let state = mareader_ui_egui::import::state_dir();
-            let machine = Machine::under(state, cache_dir(), dev_helper());
-            app.attach(&cc.egui_ctx, machine);
+            // The machine arrives here, and the app is built on it.
+            let host = Desk::new(cc.egui_ctx.clone());
+            let machine = Machine {
+                ai_helper: dev_helper(),
+                ..Machine::under(&*host)
+            };
+            let mut app = MareaderApp::new(cc, host, machine);
             inbox.wake_with(cc.egui_ctx.clone());
             // A file asked for at launch, else what was read last time.
             if !open_latest(&mut app, inbox.take().paths) {
@@ -149,24 +155,6 @@ fn main() -> eframe::Result {
             Ok(Box::new(Desktop { app, inbox }))
         }),
     )
-}
-
-/// Where rebuildable files such as covers go, as each platform expects.
-fn cache_dir() -> Option<std::path::PathBuf> {
-    use std::path::PathBuf;
-    let var = |k: &str| {
-        std::env::var_os(k)
-            .filter(|v| !v.is_empty())
-            .map(PathBuf::from)
-    };
-    if cfg!(target_os = "windows") {
-        return var("LOCALAPPDATA").map(|d| d.join("mareader").join("cache"));
-    }
-    if cfg!(target_os = "macos") {
-        return var("HOME").map(|h| h.join("Library/Caches/mareader"));
-    }
-    let base = var("XDG_CACHE_HOME").or_else(|| var("HOME").map(|h| h.join(".cache")));
-    base.map(|d| d.join("mareader"))
 }
 
 /// Debug builds also find the helper `tools/fm-helper.sh` builds.

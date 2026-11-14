@@ -192,7 +192,7 @@ impl MareaderApp {
             self.ui.toasts.push(toast);
         }
         for (doc, clip) in self.ui.documents.take_clips() {
-            if self.ui.clips.act(&doc, clip) {
+            if self.ui.clips.act(&self.host, &doc, clip) {
                 self.ui.read_aloud.pause();
             }
         }
@@ -241,8 +241,7 @@ impl MareaderApp {
         let pinned = self.settings().chrome.pinned(route.bar());
         let page_top = self.ui.titlebar.page_top(ctx, route.bar(), pinned);
         let menu_shot = self.ui.menu_shot;
-        let highlights = &highlight_look;
-        let dictionary = &dictionary_look;
+        let (highlights, dictionary) = (&highlight_look, &dictionary_look);
         let read_aloud = &self.ui.read_aloud;
         let documents = &mut self.ui.documents;
         let (library, library_view) = (&mut self.ui.library, &library_look);
@@ -251,6 +250,7 @@ impl MareaderApp {
         study.begin_frame();
         let vocab = &mut self.ui.vocab;
         let shading = context.shading;
+        let host = self.host.clone();
         let (layout, window) = (&layout, &window);
         let texts = &self.ui.texts;
         self.ui.library_rect = None;
@@ -286,12 +286,10 @@ impl MareaderApp {
                     picked: study.picked(id),
                     shading,
                     menu_shot: menu_shot && id == view.active,
-                    found: lit
-                        .as_ref()
-                        .filter(|(p, _)| *p == id)
-                        .map(|(_, l)| l.clone()),
+                    found: pane_found(lit, id),
                     aloud: read_aloud.lit(id),
                     ai: pane_ai(page_ai, ctx, id, library, documents),
+                    host: host.clone(),
                 };
                 documents.show(ui, id, &cx, Some(&mut *vocab))
             })
@@ -299,6 +297,16 @@ impl MareaderApp {
         self.ui.pane_rects = rects.inner;
         self.ui.library_rect = library_rect;
     }
+}
+
+/// The find bar's hit in this pane, and no other pane's.
+fn pane_found(
+    lit: &Option<(PaneId, crate::search::Lit)>,
+    pane: PaneId,
+) -> Option<crate::search::Lit> {
+    lit.as_ref()
+        .filter(|(p, _)| *p == pane)
+        .map(|(_, l)| l.clone())
 }
 
 fn pane_marks(

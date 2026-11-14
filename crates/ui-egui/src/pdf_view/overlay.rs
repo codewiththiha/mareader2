@@ -75,7 +75,7 @@ fn links(cx: &mut ShowContext<'_>) {
             ctx.open_url(egui::OpenUrl::new_tab(url));
         }
         Some(LinkTarget::Media { path, .. }) => {
-            mareader_engine::play::play(Arc::clone(doc), path);
+            mareader_engine::play::play(&cx.view_cx.host, Arc::clone(doc), path);
         }
         Some(LinkTarget::Transcript { card, track }) => view.transcripts.click(card, track),
         Some(LinkTarget::Trigger { link, .. }) => {

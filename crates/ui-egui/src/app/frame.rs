@@ -24,8 +24,7 @@ impl eframe::App for MareaderApp {
             self.ui.fonts = FontState::Installed;
             let wake = ctx.clone();
             let waker = Arc::new(move || wake.request_repaint());
-            self.ui.page_copy.attach(waker.clone());
-            self.session.set_waker(waker);
+            self.ui.page_copy.attach(waker);
             self.ui.read_aloud.attach_repaint(crate::repaint::of(ctx));
         }
         self.restyle(ctx);
@@ -67,11 +66,6 @@ impl eframe::App for MareaderApp {
 }
 
 impl MareaderApp {
-    /// Where the engine's two files live; a browser has nowhere to put them.
-    pub fn save_to(&mut self, dir: Option<PathBuf>) {
-        self.session.save_to(dir);
-    }
-
     /// Writes the engine's files when due, and books the frame that pays.
     fn keep(&mut self, ctx: &Context, now: f64) {
         // Only a launch with somewhere to write needs to know what was read.

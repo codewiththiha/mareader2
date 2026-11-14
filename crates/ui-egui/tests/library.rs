@@ -166,9 +166,8 @@ fn the_library_and_positions_come_back_after_a_restart() {
     let root = dir.path().join("library");
     let path = raven();
     let launch = || {
-        let mut app = MareaderApp::default();
+        let mut app = MareaderApp::wired(Machine::library(root.clone()));
         app.set_option("workers", "0").ok();
-        app.attach(&egui::Context::default(), Machine::library(root.clone()));
         harness(app)
     };
     let mut h = launch();
@@ -1324,10 +1323,9 @@ fn imports_are_copies_the_library_keeps_and_deletes_with_the_book() {
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path().join("library");
     let outside = put(dir.path(), "Raven.epub", &raven_bytes());
-    let mut app = MareaderApp::default();
+    let mut app = MareaderApp::wired(Machine::library(root.clone()));
     app.set_option("workers", "0").ok();
     app.set_option("library", "show").ok();
-    app.attach(&egui::Context::default(), Machine::library(root.clone()));
     let mut h = harness(app);
     let shelf = new_shelf(&mut h, "Poems");
     let to = Some(shelf);
@@ -1383,11 +1381,9 @@ fn imports_are_copies_the_library_keeps_and_deletes_with_the_book() {
 
 /// A library kept in `dir/library`, its page showing.
 fn kept_in(dir: &Path) -> Harness<'static, MareaderApp> {
-    let mut app = MareaderApp::default();
+    let mut app = MareaderApp::wired(Machine::library(dir.join("library")));
     app.set_option("workers", "0").ok();
     app.set_option("library", "show").ok();
-    let machine = Machine::library(dir.join("library"));
-    app.attach(&egui::Context::default(), machine);
     harness(app)
 }
 

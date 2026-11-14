@@ -1,8 +1,11 @@
 //! The two files the engine keeps: written whole, read back, and repaired.
 
+use std::sync::Arc;
+
 use mareader_library::{BookId, SpinePosition};
 
 use super::*;
+use crate::host::Fake;
 use crate::session::Session;
 
 /// A directory that goes when the test does.
@@ -214,10 +217,12 @@ fn a_document_remembered_twice_owes_one_write() -> Result<(), String> {
 fn a_session_keeps_its_own_two_files() -> Result<(), String> {
     let dir = dir()?;
     let file = dir.path().join("sample.epub");
-    let mut session = Session::new(choices());
-    assert!(!session.persists(), "no directory, nothing written");
-    session.save_to(Some(dir.path().to_path_buf()));
-    assert!(session.persists());
+    let nowhere = Session::new(Arc::new(Fake::default()), Arc::new(|| {}));
+    assert!(!nowhere.persists(), "no directory, nothing written");
+    let host = Arc::new(Fake::under(dir.path()));
+    let mut session = Session::new(host, Arc::new(|| {}));
+    session.import(choices());
+    assert!(session.persists(), "the host named a directory");
     assert_eq!(session.keep(0.0, None), None, "nothing is owed yet");
     assert!(!dir.path().join(SETTINGS_FILE).exists());
     assert_eq!(session.keep(0.0, Some(last(&file))), None, "due at once");

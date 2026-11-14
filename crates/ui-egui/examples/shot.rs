@@ -7,7 +7,6 @@ use egui_kittest::kittest::Queryable;
 use mareader_cefr::{Part, State};
 use mareader_engine::command::Command;
 use mareader_engine::dict::Download;
-use mareader_engine::host::Machine;
 use mareader_engine::pane::{Arrow, ViewMode};
 use mareader_engine::pane::{Fit, Step, ZoomCommand};
 use mareader_settings::Provider;
@@ -19,6 +18,8 @@ fn main() -> Result<(), String> {
     let mut args = std::env::args().skip(1);
     let out = args.next().ok_or("usage: shot OUT.png [key=value ...]")?;
     let mut app = MareaderApp::default();
+    // The AI's folder, for `explain=live`: one per run, so keys are kept.
+    let ai_root = std::env::temp_dir().join(format!("mareader-shot-ai-{}", std::process::id()));
     let mut hover = None;
     let mut size = egui::vec2(1200.0, 800.0);
     let mut zooms = Vec::new();
@@ -270,6 +271,7 @@ fn main() -> Result<(), String> {
                     return Err("explain=live needs OPENAI_API_KEY".into());
                 }
                 app.set_option("provider", "openai")?;
+                app.set_option("ai_dir", &ai_root.to_string_lossy())?;
                 live_ai = true;
                 ai_key = Some(key);
             }
@@ -311,22 +313,13 @@ fn main() -> Result<(), String> {
             _ => app.set_option(k, v)?,
         }
     }
-    let ai_root = std::env::temp_dir().join(format!("mareader-shot-ai-{}", std::process::id()));
-    let attach_ai = live_ai;
     let mut harness = Harness::builder()
         .with_size(size)
         .with_pixels_per_point(2.0)
         .with_step_dt(1.0 / 60.0)
         .wgpu()
         .with_max_steps(64)
-        .build_eframe(|cc| {
-            let machine = Machine {
-                ai: attach_ai.then_some(ai_root),
-                ..Machine::default()
-            };
-            app.attach(&cc.egui_ctx, machine);
-            app
-        });
+        .build_eframe(|_| app);
     harness.run_steps(4);
     if let Some(key) = ai_key {
         harness

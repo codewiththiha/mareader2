@@ -1,9 +1,18 @@
 //! The importer's fixture: a store faked, a directory borrowed, both read back.
 
+use std::sync::Arc;
+
+use mareader_engine::host::{Fake, Machine, Shared};
 use mareader_engine::save::LastDocument;
 
 use super::*;
 use crate::MareaderApp;
+
+/// The app a launch builds on a host with no machine, as a browser's.
+fn built(loaded: Loaded) -> MareaderApp {
+    let host: Shared = Arc::new(Fake::default());
+    MareaderApp::from_loaded(loaded, &egui::Context::default(), host, Machine::default())
+}
 
 /// The store a browser keeps, as a map of two keys.
 #[derive(Default)]
@@ -50,7 +59,7 @@ fn written(value: &serde_json::Value) -> Result<String, String> {
 fn the_pre_crate_settings_blob_still_loads() {
     let v0 = r#"{"titlebar_pinned":true,"animations":false,"sidebar_overlay":true}"#;
     let disk = Memory::with(SETTINGS_KEY, v0);
-    let app = MareaderApp::from_loaded(once(Some(&disk), None));
+    let app = built(once(Some(&disk), None));
     assert!(app.pinned() && app.settings().chrome.sidebar_overlay);
     assert!(!app.settings().motion.enabled);
     assert!(app.settings().chrome.glass, "glass is new, so it starts on");
@@ -60,7 +69,7 @@ fn the_pre_crate_settings_blob_still_loads() {
 fn repaired_settings_say_so() {
     let bad = r#"{"version":1,"motion":{"zoom":"often"}}"#;
     let disk = Memory::with(SETTINGS_KEY, bad);
-    let app = MareaderApp::from_loaded(once(Some(&disk), None));
+    let app = built(once(Some(&disk), None));
     let tone = app.toast().map(|t| t.tone);
     assert_eq!(tone, Some(mareader_engine::toast::Tone::Error));
 }

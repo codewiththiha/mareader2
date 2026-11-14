@@ -9,6 +9,7 @@ use mareader_ui_egui::MareaderApp;
 use mareader_ui_egui::ui_command::{Sent, UiCommand};
 
 use crate::common::reader_200 as reader;
+use crate::common::reader_kept;
 
 fn textures(h: &Harness<'static, MareaderApp>) -> usize {
     h.ctx.tex_manager().read().num_allocated()
@@ -474,14 +475,6 @@ fn tempdir() -> tempfile::TempDir {
     tempfile::tempdir().expect("a temporary folder")
 }
 
-/// The next launch, from what the engine wrote in `dir`.
-fn relaunched(dir: &std::path::Path) -> MareaderApp {
-    let loaded = mareader_ui_egui::import::once(None, Some(dir.to_path_buf()));
-    let mut app = MareaderApp::from_loaded(loaded);
-    app.save_to(Some(dir.to_path_buf()));
-    app
-}
-
 /// What the engine wrote about the document read at exit.
 fn session_file(dir: &std::path::Path) -> Result<String, String> {
     let path = dir.join(mareader_engine::save::SESSION_FILE);
@@ -652,8 +645,7 @@ fn a_book_keeps_its_own_design_over_the_setting() -> Result<(), String> {
 fn the_book_read_at_exit_reopens_on_its_page() -> Result<(), String> {
     let file = File::sample(30, "resume")?;
     let dir = tempdir();
-    let mut app = MareaderApp::default();
-    app.save_to(Some(dir.path().to_path_buf()));
+    let mut app = MareaderApp::kept(dir.path());
     let request = OpenRequest {
         page: 12,
         ..OpenRequest::path(file.0.clone())
@@ -662,7 +654,7 @@ fn the_book_read_at_exit_reopens_on_its_page() -> Result<(), String> {
     let mut h = launched(app);
     h.state_mut().flush();
     // The next launch, from the two files the engine wrote.
-    let mut again = relaunched(dir.path());
+    let mut again = MareaderApp::kept(dir.path());
     assert!(again.resume(), "wrote {:?}", session_file(dir.path()));
     let h = launched(again);
     assert_eq!(h.state().title(), "Read Last Time");
@@ -670,7 +662,7 @@ fn the_book_read_at_exit_reopens_on_its_page() -> Result<(), String> {
     assert_eq!(h.state().documents().current(pane), Some(12));
     // A file gone since then leaves the window empty, without a fuss.
     drop(file);
-    let mut moved = relaunched(dir.path());
+    let mut moved = MareaderApp::kept(dir.path());
     assert!(!moved.resume());
     Ok(())
 }
@@ -679,8 +671,7 @@ fn the_book_read_at_exit_reopens_on_its_page() -> Result<(), String> {
 fn a_book_read_at_exit_reopens_at_its_place_in_new_type() -> Result<(), String> {
     let file = File::book(6, "resume-book")?;
     let dir = tempdir();
-    let mut app = MareaderApp::default();
-    app.save_to(Some(dir.path().to_path_buf()));
+    let mut app = MareaderApp::kept(dir.path());
     let request = OpenRequest {
         page: 8,
         ..OpenRequest::path(file.0.clone())
@@ -696,7 +687,7 @@ fn a_book_read_at_exit_reopens_at_its_place_in_new_type() -> Result<(), String> 
     let saved = session_file(dir.path())?;
     assert!(saved.contains("\"place\""), "{saved}");
     // Next launch in bigger type: the page differs, the place doesn't.
-    let mut again = relaunched(dir.path());
+    let mut again = MareaderApp::kept(dir.path());
     again.settings_mut().text.font_size = 28.0;
     assert!(again.resume());
     let h = launched(again);
@@ -714,15 +705,14 @@ fn a_book_read_at_exit_reopens_at_its_place_in_new_type() -> Result<(), String> 
 #[test]
 fn a_dropped_book_or_an_empty_window_leaves_nothing_to_reopen() -> Result<(), String> {
     let dir = tempdir();
-    let mut h = reader(&[]);
-    h.state_mut().save_to(Some(dir.path().to_path_buf()));
+    let mut h = reader_kept(dir.path(), &[]);
     h.state_mut().flush();
     assert_eq!(session_file(dir.path())?, "null");
     // Bytes, such as a browser's drop, have no file to come back to.
     h.state_mut().queue(Sent::Engine(Command::Open(sample(3))));
     h.run();
     assert_eq!(h.state().last_document(), None);
-    let mut app = relaunched(dir.path());
+    let mut app = MareaderApp::kept(dir.path());
     assert!(!app.resume());
     Ok(())
 }

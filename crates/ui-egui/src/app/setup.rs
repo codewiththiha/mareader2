@@ -1,5 +1,6 @@
 use egui::Context;
 use mareader_engine::host::Machine;
+use mareader_engine::session::Waker;
 
 use super::*;
 
@@ -28,16 +29,13 @@ impl MareaderApp {
         true
     }
 
-    /// Wires every controller to the places `machine` names.
+    /// Wires every controller this crate still holds to `machine`'s places.
     ///
-    /// The session keeps the machine, so a front end can ask it back, and the
-    /// waker built here is the session's too: a service on its own thread can
-    /// ask for a frame. A place left unnamed attaches nothing, and its
-    /// controller keeps its state in memory.
-    pub fn attach(&mut self, ctx: &Context, machine: Machine) {
-        self.session.set_machine(machine.clone());
-        let waker = repainter(ctx);
-        self.session.set_waker(waker.clone());
+    /// The host and the waker are the session's from its construction, and
+    /// each service takes the same waker, so work off this thread can ask for
+    /// a frame. A place left unnamed attaches nothing, and its controller
+    /// keeps its state in memory.
+    pub(super) fn wire(&mut self, ctx: &Context, machine: &Machine, waker: &Waker) {
         if let Some(root) = machine.library.clone() {
             self.ui.library.attach(root, waker.clone());
         }
@@ -45,7 +43,7 @@ impl MareaderApp {
             self.ui.library.attach_cache(dir);
         }
         #[cfg(not(target_arch = "wasm32"))]
-        self.attach_services(ctx, &machine, &waker);
+        self.wire_services(ctx, machine, waker);
         self.drain(ctx);
     }
 
@@ -64,12 +62,7 @@ impl MareaderApp {
 
     /// The services only a desktop has: words, voices and the AI.
     #[cfg(not(target_arch = "wasm32"))]
-    fn attach_services(
-        &mut self,
-        ctx: &Context,
-        machine: &Machine,
-        waker: &mareader_speech::Waker,
-    ) {
+    fn wire_services(&mut self, ctx: &Context, machine: &Machine, waker: &Waker) {
         if let Some(dir) = machine.dictionaries.clone()
             && let Err(why) = self.ui.dict.attach(dir, waker.clone())
         {
@@ -101,7 +94,7 @@ impl MareaderApp {
 }
 
 /// Asks for a frame from any thread, as a service off this one needs.
-fn repainter(ctx: &Context) -> mareader_speech::Waker {
+pub(super) fn repainter(ctx: &Context) -> Waker {
     let ctx = ctx.clone();
     Arc::new(move || ctx.request_repaint())
 }

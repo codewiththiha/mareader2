@@ -12,6 +12,7 @@ use mareader_appearance::{Appearance, Rgb};
 use mareader_engine::dict::{Action as DictAction, Download, Window};
 use mareader_engine::documents::{OpenRequest, Placement};
 use mareader_engine::export::{Entry, Format, file_name};
+use mareader_engine::host::Fake;
 use mareader_engine::library::Action as LibraryAction;
 use mareader_engine::page_ai::Action as PageAiAction;
 use mareader_engine::pane::{Arrow, ViewMode, ZoomCommand};
@@ -24,7 +25,7 @@ use mareader_engine::toast::Toast;
 use mareader_engine::view::{EdgeTab, View};
 use mareader_library::{BookId, Pen};
 use mareader_session::{Budget, Document, Event as Opened};
-use mareader_settings::{ReadAloudSettings, Settings, WordList};
+use mareader_settings::{ReadAloudSettings, WordList};
 use mareader_speech::{Item, Model, Spot};
 use mareader_workspace::{Bounds, PaneId};
 
@@ -50,7 +51,7 @@ pub struct Headless {
 impl Headless {
     pub fn new(out: PathBuf) -> Self {
         Self {
-            session: Session::new(Settings::default()),
+            session: Session::new(Arc::new(Fake::default()), Arc::new(|| {})),
             docs: mareader_session::Session::new(0, || {}),
             panes: BTreeMap::new(),
             marks: Vec::new(),
