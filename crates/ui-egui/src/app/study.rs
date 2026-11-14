@@ -303,7 +303,6 @@ impl MareaderApp {
         let inline = self.ui.study.inline();
         self.ui.dict.attach(PathBuf::from(value), Arc::new(|| {}))?;
         self.ui.dict.set_inline(inline);
-
         Ok(())
     }
 
@@ -334,7 +333,6 @@ impl MareaderApp {
         if value != "show" {
             self.ui.dict.search(value);
         };
-
         Ok(())
     }
 
@@ -359,7 +357,6 @@ impl MareaderApp {
         if value != "show" {
             self.ui.dict.search(value);
         };
-
         Ok(())
     }
 
@@ -391,7 +388,6 @@ impl MareaderApp {
         let id = ai.add_preset(p, "");
         ai.tasks.explain.preset = Some(id);
         self.set_field("ai", ai)?;
-
         Ok(())
     }
 

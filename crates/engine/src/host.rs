@@ -181,4 +181,5 @@ impl Machine {
 }
 
 #[cfg(test)]
-mod host_tests;
+#[path = "host_tests.rs"]
+mod tests;
