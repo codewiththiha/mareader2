@@ -9,6 +9,7 @@
 //! Documents, the library and the study tools are still run by front-end
 //! controllers, reached through [`crate::desk::Desk`] until they move here.
 
+use std::path::PathBuf;
 use std::sync::Arc;
 
 use mareader_settings::Settings;
@@ -17,6 +18,7 @@ use mareader_workspace::{Bounds, Edge, MAX_PANES, PaneId, PaneTree, TreeError};
 use crate::command::Command;
 use crate::event::Event;
 use crate::route::Route;
+use crate::save::{LastDocument, Save};
 use crate::toast::Toast;
 
 /// Asks for a frame from any thread; the same alias `speech` exports.
@@ -34,6 +36,8 @@ pub struct Session {
     /// Results not yet drained, oldest first.
     events: Vec<Event>,
     waker: Waker,
+    /// Its own two files; a session with no directory writes nothing.
+    save: Save,
 }
 
 /// What an command the session carries out alone came to.
@@ -70,7 +74,42 @@ impl Session {
             dict_from: None,
             events: Vec::new(),
             waker: Arc::new(|| {}),
+            save: Save::default(),
         }
+    }
+
+    /// Where its two files live; none, as in a browser, writes nothing.
+    pub fn save_to(&mut self, dir: Option<PathBuf>) {
+        self.save = Save::new(dir);
+    }
+
+    /// Whether it has somewhere to write, so a caller can build what to put.
+    pub fn persists(&self) -> bool {
+        self.save.dir().is_some()
+    }
+
+    /// Remembers what was read, then writes when a write is due.
+    ///
+    /// The answer is the wait left when it skipped, for a frame to book.
+    pub fn keep(&mut self, now: f64, last: Option<LastDocument>) -> Option<f64> {
+        self.save.note(last);
+        self.save.write(now, &self.settings)
+    }
+
+    /// Writes what is owed at once: the window is going.
+    pub fn settle(&mut self, last: Option<LastDocument>) {
+        self.save.note(last);
+        self.save.flush(&self.settings);
+    }
+
+    /// Something persisted changed outside a command.
+    pub fn touch(&mut self) {
+        self.save.touch();
+    }
+
+    /// Why a write was refused, once; a caller turns it into a toast.
+    pub fn take_failure(&mut self) -> Option<String> {
+        self.save.take_failure()
     }
 
     /// Who to ask for a frame; until set, a wake does nothing.
@@ -278,7 +317,10 @@ impl Session {
             .map_err(|e| e.to_string())
             .and_then(|value| self.settings.set_path(path, &value));
         match set {
-            Ok(()) => Done::changed(),
+            Ok(()) => {
+                self.save.touch();
+                Done::changed()
+            }
             Err(why) => Done {
                 dirty: false,
                 refused: Some(why),

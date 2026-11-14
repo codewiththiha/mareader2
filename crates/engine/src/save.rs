@@ -44,18 +44,14 @@ pub struct Loaded {
 }
 
 /// The engine's writing: where, when it last did, and whether it owes one.
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct Save {
     dir: Option<PathBuf>,
     wrote: f64,
     dirty: bool,
     failed: Option<String>,
-}
-
-impl Default for Save {
-    fn default() -> Self {
-        Self::new(None)
-    }
+    /// What was read, as the front end last reported it.
+    last: Option<LastDocument>,
 }
 
 impl Save {
@@ -64,8 +60,8 @@ impl Save {
         Self {
             dir,
             wrote: f64::NEG_INFINITY,
-            dirty: false,
-            failed: None,
+            last: None,
+            ..Self::default()
         }
     }
 
@@ -84,13 +80,17 @@ impl Save {
         self.dirty
     }
 
+    /// Remembers what was read; a difference owes a write.
+    pub fn note(&mut self, last: Option<LastDocument>) {
+        if self.last == last {
+            return;
+        }
+        self.last = last;
+        self.touch();
+    }
+
     /// Writes at most every [`EVERY`]; else the wait left, for a frame.
-    pub fn write(
-        &mut self,
-        now: f64,
-        settings: &Settings,
-        last: Option<&LastDocument>,
-    ) -> Option<f64> {
+    pub fn write(&mut self, now: f64, settings: &Settings) -> Option<f64> {
         if self.dir.is_none() || !self.dirty {
             return None;
         }
@@ -100,19 +100,20 @@ impl Save {
         }
         self.wrote = now;
         self.dirty = false;
-        if let Some(dir) = self.dir.clone() {
-            self.failed = put(&dir, settings, last).err();
-        }
+        let Some(dir) = self.dir.clone() else {
+            return None;
+        };
+        self.failed = store(&dir, settings, self.last.as_ref()).err();
         // A refused write is still owed, so the next frame tries again.
         self.dirty = self.failed.is_some();
         None
     }
 
     /// Writes now: the app is exiting, or a test asks.
-    pub fn flush(&mut self, settings: &Settings, last: Option<&LastDocument>) {
+    pub fn flush(&mut self, settings: &Settings) {
         self.wrote = f64::NEG_INFINITY;
         self.touch();
-        self.write(0.0, settings, last);
+        self.write(0.0, settings);
     }
 
     /// Why a write was refused, once; a caller turns it into a toast.
@@ -153,7 +154,7 @@ pub fn load(dir: Option<&Path>) -> Loaded {
 }
 
 /// Both files whole: a temp beside each, then a rename.
-fn put(dir: &Path, settings: &Settings, last: Option<&LastDocument>) -> Result<(), String> {
+pub fn store(dir: &Path, settings: &Settings, last: Option<&LastDocument>) -> Result<(), String> {
     let choices = mareader_settings::to_json(settings);
     write(dir, SETTINGS_FILE, choices.as_bytes())?;
     let session = serde_json::to_string(&last).map_err(|e| format!("{SESSION_FILE}: {e}"))?;
