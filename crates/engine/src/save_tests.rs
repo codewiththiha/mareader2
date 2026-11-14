@@ -175,7 +175,10 @@ fn a_refused_write_is_still_owed() -> Result<(), String> {
     assert_eq!(save.write(0.0, &choices(), None), None);
     assert!(save.dirty(), "a refused write is owed again");
     let why = save.take_failure();
-    assert!(why.is_some_and(|w| w.contains(SETTINGS_FILE)), "{why:?}");
+    assert!(
+        why.as_ref().is_some_and(|w| w.contains(SETTINGS_FILE)),
+        "{why:?}"
+    );
     assert_eq!(save.take_failure(), None, "the reason is told once");
     Ok(())
 }
