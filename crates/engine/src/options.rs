@@ -5,8 +5,9 @@
 //! window's own code turned it into state. What most of those keys set is the
 //! engine's — a setting by its dotted path, as `Command::SetField` — so the
 //! parsing lives here, where a front end, a command line and a test all meet
-//! the same answer. A front end keeps the keys that read what is set so far,
-//! and the ones that name its toolkit.
+//! the same answer. A key that reads what is set so far reads it here, from the
+//! session it arrives with. A front end keeps the keys that name its toolkit,
+//! its widgets, and the room its own window has.
 //!
 //! `None` is the answer for a key this module does not own, which is how a
 //! front end's own keys stay reachable: it asks here first and falls through.
@@ -17,16 +18,19 @@ mod panes;
 mod study;
 
 use crate::command::Command;
+use crate::session::Session;
 
 /// The commands a key asks for, in order; `None` when it is a front end's own.
 ///
 /// A batch, because one key can ask for two writes: `sort=title:desc` sets the
-/// key and the way it runs, and the settings hold them apart.
-pub fn parse(key: &str, value: &str) -> Option<Result<Vec<Command>, String>> {
-    appearance::set(key, value)
-        .or_else(|| library::set(key, value))
-        .or_else(|| panes::set(key, value))
-        .or_else(|| study::set(key, value))
+/// key and the way it runs, and the settings hold them apart. `at` is the
+/// session the key arrived at, which is what a key that reads the looks as they
+/// stand, or the panes as they are, reads.
+pub fn parse(key: &str, value: &str, at: &Session) -> Option<Result<Vec<Command>, String>> {
+    appearance::set(key, value, at)
+        .or_else(|| library::set(key, value, at))
+        .or_else(|| panes::set(key, value, at))
+        .or_else(|| study::set(key, value, at))
 }
 
 /// A setting written by its dotted path, as the session's `put` takes it.

@@ -57,7 +57,7 @@ fn no_option_key_writes_the_engine_through_an_accessor() {
             }
         }
     }
-    assert!(counted > 40, "{counted} handlers is too few");
+    assert!(counted > 30, "{counted} handlers is too few");
 }
 
 #[test]

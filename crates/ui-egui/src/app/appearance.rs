@@ -390,29 +390,14 @@ fn splitmix(state: u64) -> u64 {
 /// `None` for a key that is not one of them, so the next family is asked.
 pub(super) fn own_key(app: &mut MareaderApp, key: &str, value: &str) -> Option<Result<(), String>> {
     match key {
-        "save_preset" => Some(app.option_save_preset(key, value)),
         "chromeless" => Some(app.option_chromeless(key, value)),
         "menu" => Some(app.option_menu(key, value)),
-        "label" => Some(app.option_label(key, value)),
         "reduced" => Some(app.option_reduced(key, value)),
         _ => None,
     }
 }
 
 impl MareaderApp {
-    fn option_save_preset(&mut self, _key: &str, value: &str) -> Result<(), String> {
-        // `Name` or `Name/Section`, saving the look set so far.
-        let (name, group) = value.split_once('/').unwrap_or((value, ""));
-        let save = Command::SavePreset {
-            name: name.to_owned(),
-            group: group.to_owned(),
-            look: self.settings().appearance,
-        };
-        self.queue(Sent::Engine(save));
-
-        Ok(())
-    }
-
     fn option_chromeless(&mut self, _key: &str, value: &str) -> Result<(), String> {
         self.ui.chromeless = value == "true";
         Ok(())
@@ -420,18 +405,6 @@ impl MareaderApp {
 
     fn option_menu(&mut self, _key: &str, value: &str) -> Result<(), String> {
         self.ui.menu_shot = value == "true";
-        Ok(())
-    }
-
-    fn option_label(&mut self, _key: &str, value: &str) -> Result<(), String> {
-        let mut l = self.settings().layout.clone();
-        l.floating_label = value != "false";
-        l.floating_label_persist = value == "persist";
-        if value == "chapter" {
-            l.floating_label_style = mareader_settings::FloatingLabelStyle::Chapter;
-        };
-        self.set_field("layout", l)?;
-
         Ok(())
     }
 

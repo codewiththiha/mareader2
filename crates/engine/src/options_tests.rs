@@ -9,7 +9,10 @@ use crate::session::Session;
 use mareader_appearance::{BaseMode, NoiseMode};
 use mareader_library::{CoverFit, Home, Layout, SortKey};
 use mareader_session::Source;
-use mareader_settings::{AppearanceMenuStyle, Bar, LibraryClick, Settings};
+use mareader_settings::{
+    AppearanceMenuStyle, Bar, FloatingLabelStyle, LibraryClick, Provider, Settings,
+};
+use mareader_workspace::{Bounds, Edge};
 
 /// A session on a host with no machine, so its settings are the defaults.
 fn bare() -> Session {
@@ -18,7 +21,12 @@ fn bare() -> Session {
 
 /// The command a key asks for, or why the question has no answer.
 fn parsed(key: &str, value: &str) -> Result<Vec<Command>, String> {
-    match parse(key, value) {
+    parsed_in(&bare(), key, value)
+}
+
+/// The same, against a session holding what the key reads.
+fn parsed_in(at: &Session, key: &str, value: &str) -> Result<Vec<Command>, String> {
+    match parse(key, value, at) {
         None => Err(format!("{key} is a front end's own")),
         Some(found) => found,
     }
@@ -26,8 +34,12 @@ fn parsed(key: &str, value: &str) -> Result<Vec<Command>, String> {
 
 /// A session with the key carried out, so a setting can be looked at.
 fn written(key: &str, value: &str) -> Result<Session, String> {
-    let mut session = bare();
-    for command in parsed(key, value)? {
+    carried(bare(), key, value)
+}
+
+/// The same, from a session that already holds what the key reads.
+fn carried(mut session: Session, key: &str, value: &str) -> Result<Session, String> {
+    for command in parsed_in(&session, key, value)? {
         let done = session.apply(command);
         if let Some(why) = done.refused {
             return Err(why);
@@ -99,10 +111,8 @@ fn a_bad_value_says_what_the_key_takes() -> Result<(), String> {
 
 #[test]
 fn a_key_the_front_end_keeps_is_not_here() {
-    // These read the settings as they stand, or the window's own state.
+    // These name the window's own state.
     let kept = [
-        "save_preset",
-        "label",
         "chromeless",
         "menu",
         "reduced",
@@ -120,8 +130,6 @@ fn a_key_the_front_end_keeps_is_not_here() {
         "sidebar",
         "find",
         "workers",
-        "focus",
-        "panes",
         "open",
         "toast",
         "toasts",
@@ -130,11 +138,13 @@ fn a_key_the_front_end_keeps_is_not_here() {
         "dictionaries",
         "explain",
         "selection",
+        // This one splits the tree in the room the window has.
+        "panes",
     ];
     for key in kept {
-        assert!(parse(key, "true").is_none(), "{key} moved");
+        assert!(parse(key, "true", &bare()).is_none(), "{key} moved");
     }
-    assert!(parse("no_such_key", "1").is_none());
+    assert!(parse("no_such_key", "1", &bare()).is_none());
 }
 
 #[test]
@@ -267,6 +277,69 @@ fn a_pin_key_writes_every_bar_at_once() -> Result<(), String> {
     }
     // One write per bar, so a bar added to `Bar::ALL` cannot be missed.
     assert_eq!(parsed("pinned", "true")?.len(), Bar::ALL.len());
+    Ok(())
+}
+
+#[test]
+fn a_label_key_writes_the_three_fields_it_names() -> Result<(), String> {
+    let session = written("label", "chapter")?;
+    let layout = &session.settings().layout;
+    assert!(layout.floating_label);
+    assert!(!layout.floating_label_persist);
+    assert_eq!(layout.floating_label_style, FloatingLabelStyle::Chapter);
+    let session = written("label", "persist")?;
+    assert!(session.settings().layout.floating_label_persist);
+    let session = written("label", "false")?;
+    assert!(!session.settings().layout.floating_label);
+    Ok(())
+}
+
+#[test]
+fn a_preset_key_keeps_the_look_the_session_holds() -> Result<(), String> {
+    let session = written("theme", "dark")?;
+    let kept = carried(session, "save_preset", "Look/Page")?;
+    let made = &kept.settings().user_presets;
+    assert_eq!(made.len(), 1);
+    assert_eq!(made.first().map(|p| p.name.as_str()), Some("Look"));
+    assert_eq!(made.first().map(|p| p.group.as_str()), Some("Page"));
+    let base = made.first().map(|p| p.appearance.base);
+    assert_eq!(base, Some(BaseMode::Dark));
+    Ok(())
+}
+
+#[test]
+fn a_provider_key_points_one_task_at_one_preset() -> Result<(), String> {
+    let session = written("provider", "openai")?;
+    let ai = &session.settings().ai;
+    assert_eq!(ai.presets.len(), 1);
+    let made = ai.presets.first().map(|p| p.provider);
+    assert_eq!(made, Some(Provider::OpenAi));
+    let pointed = ai.tasks.explain.preset.as_ref();
+    assert_eq!(pointed, ai.presets.first().map(|p| &p.id));
+    let hint = "provider: e.g. openai or ollama";
+    assert_eq!(parsed("provider", "nope").err().as_deref(), Some(hint));
+    Ok(())
+}
+
+#[test]
+fn a_focus_key_counts_panes_as_a_shot_does() -> Result<(), String> {
+    let mut session = bare();
+    let first = session.active();
+    let area = Bounds::new(0.0, 0.0, 1600.0, 1000.0);
+    let Some(second) = session.split_at(first, Edge::Right, area) else {
+        return Err("the fixture area has room for two".into());
+    };
+    let aimed = match parsed_in(&session, "focus", "2")?.first() {
+        Some(Command::FocusPane(pane)) => Some(*pane),
+        _ => None,
+    };
+    assert_eq!(aimed, Some(second));
+    let hint = "focus: no such pane";
+    let found = parsed_in(&session, "focus", "3").err();
+    assert_eq!(found.as_deref(), Some(hint));
+    let count = "focus: a pane number";
+    let found = parsed_in(&session, "focus", "x").err();
+    assert_eq!(found.as_deref(), Some(count));
     Ok(())
 }
 

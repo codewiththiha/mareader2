@@ -284,7 +284,6 @@ pub(super) fn own_key(app: &mut MareaderApp, key: &str, value: &str) -> Option<R
         "dict_fold" => Some(app.option_dict_fold(key, value)),
         "dict_page" => Some(app.option_dict_page(key, value)),
         "explain" => Some(app.option_explain(key, value)),
-        "provider" => Some(app.option_provider(key, value)),
         "selection" => Some(app.option_selection(key, value)),
         "pick" => Some(app.option_pick(key, value)),
         "bookmark" => Some(app.option_bookmark(key, value)),
@@ -376,18 +375,6 @@ impl MareaderApp {
                 .set_explainer(Arc::new(mareader_study::Unavailable)),
             _ => return Err("explain: assistant, canned or none".into()),
         };
-        Ok(())
-    }
-
-    // One saved model on it explains words, e.g. `openai`.
-    fn option_provider(&mut self, _key: &str, value: &str) -> Result<(), String> {
-        let name = serde_json::Value::String(value.to_owned());
-        let p = serde_json::from_value(name).map_err(|_| "provider: e.g. openai or ollama")?;
-        let mut ai = self.settings().ai.clone();
-        ai.presets.clear();
-        let id = ai.add_preset(p, "");
-        ai.tasks.explain.preset = Some(id);
-        self.set_field("ai", ai)?;
         Ok(())
     }
 

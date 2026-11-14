@@ -242,7 +242,6 @@ pub(super) fn own_key(app: &mut MareaderApp, key: &str, value: &str) -> Option<R
         "sidebar" => Some(app.option_sidebar(key, value)),
         "find" => Some(app.option_find(key, value)),
         "open" => Some(app.option_open(key, value)),
-        "focus" => Some(app.option_focus(key, value)),
         "panes" => Some(app.option_panes(key, value)),
         _ => None,
     }
@@ -363,18 +362,6 @@ impl MareaderApp {
                 );
             }
         };
-        Ok(())
-    }
-
-    fn option_focus(&mut self, _key: &str, value: &str) -> Result<(), String> {
-        let n: u32 = value.parse().map_err(|_| "focus: a pane number")?;
-        let pane = self
-            .tree()
-            .panes()
-            .get(n.saturating_sub(1) as usize)
-            .copied();
-        self.focus(pane.ok_or("focus: no such pane")?);
-
         Ok(())
     }
 

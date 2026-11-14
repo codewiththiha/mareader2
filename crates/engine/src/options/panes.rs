@@ -1,17 +1,18 @@
 //! The window's keys that reach the engine: a file to open, how panes share.
 //!
-//! What stays in a front end names its own widgets — the platform skin, the
-//! sidebar's panel, the bar's query, a toast, the workers' inline flag, which
-//! pane is in front, and how many panes the tree holds.
+//! What stays in a front end names its own widgets: the platform skin, the
+//! sidebar's panel, the bar's query, a toast, the workers' inline flag. Panes
+//! stays there too, since a split needs the room its own window has.
 
 use mareader_settings::LibraryClick;
 
-use super::{field, flag, named};
+use super::{field, flag, named, number};
 use crate::command::Command;
 use crate::documents::OpenRequest;
+use crate::session::Session;
 
 /// The panes' keys; `None` for a key that is not one of them.
-pub(super) fn set(key: &str, value: &str) -> Option<Result<Vec<Command>, String>> {
+pub(super) fn set(key: &str, value: &str, at: &Session) -> Option<Result<Vec<Command>, String>> {
     let parsed = match key {
         "pdf" | "epub" => open(key, value),
         "independent" => field("workspace.independent_themes", flag(value)),
@@ -19,6 +20,7 @@ pub(super) fn set(key: &str, value: &str) -> Option<Result<Vec<Command>, String>
         "independent_textures" => field("workspace.independent_textures", flag(value)),
         "shared_base" => field("workspace.shared_base_mode", flag(value)),
         "library_click" => click(value),
+        "focus" => focus(value, at),
         _ => return None,
     };
     Some(parsed)
@@ -51,6 +53,15 @@ fn open(key: &str, value: &str) -> Result<Vec<Command>, String> {
         _ => OpenRequest::path(value.into()),
     };
     Ok(vec![Command::Open(made)])
+}
+
+/// The pane a shot counts: the first is 1, in the tree's own order.
+fn focus(value: &str, at: &Session) -> Result<Vec<Command>, String> {
+    let n: u32 = number(value, "focus: a pane number")?;
+    let nth = n.saturating_sub(1) as usize;
+    let pane = at.tree().panes().get(nth).copied();
+    let pane = pane.ok_or("focus: no such pane")?;
+    Ok(vec![Command::FocusPane(pane)])
 }
 
 fn click(value: &str) -> Result<Vec<Command>, String> {

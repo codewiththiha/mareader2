@@ -1,23 +1,27 @@
 //! The looks, the page's geometry and the text's, one key each.
 //!
 //! Every key here writes a setting by its dotted path, so a new dial needs no
-//! new command. What stays in a front end reads the settings as they stand:
-//! `save_preset` keeps the look set so far, `label` three fields at once.
+//! new command. Two read the looks as they stand and write what they find:
+//! `save_preset` keeps them as a preset, `label` writes three fields at once.
 
 use mareader_appearance::{BaseMode, NoiseMode, TextureMode, builtin_presets};
 use mareader_settings::{
-    AppearanceMenuStyle, Bar, BookDesign, ColumnAlign, Corners, FontChoice, PaperArea,
+    AppearanceMenuStyle, Bar, BookDesign, ColumnAlign, Corners, FloatingLabelStyle, FontChoice,
+    PaperArea,
 };
 
 use super::{field, flag, named, number};
 use crate::command::Command;
+use crate::session::Session;
 
 /// The looks' keys; `None` for a key that is not one of them.
-pub(super) fn set(key: &str, value: &str) -> Option<Result<Vec<Command>, String>> {
+pub(super) fn set(key: &str, value: &str, at: &Session) -> Option<Result<Vec<Command>, String>> {
     let parsed = match key {
         "set" => by_path(value),
         "theme" => theme(value),
         "preset" => preset(value),
+        "save_preset" => save_preset(value, at),
+        "label" => label(value, at),
         "texture" => texture(value),
         "grain" => grain(value),
         "appearance_menu" => menu_style(value),
@@ -198,4 +202,25 @@ fn bar_path(bar: Bar) -> &'static str {
         Bar::Library => "chrome.library_titlebar_pinned",
         Bar::Dictionary => "chrome.dictionary_titlebar_pinned",
     }
+}
+
+/// `Name` or `Name/Section`, keeping the look the session holds.
+fn save_preset(value: &str, at: &Session) -> Result<Vec<Command>, String> {
+    let (name, group) = value.split_once('/').unwrap_or((value, ""));
+    Ok(vec![Command::SavePreset {
+        name: name.to_owned(),
+        group: group.to_owned(),
+        look: at.settings().appearance,
+    }])
+}
+
+/// The floating label on, off, or kept by chapter: three fields at once.
+fn label(value: &str, at: &Session) -> Result<Vec<Command>, String> {
+    let mut layout = at.settings().layout.clone();
+    layout.floating_label = value != "false";
+    layout.floating_label_persist = value == "persist";
+    if value == "chapter" {
+        layout.floating_label_style = FloatingLabelStyle::Chapter;
+    }
+    field("layout", layout)
 }

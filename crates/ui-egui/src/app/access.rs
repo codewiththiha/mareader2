@@ -289,13 +289,15 @@ impl MareaderApp {
 impl MareaderApp {
     /// Headless knobs for `examples/shot.rs` and tests.
     ///
-    /// The engine parses the keys that set what it holds, so a shot, a query
-    /// string and a command line all meet the same answer. What is left is each
-    /// family's own: its widgets, and the fixtures that fill them.
+    /// The engine parses the keys that set what it holds, reading the session
+    /// they arrive at, so a shot, a query string and a command line all meet
+    /// one answer. What is left is each family's own: its widgets, and the
+    /// fixtures that fill them, or the splits its window has room for.
     pub fn set_option(&mut self, key: &str, value: &str) -> Result<(), String> {
         self.reconcile_texts();
-        if let Some(parsed) = mareader_engine::options::parse(key, value) {
-            return self.carry(parsed?);
+        let parsed = mareader_engine::options::parse(key, value, &self.session);
+        if let Some(found) = parsed {
+            return self.carry(found?);
         }
         for family in [
             Family(super::appearance::own_key),
@@ -314,15 +316,15 @@ impl MareaderApp {
 
     /// The engine's answer, handed on by the door each key asks for.
     ///
-    /// A setting write lands at once, so the next key in the same string reads
-    /// it. An ask or an open waits behind whatever is already queued, and an
-    /// open is aimed here, at the pane in front when its key arrived. Aimed
-    /// instead when the queue drains, `focus=1 pdf=a focus=2 pdf=b` would put
-    /// both files in the second pane.
+    /// A setting write and a focus land at once, as `send` always did, so the
+    /// next key in the same string reads them. An ask or an open waits behind
+    /// whatever is already queued, and an open is aimed here, at the pane in
+    /// front when its key arrived. Aimed instead when the queue drains,
+    /// `focus=1 pdf=a focus=2 pdf=b` would put both files in the second pane.
     fn carry(&mut self, commands: Vec<Command>) -> Result<(), String> {
         for command in commands {
             match command {
-                Command::SetField { .. } => {
+                Command::SetField { .. } | Command::FocusPane(_) => {
                     let done = self.session.apply(command);
                     if let Some(why) = done.refused {
                         return Err(why);

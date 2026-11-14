@@ -12,9 +12,10 @@ use mareader_library::{CoverFit, Home, Layout, Options, SortKey};
 use super::field;
 use crate::command::Command;
 use crate::library::{Action, SearchAction};
+use crate::session::Session;
 
 /// The shelf's keys; `None` for a key that is not one of them.
-pub(super) fn set(key: &str, value: &str) -> Option<Result<Vec<Command>, String>> {
+pub(super) fn set(key: &str, value: &str, _at: &Session) -> Option<Result<Vec<Command>, String>> {
     let parsed = match key {
         "import" => ask_folder(value),
         "folder" => read_folder(value),
