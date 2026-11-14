@@ -315,16 +315,27 @@ impl MareaderApp {
     /// The engine's answer, handed on by the door each key asks for.
     ///
     /// A setting write lands at once, so the next key in the same string reads
-    /// it; an ask or an open waits behind whatever is already queued.
+    /// it. An ask or an open waits behind whatever is already queued, and an
+    /// open is aimed here, at the pane in front when its key arrived. Aimed
+    /// instead when the queue drains, `focus=1 pdf=a focus=2 pdf=b` would put
+    /// both files in the second pane.
     fn carry(&mut self, commands: Vec<Command>) -> Result<(), String> {
         for command in commands {
-            if matches!(command, Command::SetField { .. }) {
-                let done = self.session.apply(command);
-                if let Some(why) = done.refused {
-                    return Err(why);
+            match command {
+                Command::SetField { .. } => {
+                    let done = self.session.apply(command);
+                    if let Some(why) = done.refused {
+                        return Err(why);
+                    }
                 }
-            } else {
-                self.queue(Sent::Engine(command));
+                Command::Open(request) => {
+                    let aimed = OpenRequest {
+                        pane: Some(self.active()),
+                        ..request
+                    };
+                    self.queue(Sent::Engine(Command::Open(aimed)));
+                }
+                other => self.queue(Sent::Engine(other)),
             }
         }
         Ok(())

@@ -26,8 +26,8 @@ pub(super) fn set(key: &str, value: &str) -> Option<Result<Vec<Command>, String>
 
 /// A sample built here, or the file the value names.
 ///
-/// The pane is left unset, so the open lands in the one in front, which is how
-/// `focus=` aims each file.
+/// The pane is left unset: which one is in front is a front end's to know, and
+/// it aims the request when the key arrives.
 fn open(key: &str, value: &str) -> Result<Vec<Command>, String> {
     let (kind, pages) = value.split_once(':').unwrap_or((value, ""));
     let count = pages.parse().ok();

@@ -197,8 +197,8 @@ fn a_sample_is_built_without_a_file_on_disk() -> Result<(), String> {
         return Err("pdf=sample did not ask for an open".into());
     };
     assert_eq!(request.name.as_deref(), Some("sample.pdf"));
-    // No pane named, so the open lands in the one in front.
-    assert!(request.pane.is_none(), "the pane in front takes it");
+    // No pane named: which one is in front is a front end's to know.
+    assert!(request.pane.is_none(), "the front end aims it");
     let commands = parsed("epub", "sample")?;
     let Some(Command::Open(request)) = commands.first() else {
         return Err("epub=sample did not ask for an open".into());

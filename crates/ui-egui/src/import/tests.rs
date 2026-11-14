@@ -65,16 +65,23 @@ fn repaired_settings_say_so() {
     assert_eq!(tone, Some(mareader_engine::toast::Tone::Error));
 }
 
+/// A browser has no directory, so nothing is written on the way, the store is
+/// read again at every launch, and its keys are still in it afterwards.
 #[test]
 fn a_browser_reads_its_store_at_every_launch() {
     let mut settings = Settings::default();
     settings.text.font_size = 21.0;
-    let disk = Memory::with(SETTINGS_KEY, &mareader_settings::to_json(&settings));
-    let loaded = once(Some(&disk), None);
-    assert_eq!(loaded.settings.text.font_size, 21.0);
-    assert!(loaded.notes.is_empty(), "{:?}", loaded.notes);
-    // No files are written on the way: a browser has nowhere to put them.
-    assert_eq!(state_dir(), None, "the test runs where a directory exists");
+    let json = mareader_settings::to_json(&settings);
+    let disk = Memory::with(SETTINGS_KEY, &json);
+    for launch in 0..2 {
+        let loaded = once(Some(&disk), None);
+        assert_eq!(loaded.settings.text.font_size, 21.0, "launch {launch}");
+        assert!(loaded.notes.is_empty(), "{:?}", loaded.notes);
+    }
+    assert_eq!(
+        disk.get_string(SETTINGS_KEY).as_deref(),
+        Some(json.as_str())
+    );
 }
 
 #[test]
