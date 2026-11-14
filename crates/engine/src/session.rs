@@ -7,7 +7,7 @@
 //! show itself leaves as an [`Event`], drained once a frame.
 //!
 //! Documents, the library and the study tools are still run by front-end
-//! controllers, reached through [`crate::desk::Desk`] until they move here.
+//! controllers, reached through [`crate::host::Host`] until they move here.
 
 use std::path::PathBuf;
 use std::sync::Arc;

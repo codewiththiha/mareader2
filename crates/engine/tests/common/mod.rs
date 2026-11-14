@@ -1,4 +1,4 @@
-//! A desk with no window: real documents, and marks kept in a list.
+//! A host with no window: real documents, and marks kept in a list.
 //!
 //! It opens what it is asked to through `mareader-session`, reads the text
 //! `mareader-pdf` finds, and writes exports to a folder. Controllers no test
@@ -9,10 +9,10 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use mareader_appearance::{Appearance, Rgb};
-use mareader_engine::desk::{Desk, EdgeTab};
 use mareader_engine::dict::{Action as DictAction, Download, Window};
 use mareader_engine::documents::{OpenRequest, Placement};
 use mareader_engine::export::{Entry, Format, file_name};
+use mareader_engine::host::{EdgeTab, Host};
 use mareader_engine::library::Action as LibraryAction;
 use mareader_engine::page_ai::Action as PageAiAction;
 use mareader_engine::pane::{Arrow, ViewMode, ZoomCommand};
@@ -72,7 +72,7 @@ impl Headless {
     }
 }
 
-impl Desk for Headless {
+impl Host for Headless {
     fn session(&mut self) -> &mut Session {
         &mut self.session
     }

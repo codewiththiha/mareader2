@@ -4,7 +4,7 @@ use crate::ui_command::UiCommand;
 use mareader_engine::event::Event;
 use mareader_engine::session::Session;
 
-mod desk;
+mod host;
 
 impl MareaderApp {
     /// An command goes to the engine; chrome is carried out here.
@@ -17,7 +17,7 @@ impl MareaderApp {
         match command {
             Sent::Engine(intent) => {
                 let now = ctx.input(|i| i.time);
-                Session::execute(&mut desk::Front { app: self, ctx }, intent, now);
+                Session::execute(&mut host::Front { app: self, ctx }, intent, now);
                 self.drain(ctx);
             }
             Sent::Ui(ui) => self.chrome(ctx, ui),
@@ -30,7 +30,7 @@ impl MareaderApp {
             match event {
                 Event::Toast(toast) => self.ui.toasts.push(toast),
                 Event::FocusEdgeTab => {
-                    ctx.memory_mut(|m| m.request_focus(egui::Id::new(desk::EDGE_TAB)));
+                    ctx.memory_mut(|m| m.request_focus(egui::Id::new(host::EDGE_TAB)));
                     crate::focus::by_key(ctx);
                 }
                 Event::ReleaseFocus => {

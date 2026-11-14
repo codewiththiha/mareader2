@@ -21,39 +21,39 @@ use common::{Headless, export_name};
 const PAGES: usize = 6;
 
 fn script(out: &std::path::Path) -> Headless {
-    let mut desk = Headless::new(out.to_path_buf());
+    let mut host = Headless::new(out.to_path_buf());
     let sample = mareader_pdf::sample::pdf(PAGES, "Sample");
     let open = Command::Open(OpenRequest::bytes(sample, "Sample.pdf"));
-    Session::execute(&mut desk, open, 0.0);
-    desk
+    Session::execute(&mut host, open, 0.0);
+    host
 }
 
 #[test]
 fn a_script_opens_splits_turns_marks_and_exports_with_no_window() {
     let out = tempfile::tempdir().expect("a scratch folder");
-    let mut desk = script(out.path());
-    let first = desk.session.active();
+    let mut host = script(out.path());
+    let first = host.session.active();
     assert_eq!(
-        desk.panes.get(&first).map(|o| o.doc.page_count()),
+        host.panes.get(&first).map(|o| o.doc.page_count()),
         Some(PAGES)
     );
 
-    Session::execute(&mut desk, Command::Split(SplitAxis::Horizontal), 1.0);
-    let panes = desk.session.tree().panes();
+    Session::execute(&mut host, Command::Split(SplitAxis::Horizontal), 1.0);
+    let panes = host.session.tree().panes();
     assert_eq!(panes.len(), 2, "a split makes a pane");
-    let second = desk.session.active();
+    let second = host.session.active();
     assert_ne!(first, second, "and focuses it");
-    assert_eq!(desk.session.recent().first(), Some(&second));
+    assert_eq!(host.session.recent().first(), Some(&second));
 
-    Session::execute(&mut desk, Command::FocusPane(first), 2.0);
+    Session::execute(&mut host, Command::FocusPane(first), 2.0);
     let go = Command::GoTo {
         pane: first,
         page: 3,
     };
-    Session::execute(&mut desk, go, 3.0);
-    assert_eq!(desk.panes.get(&first).map(|o| o.page), Some(3));
+    Session::execute(&mut host, go, 3.0);
+    assert_eq!(host.panes.get(&first).map(|o| o.page), Some(3));
 
-    let text = desk.page_text(first);
+    let text = host.page_text(first);
     let word = text.split_whitespace().find(|w| w.len() > 2);
     let word = word.expect("the sample page has words").to_owned();
     let select = Command::SelectText {
@@ -61,19 +61,19 @@ fn a_script_opens_splits_turns_marks_and_exports_with_no_window() {
         page: 3,
         text: word.clone(),
     };
-    Session::execute(&mut desk, select, 4.0);
+    Session::execute(&mut host, select, 4.0);
     let mark = Command::Highlight {
         pane: first,
         pen: Pen::default(),
         color: None,
     };
-    Session::execute(&mut desk, mark, 5.0);
-    assert_eq!(desk.marks.len(), 1, "the selection became a mark");
-    assert_eq!(desk.marks.first().map(|m| m.page), Some(Some(3)));
+    Session::execute(&mut host, mark, 5.0);
+    assert_eq!(host.marks.len(), 1, "the selection became a mark");
+    assert_eq!(host.marks.first().map(|m| m.page), Some(Some(3)));
 
     let sheet = Sheet {
         title: "Sample",
-        entries: &desk.marks,
+        entries: &host.marks,
         now_ms: 0,
     };
     let name = export_name("Sample", Format::Markdown);
@@ -82,55 +82,55 @@ fn a_script_opens_splits_turns_marks_and_exports_with_no_window() {
         format: Format::Markdown,
         contents: render(&sheet, Format::Markdown),
     };
-    Session::execute(&mut desk, export, 6.0);
+    Session::execute(&mut host, export, 6.0);
     let written = std::fs::read_to_string(out.path().join(name)).expect("the export");
     assert!(written.contains(&word), "the notes carry the quote");
-    assert!(desk.session.drain().is_empty(), "nothing was refused");
+    assert!(host.session.drain().is_empty(), "nothing was refused");
 }
 
 #[test]
 fn the_library_page_drops_what_acts_on_panes() {
     let out = tempfile::tempdir().expect("a scratch folder");
-    let mut desk = script(out.path());
-    let pane = desk.session.active();
-    desk.session.show(Route::Library);
-    Session::execute(&mut desk, Command::GoTo { pane, page: 4 }, 0.0);
-    assert_eq!(desk.panes.get(&pane).map(|o| o.page), Some(0));
-    Session::execute(&mut desk, Command::Split(SplitAxis::Horizontal), 0.0);
-    assert_eq!(desk.session.tree().panes().len(), 1);
+    let mut host = script(out.path());
+    let pane = host.session.active();
+    host.session.show(Route::Library);
+    Session::execute(&mut host, Command::GoTo { pane, page: 4 }, 0.0);
+    assert_eq!(host.panes.get(&pane).map(|o| o.page), Some(0));
+    Session::execute(&mut host, Command::Split(SplitAxis::Horizontal), 0.0);
+    assert_eq!(host.session.tree().panes().len(), 1);
 }
 
 #[test]
 fn a_refused_split_and_a_failure_leave_as_toasts() {
     let out = tempfile::tempdir().expect("a scratch folder");
-    let mut desk = script(out.path());
+    let mut host = script(out.path());
     for _ in 0..8 {
-        Session::execute(&mut desk, Command::Split(SplitAxis::Horizontal), 0.0);
+        Session::execute(&mut host, Command::Split(SplitAxis::Horizontal), 0.0);
     }
-    let said = desk.session.drain();
+    let said = host.session.drain();
     assert!(!said.is_empty(), "the workspace is full, and says so");
     assert!(said.iter().all(|e| matches!(e, Event::Toast(_))));
-    assert!(desk.session.tree().panes().len() <= mareader_workspace::MAX_PANES);
+    assert!(host.session.tree().panes().len() <= mareader_workspace::MAX_PANES);
 
     let ask = Command::Pronunciation(mareader_engine::dict::Download::Start);
-    Session::execute(&mut desk, ask, 0.0);
-    let said = desk.session.drain();
+    Session::execute(&mut host, ask, 0.0);
+    let said = host.session.drain();
     assert!(matches!(said.as_slice(), [Event::Toast(t)] if t.message.contains("pronunciation")));
 }
 
 #[test]
 fn opening_shows_the_reader_and_a_dial_is_written_by_its_path() {
     let out = tempfile::tempdir().expect("a scratch folder");
-    let mut desk = script(out.path());
-    assert_eq!(desk.arrivals, vec![Route::Reader]);
+    let mut host = script(out.path());
+    assert_eq!(host.arrivals, vec![Route::Reader]);
     let set = Command::SetField {
         path: "chrome.sidebar_overlay".into(),
         value: "true".into(),
     };
-    Session::execute(&mut desk, set, 0.0);
-    assert!(desk.session.settings().chrome.sidebar_overlay);
-    Session::execute(&mut desk, Command::SetSidebarOverlay(false), 0.0);
-    assert!(!desk.session.settings().chrome.sidebar_overlay);
+    Session::execute(&mut host, set, 0.0);
+    assert!(host.session.settings().chrome.sidebar_overlay);
+    Session::execute(&mut host, Command::SetSidebarOverlay(false), 0.0);
+    assert!(!host.session.settings().chrome.sidebar_overlay);
 }
 
 #[test]

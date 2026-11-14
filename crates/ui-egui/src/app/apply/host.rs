@@ -1,13 +1,13 @@
-//! The engine's desk, answered by the controllers this crate still holds.
+//! The engine's host, answered by the controllers this crate still holds.
 
 use mareader_engine::documents::OpenRequest;
 use std::path::PathBuf;
 
 use egui::Context;
 use mareader_appearance::{Appearance, Rgb};
-use mareader_engine::desk::{Desk, EdgeTab};
 use mareader_engine::dict::{Action as DictAction, Download, Window};
 use mareader_engine::export::Format;
+use mareader_engine::host::{EdgeTab, Host};
 use mareader_engine::page_ai::Action as PageAiAction;
 use mareader_engine::pane::{Arrow, ZoomCommand};
 use mareader_engine::session::Session;
@@ -28,7 +28,7 @@ pub(super) struct Front<'a> {
     pub ctx: &'a Context,
 }
 
-impl Desk for Front<'_> {
+impl Host for Front<'_> {
     fn session(&mut self) -> &mut Session {
         &mut self.app.session
     }

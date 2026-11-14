@@ -5,75 +5,75 @@ use mareader_workspace::{Edge, PaneId, SplitAxis};
 
 use super::note;
 use crate::command::Command;
-use crate::desk::Desk;
 use crate::documents::{OpenRequest, Placement};
 use crate::event::Event;
+use crate::host::Host;
 use crate::route::Route;
 use crate::toast::Toast;
 
-pub(super) fn run(desk: &mut dyn Desk, intent: Command, now: f64) {
+pub(super) fn run(host: &mut dyn Host, intent: Command, now: f64) {
     match intent {
-        Command::Split(axis) => split(desk, axis),
-        Command::FocusPane(id) => desk.session().focus(id),
-        Command::CyclePane { forward } => cycle(desk, forward),
+        Command::Split(axis) => split(host, axis),
+        Command::FocusPane(id) => host.session().focus(id),
+        Command::CyclePane { forward } => cycle(host, forward),
         Command::ClosePane(id) => {
-            if desk.session().close(id) {
-                desk.close_pane(id);
+            if host.session().close(id) {
+                host.close_pane(id);
             }
         }
         Command::SetRatio(..) => {
-            desk.session().apply(intent);
+            host.session().apply(intent);
         }
-        Command::Open(request) => open(desk, request),
+        Command::Open(request) => open(host, request),
         Command::Export {
             name,
             format,
             contents,
-        } => desk.save(name, format, contents),
-        Command::CopyPages { pane, pages } => desk.copy_pages(pane, pages),
-        other => pages(desk, other, now),
+        } => host.save(name, format, contents),
+        Command::CopyPages { pane, pages } => host.copy_pages(pane, pages),
+        other => pages(host, other, now),
     }
 }
 
 /// What moves the page a pane shows; most act on the focused pane.
-fn pages(desk: &mut dyn Desk, intent: Command, now: f64) {
-    let active = desk.session().active();
+fn pages(host: &mut dyn Host, intent: Command, now: f64) {
+    let active = host.session().active();
     match intent {
-        Command::Zoom(zoom) => desk.zoom(active, zoom, now),
-        Command::View(mode) => desk.set_mode(active, mode, now),
-        Command::Arrow(arrow) => desk.arrow(active, arrow, now),
-        Command::Page { forward } => desk.page_key(active, forward),
+        Command::Zoom(zoom) => host.zoom(active, zoom, now),
+        Command::View(mode) => host.set_mode(active, mode, now),
+        Command::Arrow(arrow) => host.arrow(active, arrow, now),
+        Command::Page { forward } => host.page_key(active, forward),
         Command::AutoScroll => {
-            if !desk.toggle_drift(active, now) {
+            if !host.toggle_drift(active, now) {
                 let why = "Auto-scroll runs in the scrolling views";
-                note(desk, Toast::info(why));
+                note(host, Toast::info(why));
             }
         }
-        Command::FirstPage => desk.go_to(active, 0),
-        Command::LastPage => desk.go_to(active, usize::MAX),
-        Command::GoTo { pane, page } => desk.go_to(pane, page),
-        Command::Turn { pane, forward } => desk.turn(pane, forward),
+        Command::FirstPage => host.go_to(active, 0),
+        Command::LastPage => host.go_to(active, usize::MAX),
+        Command::GoTo { pane, page } => host.go_to(pane, page),
+        Command::Turn { pane, forward } => host.turn(pane, forward),
         _ => {}
     }
 }
 
 /// The new pane takes the focus, as a split asks it to.
-fn split(desk: &mut dyn Desk, axis: SplitAxis) {
+fn split(host: &mut dyn Host, axis: SplitAxis) {
     let edge = match axis {
         SplitAxis::Horizontal => Edge::Right,
         SplitAxis::Vertical => Edge::Bottom,
     };
-    let area = desk.area();
-    let session = desk.session();
+    let area = host.area();
+    let session = host.session();
     if let Some(id) = session.split_at(session.active(), edge, area) {
         session.focus(id);
     }
 }
 
 /// F6: the next pane in reading order, by way of the parked tab if shown.
-fn cycle(desk: &mut dyn Desk, forward: bool) {
-    let tab = desk.edge_tab();
-    let session = desk.session();
+fn cycle(host: &mut dyn Host, forward: bool) {
+    let tab = host.edge_tab();
+    let session = host.session();
     let panes = session.tree().panes();
     let active = session.active();
     let at = panes.iter().position(|p| *p == active).unwrap_or(0);
@@ -96,14 +96,14 @@ fn cycle(desk: &mut dyn Desk, forward: bool) {
     session.emit(Event::ReleaseFocus);
 }
 
-fn open(desk: &mut dyn Desk, request: OpenRequest) {
+fn open(host: &mut dyn Host, request: OpenRequest) {
     // Held while the library loads, to open where it was left.
-    let Some(request) = desk.resume(request) else {
+    let Some(request) = host.resume(request) else {
         return;
     };
-    go(desk, Route::Reader);
-    let area = desk.area();
-    let session = desk.session();
+    go(host, Route::Reader);
+    let area = host.area();
+    let session = host.session();
     let mut pane = request.pane.unwrap_or(session.active());
     let edge = match request.placement {
         Placement::Into => None,
@@ -118,28 +118,28 @@ fn open(desk: &mut dyn Desk, request: OpenRequest) {
     }
     if session.tree().panes().contains(&pane) {
         session.focus(pane);
-        if let Some(toast) = desk.open(pane, request) {
-            note(desk, toast);
+        if let Some(toast) = host.open(pane, request) {
+            note(host, toast);
         }
     }
 }
 
 /// The one way between routes; the page left behind is told.
-pub(super) fn go(desk: &mut dyn Desk, route: Route) {
-    desk.session().show(route);
-    desk.arrived(route);
+pub(super) fn go(host: &mut dyn Host, route: Route) {
+    host.session().show(route);
+    host.arrived(route);
 }
 
 /// The panes showing one of `books`, or a file at one of `paths`.
 pub(super) fn showing(
-    desk: &mut dyn Desk,
+    host: &mut dyn Host,
     books: &[mareader_library::BookId],
     paths: &[std::path::PathBuf],
 ) -> Vec<PaneId> {
-    let panes = desk.session().tree().panes();
-    let shows = |pane: &PaneId| match desk.book(*pane) {
+    let panes = host.session().tree().panes();
+    let shows = |pane: &PaneId| match host.book(*pane) {
         Some(book) => books.contains(&book),
-        None => desk.path(*pane).is_some_and(|open| paths.contains(&open)),
+        None => host.path(*pane).is_some_and(|open| paths.contains(&open)),
     };
     panes.into_iter().filter(shows).collect()
 }

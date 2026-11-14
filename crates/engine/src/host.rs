@@ -41,7 +41,7 @@ pub struct EdgeTab {
 }
 
 /// The front end's controllers, as the reducer calls them.
-pub trait Desk {
+pub trait Host {
     /// The state the reducer changes; lent for the length of one command.
     fn session(&mut self) -> &mut Session;
 

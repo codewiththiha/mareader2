@@ -19,12 +19,12 @@
 pub mod appearance_menu;
 pub mod command;
 pub mod command_spec;
-pub mod desk;
 pub mod dict;
 pub mod documents;
 pub mod event;
 mod execute;
 pub mod export;
+pub mod host;
 pub mod library;
 pub mod lru;
 pub mod memory;
