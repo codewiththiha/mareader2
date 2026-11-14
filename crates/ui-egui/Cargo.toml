@@ -45,9 +45,10 @@ mareader-script = { workspace = true }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 wasm-bindgen-futures = "0.4"
-# A page picks its own files: no desktop shell to ask. A desktop's dialogs
-# belong to the app, so `rfd` and `pollster` live there (L7).
+# A page picks its own files; a desktop's dialogs belong to the app at L7.
 rfd = { workspace = true }
+# The page's own store, where the engine's two files live: it has none.
+web-sys = { version = "0.3", features = ["Storage", "Window"] }
 
 [dev-dependencies]
 egui_kittest = { workspace = true, features = ["eframe", "wgpu"] }

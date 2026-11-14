@@ -1,10 +1,13 @@
-//! The one read of the store an older build wrote, and a browser's only one.
+//! The one read of the store an older build wrote, and where a platform with
+//! no files keeps the engine's two.
 //!
 //! A launch with a directory reads the engine's own two files, and the first
 //! one after an older build takes the two keys that build left in
 //! `eframe::Storage` and moves them there. This is the only module in the crate
-//! that names `Storage` (definition of done 7). A browser has no files, so its
-//! store stays its store and `apps/mareader-web` keeps writing it.
+//! that names `Storage` (definition of done 7), and nothing writes it: a
+//! browser keeps the engine's two files in its page store, by their own names
+//! and in the bytes `Session::blobs` gives, so what an older build left is read
+//! once and left alone.
 
 use std::path::{Path, PathBuf};
 
@@ -20,15 +23,20 @@ pub const LAST_DOCUMENT_KEY: &str = "last_document";
 /// The store a browser keeps, named here so nothing else has to name it.
 pub type Store<'a> = dyn Storage + 'a;
 
-/// What a launch starts with: the engine's files, or the store a browser keeps.
+/// What a launch starts with: the engine's two files, or an older store.
 pub fn once(storage: Option<&Store<'_>>, dir: Option<PathBuf>) -> Loaded {
     match dir {
-        None => browser(storage),
+        None => kept_or(storage),
         Some(dir) => files(storage, &dir),
     }
 }
 
-/// A store read as it stands: a browser's every launch, a desktop's first.
+/// Whether the engine's two are kept beside a store, as a browser keeps them.
+pub fn keeps() -> bool {
+    cfg!(target_arch = "wasm32")
+}
+
+/// The store an older build left, read as it stands: the launch that imports.
 pub fn browser(storage: Option<&Store<'_>>) -> Loaded {
     let mut notes = Vec::new();
     let settings = match storage.and_then(|s| s.get_string(SETTINGS_KEY)) {
@@ -83,26 +91,75 @@ fn files(storage: Option<&Store<'_>>, dir: &Path) -> Loaded {
     }
 }
 
-/// A browser's store written: the two keys the engine's files replace.
-pub fn keep_browser(app: &crate::MareaderApp, storage: &mut Store<'_>) {
-    let settings = mareader_settings::to_json(app.settings());
-    storage.set_string(SETTINGS_KEY, settings);
-    // Nothing open saves `null`: the next launch starts empty.
-    let last = serde_json::to_string(&app.last_document());
-    let json = last.unwrap_or_else(|_| "null".to_owned());
-    storage.set_string(LAST_DOCUMENT_KEY, json);
+/// The page's own store, where a platform with no files keeps the two.
+#[cfg(target_arch = "wasm32")]
+fn page_store() -> Option<web_sys::Storage> {
+    web_sys::window()?.local_storage().ok()?
 }
 
-/// A browser's store kept, since a browser has no files of its own.
+/// The key one of the engine's two files is kept under.
 #[cfg(target_arch = "wasm32")]
-pub fn keep(app: &crate::MareaderApp, storage: &mut Store<'_>) {
-    keep_browser(app, storage);
+fn key(name: &str) -> String {
+    format!("mareader/{name}")
+}
+
+/// One of the two files' text, as the page keeps it.
+#[cfg(target_arch = "wasm32")]
+fn read_kept(name: &str) -> Option<String> {
+    page_store()?.get_item(&key(name)).ok()?
+}
+
+/// The two files as a page keeps them; none at the launch that imports.
+#[cfg(target_arch = "wasm32")]
+fn held() -> Option<Loaded> {
+    let settings = read_kept(save::SETTINGS_FILE);
+    let session = read_kept(save::SESSION_FILE);
+    if settings.is_none() && session.is_none() {
+        return None;
+    }
+    Some(save::parse(settings, session))
+}
+
+/// A page reads the two the engine keeps there, and only a launch that has
+/// neither falls back to the store an older build left.
+#[cfg(target_arch = "wasm32")]
+fn kept_or(storage: Option<&Store<'_>>) -> Loaded {
+    held().unwrap_or_else(|| browser(storage))
+}
+
+/// Anywhere with files, a launch with no directory has nowhere to read.
+#[cfg(not(target_arch = "wasm32"))]
+fn kept_or(storage: Option<&Store<'_>>) -> Loaded {
+    browser(storage)
+}
+
+/// The engine's two files, kept where a platform with no files can keep them.
+#[cfg(target_arch = "wasm32")]
+pub fn keep(app: &crate::MareaderApp) {
+    let Ok(blobs) = app.session().blobs() else {
+        return;
+    };
+    let Some(store) = page_store() else {
+        return;
+    };
+    for (name, text) in blobs {
+        // A temp key first, so a write stopped halfway leaves the file before.
+        let tmp = format!("{}.tmp", key(name));
+        if store.set_item(&tmp, &text).is_err() {
+            continue;
+        }
+        if store.set_item(&key(name), &text).is_err() {
+            continue;
+        }
+        // A temp key the store kept would harm nothing, so a refusal stands.
+        let _ = store.remove_item(&tmp);
+    }
 }
 
 /// Anywhere with a state directory, the engine's two files are the whole of
 /// what persists, and eframe's store is left alone after its one read.
 #[cfg(not(target_arch = "wasm32"))]
-pub fn keep(_app: &crate::MareaderApp, _storage: &mut Store<'_>) {}
+pub fn keep(_app: &crate::MareaderApp) {}
 
 #[cfg(test)]
 mod tests;

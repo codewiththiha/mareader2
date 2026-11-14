@@ -74,10 +74,10 @@ fn repaired_settings_say_so() {
     assert_eq!(tone, Some(mareader_engine::toast::Tone::Error));
 }
 
-/// A browser has no directory, so nothing is written on the way, the store is
-/// read again at every launch, and its keys are still in it afterwards.
+/// A launch with no directory and no page store reads the store an older build
+/// left as it stands, at every launch, and its keys are still in it after.
 #[test]
-fn a_browser_reads_its_store_at_every_launch() {
+fn a_launch_with_nowhere_to_read_keeps_reading_the_store() {
     let mut settings = Settings::default();
     settings.text.font_size = 21.0;
     let json = mareader_settings::to_json(&settings);

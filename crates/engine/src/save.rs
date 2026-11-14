@@ -2,7 +2,9 @@
 //!
 //! A front end hands the session a directory and never writes to it. What
 //! outlives a launch is the engine's, so a headless client keeps the same two
-//! files and the same repair notes (`docs/architecture.md` § Layers).
+//! files and the same repair notes (`docs/architecture.md` § Layers). A
+//! platform with no files keeps the same two, by the same names and in the same
+//! bytes: [`blobs`] hands them over, and [`parse`] reads them back.
 
 use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
@@ -16,6 +18,9 @@ pub const EVERY: f64 = 0.5;
 pub const SETTINGS_FILE: &str = "settings.json";
 /// What was read at exit, so the next launch reopens it.
 pub const SESSION_FILE: &str = "session.json";
+
+/// The two files' text, each beside the name it is kept under.
+pub type Blobs = [(&'static str, String); 2];
 
 /// What reopens at launch: the file read at exit, on its page.
 #[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -70,6 +75,11 @@ impl Save {
         self.dir.as_deref()
     }
 
+    /// What was read, as the front end last reported it.
+    pub fn last(&self) -> Option<&LastDocument> {
+        self.last.as_ref()
+    }
+
     /// Something persisted changed; the next due write carries it.
     pub fn touch(&mut self) {
         self.dirty = true;
@@ -122,11 +132,21 @@ impl Save {
 
 /// Reads the two files; anything unreadable falls back, with a note.
 pub fn load(dir: Option<&Path>) -> Loaded {
-    let mut notes = Vec::new();
     let Some(dir) = dir else {
         return Loaded::default();
     };
-    let settings = match read(dir, SETTINGS_FILE, &mut notes) {
+    let mut notes = Vec::new();
+    let choices = read(dir, SETTINGS_FILE, &mut notes);
+    let session = read(dir, SESSION_FILE, &mut notes);
+    let mut loaded = parse(choices, session);
+    loaded.notes.extend(notes);
+    loaded
+}
+
+/// The two files' text made into a launch, wherever they were kept.
+pub fn parse(settings: Option<String>, session: Option<String>) -> Loaded {
+    let mut notes = Vec::new();
+    let choices = match settings {
         None => Settings::default(),
         Some(json) => {
             let loaded = mareader_settings::load(&json);
@@ -134,10 +154,10 @@ pub fn load(dir: Option<&Path>) -> Loaded {
             loaded.settings
         }
     };
-    let last = match read(dir, SESSION_FILE, &mut notes) {
+    let last = match session {
         None => None,
         Some(json) => match serde_json::from_str(&json) {
-            Ok(last) => last,
+            Ok(last) => Some(last),
             Err(why) => {
                 notes.push(format!("{SESSION_FILE} could not be read: {why}"));
                 None
@@ -145,18 +165,26 @@ pub fn load(dir: Option<&Path>) -> Loaded {
         },
     };
     Loaded {
-        settings,
+        settings: choices,
         last,
         notes,
     }
 }
 
+/// The two files' text, as a flush writes them and a platform with no files
+/// keeps them: the names and the bytes are the engine's either way.
+pub fn blobs(settings: &Settings, last: Option<&LastDocument>) -> Result<Blobs, String> {
+    let choices = mareader_settings::to_json(settings);
+    let session = serde_json::to_string(&last).map_err(|e| format!("{SESSION_FILE}: {e}"))?;
+    Ok([(SETTINGS_FILE, choices), (SESSION_FILE, session)])
+}
+
 /// Both files whole: a temp beside each, then a rename.
 pub fn store(dir: &Path, settings: &Settings, last: Option<&LastDocument>) -> Result<(), String> {
-    let choices = mareader_settings::to_json(settings);
-    write(dir, SETTINGS_FILE, choices.as_bytes())?;
-    let session = serde_json::to_string(&last).map_err(|e| format!("{SESSION_FILE}: {e}"))?;
-    write(dir, SESSION_FILE, session.as_bytes())
+    for (name, text) in blobs(settings, last)? {
+        write(dir, name, text.as_bytes())?;
+    }
+    Ok(())
 }
 
 fn write(dir: &Path, name: &str, bytes: &[u8]) -> Result<(), String> {

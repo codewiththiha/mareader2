@@ -18,7 +18,7 @@ impl Table {
 }
 
 impl Host for Table {
-    /// Its files are the store eframe keeps, which the engine never writes.
+    /// No files at all: the page's own store keeps the engine's two.
     fn state_dir(&self) -> Option<PathBuf> {
         None
     }

@@ -53,10 +53,10 @@ impl eframe::App for MareaderApp {
         SAVE_EVERY
     }
 
-    /// The engine saves itself, and a browser keeps its store beside it.
-    fn save(&mut self, storage: &mut crate::import::Store<'_>) {
+    /// The engine saves itself; a page keeps the two files it hands over.
+    fn save(&mut self, _storage: &mut crate::import::Store<'_>) {
         self.session.flush();
-        crate::import::keep(self, storage);
+        crate::import::keep(self);
     }
 
     /// Writes what is owed before the window goes.
@@ -68,8 +68,8 @@ impl eframe::App for MareaderApp {
 impl MareaderApp {
     /// Writes the engine's files when due, and books the frame that pays.
     fn keep(&mut self, ctx: &Context, now: f64) {
-        // Only a launch with somewhere to write needs to know what was read.
-        let last = if self.session.persists() {
+        // A launch that writes somewhere needs to know what was read.
+        let last = if self.session.persists() || crate::import::keeps() {
             self.last_document()
         } else {
             None

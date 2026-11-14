@@ -3875,6 +3875,7 @@ dependencies = [
  "serde_json",
  "tempfile",
  "wasm-bindgen-futures",
+ "web-sys",
 ]
 
 [[package]]

@@ -128,6 +128,11 @@ impl Session {
         self.save.flush(&self.settings);
     }
 
+    /// The two files' text, for a platform that has no files to write them to.
+    pub fn blobs(&self) -> Result<save::Blobs, String> {
+        save::blobs(&self.settings, self.save.last())
+    }
+
     /// Something persisted changed outside a command.
     pub fn touch(&mut self) {
         self.save.touch();

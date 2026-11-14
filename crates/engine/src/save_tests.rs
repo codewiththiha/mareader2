@@ -65,6 +65,25 @@ fn settings_and_the_last_document_come_back_from_disk() -> Result<(), String> {
 }
 
 #[test]
+fn the_two_files_travel_as_text_and_read_back() -> Result<(), String> {
+    let dir = dir()?;
+    let read = last(dir.path());
+    let made = blobs(&choices(), Some(&read))?;
+    let names: Vec<&str> = made.iter().map(|(name, _)| *name).collect();
+    assert_eq!(names, vec![SETTINGS_FILE, SESSION_FILE]);
+    let mut texts = made.into_iter();
+    let Some((_, settings)) = texts.next() else {
+        return Err("no settings".into());
+    };
+    let session = texts.next().map(|(_, text)| text);
+    let loaded = parse(Some(settings), session);
+    assert_eq!(loaded.settings.text.font_size, 21.0);
+    assert_eq!(loaded.last, Some(read));
+    assert!(loaded.notes.is_empty(), "{:?}", loaded.notes);
+    Ok(())
+}
+
+#[test]
 fn a_temp_file_left_by_an_interrupted_write_is_not_read() -> Result<(), String> {
     let dir = dir()?;
     let mut save = owing(dir.path());
