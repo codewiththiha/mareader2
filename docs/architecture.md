@@ -64,10 +64,12 @@ The rules:
    `wasm32-unknown-unknown`. `cargo xtask wasm` checks them all; `assist` is the
    one exemption, because AI needs threads, a keychain and TLS (see below).
 4. A file under `crates/ui-egui/src` that names no toolkit is a file that belongs
-   in the engine. `cargo xtask trapped` counts them against
-   `tools/trapped_count.txt`, which may only fall; the front end's own root,
-   glyph table and dial labels are the allowlist, each being presentation with
-   nowhere to go. `tests/` and `examples/` are harnesses and are not counted.
+   in the engine, and `cargo xtask trapped` fails on it: the gate is absolute, and
+   the count it was ratcheted down against — 52 files at G0, 33 at G1, 10 at G3,
+   7 for the option keys, 0 at G4 — is deleted with `tools/trapped_count.txt`. The
+   front end's own root, glyph table and dial labels are the allowlist, each being
+   presentation with nowhere to go, and a test pins it at those three. `tests/` and
+   `examples/` are harnesses and are not counted.
 
 ## How the app is built in egui
 
