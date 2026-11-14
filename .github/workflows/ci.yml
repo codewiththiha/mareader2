@@ -106,11 +106,12 @@ jobs:
       # mold links the ~50 test binaries faster; rust-cache's key ignores it.
       - uses: rui314/setup-mold@v1
         if: ${{ !cancelled() }}
-      # Branches save too; an exact hit on main's cache skips the save.
+      # Branches save too, red runs included: a cache has to start somewhere.
       - uses: Swatinem/rust-cache@v2
         if: ${{ !cancelled() }}
         with:
           shared-key: linux
+          cache-on-failure: true
           save-if: ${{ github.event_name == 'push' || github.event_name == 'schedule' }}
       - uses: ./.github/actions/apt
         if: ${{ !cancelled() }}
