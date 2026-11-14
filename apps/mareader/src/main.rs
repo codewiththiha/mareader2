@@ -6,6 +6,7 @@ use std::path::PathBuf;
 
 use mareader_engine::command::Command;
 use mareader_engine::documents::OpenRequest;
+use mareader_engine::host::Machine;
 use mareader_ui_egui::MareaderApp;
 use mareader_ui_egui::ui_command::Sent;
 
@@ -136,16 +137,9 @@ fn main() -> eframe::Result {
         options,
         Box::new(|cc| {
             let mut app = MareaderApp::from_creation(cc);
-            if let Some(dir) = mareader_ui_egui::import::state_dir() {
-                app.attach_library(&cc.egui_ctx, dir.join("library"));
-                app.attach_ai(&cc.egui_ctx, dir.join("ai"), dev_helper());
-                app.attach_dictionaries(&cc.egui_ctx, dir.join("dictionaries"));
-                app.attach_vocabulary(&cc.egui_ctx, dir.join("vocabulary"));
-                app.attach_voice_models(&cc.egui_ctx, dir.join("voice-models"));
-            }
-            if let Some(dir) = cache_dir() {
-                app.attach_cache(dir);
-            }
+            let state = mareader_ui_egui::import::state_dir();
+            let machine = Machine::under(state, cache_dir(), dev_helper());
+            app.attach(&cc.egui_ctx, machine);
             inbox.wake_with(cc.egui_ctx.clone());
             // A file asked for at launch, else what was read last time.
             if !open_latest(&mut app, inbox.take().paths) {

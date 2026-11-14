@@ -13,8 +13,8 @@ use mareader_library::{
     BookId, CoverFit, Format, Home, Layout, Library, LinkId, LinkTo, Move, Origin, ShelfId, SortKey,
 };
 use mareader_settings::Bar;
-use mareader_ui_egui::MareaderApp;
 use mareader_ui_egui::ui_command::{Sent, UiCommand};
+use mareader_ui_egui::{Machine, MareaderApp};
 
 use crate::common::{act, carry, go_to, reader, release};
 
@@ -168,7 +168,7 @@ fn the_library_and_positions_come_back_after_a_restart() {
     let launch = || {
         let mut app = MareaderApp::default();
         app.set_option("workers", "0").ok();
-        app.attach_library(&egui::Context::default(), root.clone());
+        app.attach(&egui::Context::default(), Machine::library(root.clone()));
         harness(app)
     };
     let mut h = launch();
@@ -1327,7 +1327,7 @@ fn imports_are_copies_the_library_keeps_and_deletes_with_the_book() {
     let mut app = MareaderApp::default();
     app.set_option("workers", "0").ok();
     app.set_option("library", "show").ok();
-    app.attach_library(&egui::Context::default(), root.clone());
+    app.attach(&egui::Context::default(), Machine::library(root.clone()));
     let mut h = harness(app);
     let shelf = new_shelf(&mut h, "Poems");
     let to = Some(shelf);
@@ -1386,7 +1386,8 @@ fn kept_in(dir: &Path) -> Harness<'static, MareaderApp> {
     let mut app = MareaderApp::default();
     app.set_option("workers", "0").ok();
     app.set_option("library", "show").ok();
-    app.attach_library(&egui::Context::default(), dir.join("library"));
+    let machine = Machine::library(dir.join("library"));
+    app.attach(&egui::Context::default(), machine);
     harness(app)
 }
 

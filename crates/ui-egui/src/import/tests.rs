@@ -21,7 +21,7 @@ impl Memory {
     }
 }
 
-impl Storage for Memory {
+impl eframe::Storage for Memory {
     fn get_string(&self, key: &str) -> Option<String> {
         self.0.get(key).cloned()
     }

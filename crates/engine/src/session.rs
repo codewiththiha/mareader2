@@ -17,6 +17,7 @@ use mareader_workspace::{Bounds, Edge, MAX_PANES, PaneId, PaneTree, TreeError};
 
 use crate::command::Command;
 use crate::event::Event;
+use crate::host::Machine;
 use crate::route::Route;
 use crate::save::{LastDocument, Save};
 use crate::toast::Toast;
@@ -38,6 +39,8 @@ pub struct Session {
     waker: Waker,
     /// Its own two files; a session with no directory writes nothing.
     save: Save,
+    /// The places its host has; an empty machine attaches nothing.
+    machine: Machine,
 }
 
 /// What an command the session carries out alone came to.
@@ -75,6 +78,7 @@ impl Session {
             events: Vec::new(),
             waker: Arc::new(|| {}),
             save: Save::default(),
+            machine: Machine::default(),
         }
     }
 
@@ -110,6 +114,21 @@ impl Session {
     /// Why a write was refused, once; a caller turns it into a toast.
     pub fn take_failure(&mut self) -> Option<String> {
         self.save.take_failure()
+    }
+
+    /// The places its host has, for a front end wiring its controllers.
+    pub fn machine(&self) -> &Machine {
+        &self.machine
+    }
+
+    /// Takes the places its host has; the front end reads them back to wire.
+    pub fn set_machine(&mut self, machine: Machine) {
+        self.machine = machine;
+    }
+
+    /// Says something a front end shows when it drains.
+    pub fn report(&mut self, toast: Toast) {
+        self.emit(Event::Toast(toast));
     }
 
     /// Who to ask for a frame; until set, a wake does nothing.

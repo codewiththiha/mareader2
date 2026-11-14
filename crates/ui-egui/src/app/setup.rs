@@ -1,4 +1,5 @@
 use egui::Context;
+use mareader_engine::host::Machine;
 
 use super::*;
 
@@ -27,66 +28,25 @@ impl MareaderApp {
         true
     }
 
-    /// Keeps the library in `root`; without one it lives in memory.
-    pub fn attach_library(&mut self, ctx: &Context, root: PathBuf) {
-        let ctx = ctx.clone();
-        let waker = Arc::new(move || ctx.request_repaint());
-        self.ui.library.attach(root, waker);
-    }
-
-    /// Starts the AI service, its keys kept in `root`; `helper` as in `Ai`.
-    #[cfg(not(target_arch = "wasm32"))]
-    pub fn attach_ai(&mut self, ctx: &Context, root: PathBuf, helper: Option<PathBuf>) {
-        self.ui.ai.attach(ctx, root, helper);
-        // A run stopped before quitting waits on its card.
-        self.ui.library.set_paused(self.ui.ai.paused());
-    }
-
-    /// Keeps language packs in `dir`.
-    #[cfg(not(target_arch = "wasm32"))]
-    pub fn attach_dictionaries(&mut self, ctx: &Context, dir: PathBuf) {
-        let ctx = ctx.clone();
-        let waker = Arc::new(move || ctx.request_repaint());
-        if let Err(e) = self.ui.dict.attach(dir, waker) {
-            self.ui
-                .toasts
-                .push(Toast::info(format!("Dictionaries are off: {e}")));
+    /// Wires every controller to the places `machine` names.
+    ///
+    /// The session keeps the machine, so a front end can ask it back, and the
+    /// waker built here is the session's too: a service on its own thread can
+    /// ask for a frame. A place left unnamed attaches nothing, and its
+    /// controller keeps its state in memory.
+    pub fn attach(&mut self, ctx: &Context, machine: Machine) {
+        self.session.set_machine(machine.clone());
+        let waker = repainter(ctx);
+        self.session.set_waker(waker.clone());
+        if let Some(root) = machine.library.clone() {
+            self.ui.library.attach(root, waker.clone());
         }
-    }
-
-    /// Keeps the word-level dataset in `dir`.
-    #[cfg(not(target_arch = "wasm32"))]
-    pub fn attach_vocabulary(&mut self, ctx: &Context, dir: PathBuf) {
-        let ctx = ctx.clone();
-        let waker = Arc::new(move || ctx.request_repaint());
-        if let Err(e) = self.ui.vocab.attach(dir, waker) {
-            self.ui
-                .toasts
-                .push(Toast::info(format!("Word levels are off: {e}")));
+        if let Some(dir) = machine.cache.clone() {
+            self.ui.library.attach_cache(dir);
         }
-    }
-
-    /// Keeps downloaded voice models in `dir`.
-    #[cfg(not(target_arch = "wasm32"))]
-    pub fn attach_voice_models(&mut self, ctx: &Context, dir: PathBuf) {
-        self.attach_voice_models_from(ctx, dir, mareader_speech::MODELS);
-    }
-
-    /// As [`Self::attach_voice_models`], offering `catalogue` instead.
-    #[cfg(not(target_arch = "wasm32"))]
-    pub fn attach_voice_models_from(
-        &mut self,
-        ctx: &Context,
-        dir: PathBuf,
-        catalogue: &'static [mareader_speech::Model],
-    ) {
-        let ctx = ctx.clone();
-        let waker = Arc::new(move || ctx.request_repaint());
-        if let Err(e) = self.attach_voices(dir, catalogue, waker) {
-            self.ui
-                .toasts
-                .push(Toast::info(format!("Voice models are off: {e}")));
-        }
+        #[cfg(not(target_arch = "wasm32"))]
+        self.attach_services(ctx, &machine, &waker);
+        self.drain(ctx);
     }
 
     /// Voice models and the pronunciation pack, sharing files in `dir`.
@@ -102,8 +62,46 @@ impl MareaderApp {
         self.ui.sounds.attach(dir, waker, shelf)
     }
 
-    /// Keeps covers and other rebuildable files in `dir`.
-    pub fn attach_cache(&mut self, dir: PathBuf) {
-        self.ui.library.attach_cache(dir);
+    /// The services only a desktop has: words, voices and the AI.
+    #[cfg(not(target_arch = "wasm32"))]
+    fn attach_services(
+        &mut self,
+        ctx: &Context,
+        machine: &Machine,
+        waker: &mareader_speech::Waker,
+    ) {
+        if let Some(dir) = machine.dictionaries.clone()
+            && let Err(why) = self.ui.dict.attach(dir, waker.clone())
+        {
+            self.refused("Dictionaries are off", why);
+        }
+        if let Some(dir) = machine.vocabulary.clone()
+            && let Err(why) = self.ui.vocab.attach(dir, waker.clone())
+        {
+            self.refused("Word levels are off", why);
+        }
+        if let Some(dir) = machine.voices.clone() {
+            let offered = machine.offered.unwrap_or(mareader_speech::MODELS);
+            if let Err(why) = self.attach_voices(dir, offered, waker.clone()) {
+                self.refused("Voice models are off", why);
+            }
+        }
+        if let Some(root) = machine.ai.clone() {
+            self.ui.ai.attach(ctx, root, machine.ai_helper.clone());
+            // A run stopped before quitting waits on its card.
+            self.ui.library.set_paused(self.ui.ai.paused());
+        }
     }
+
+    /// A service that refused to start says so, through the session's events.
+    #[cfg(not(target_arch = "wasm32"))]
+    fn refused(&mut self, what: &str, why: String) {
+        self.session.report(Toast::info(format!("{what}: {why}")));
+    }
+}
+
+/// Asks for a frame from any thread, as a service off this one needs.
+fn repainter(ctx: &Context) -> mareader_speech::Waker {
+    let ctx = ctx.clone();
+    Arc::new(move || ctx.request_repaint())
 }

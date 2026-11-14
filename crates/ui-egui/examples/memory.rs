@@ -9,9 +9,9 @@ use egui_kittest::Harness;
 use mareader_engine::command::Command;
 use mareader_engine::documents::OpenRequest;
 use mareader_engine::library::{Action, SearchAction};
-use mareader_ui_egui::MareaderApp;
 use mareader_ui_egui::pages::{CAP_BYTES, REST_BYTES};
 use mareader_ui_egui::ui_command::{Sent, UiCommand};
+use mareader_ui_egui::{Machine, MareaderApp};
 use mareader_workspace::{PaneId, SplitAxis};
 
 type App = Harness<'static, MareaderApp>;
@@ -494,7 +494,8 @@ fn library(count: usize) -> Result<bool, String> {
     let mut app = MareaderApp::default();
     app.set_option("workers", "0")?;
     app.set_option("library", "show")?;
-    app.attach_library(&egui::Context::default(), dir.path().join("library"));
+    let machine = Machine::library(dir.path().join("library"));
+    app.attach(&egui::Context::default(), machine);
     let mut h = harness(app);
     let mut audit = Audit::default();
     Audit::header();

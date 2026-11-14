@@ -8,8 +8,8 @@ use mareader_engine::command::Command;
 use mareader_engine::settings::Tab;
 use mareader_settings::{Accent, Notation};
 use mareader_speech::{MODELS, PRONUNCIATION};
-use mareader_ui_egui::MareaderApp;
 use mareader_ui_egui::ui_command::Sent;
+use mareader_ui_egui::{Machine, MareaderApp};
 
 type H = Harness<'static, MareaderApp>;
 
@@ -39,7 +39,7 @@ fn reading_with(dir: &Path, voice: &'static str) -> H {
             let mut app = MareaderApp::default();
             app.set_option("animations", "false").ok();
             app.set_option("english_voice", voice).ok();
-            app.attach_voice_models_from(&cc.egui_ctx, dir, MODELS);
+            app.attach(&cc.egui_ctx, Machine::voices(dir, MODELS));
             app
         });
     h.state_mut()

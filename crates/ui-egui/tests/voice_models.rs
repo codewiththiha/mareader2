@@ -5,8 +5,8 @@ use egui_kittest::kittest::{NodeT as _, Queryable as _};
 use mareader_engine::command::Command;
 use mareader_engine::settings::Tab;
 use mareader_speech::{Build, Gender, Knob, Model, ModelFile, ModelVoice};
-use mareader_ui_egui::MareaderApp;
 use mareader_ui_egui::ui_command::Sent;
+use mareader_ui_egui::{Machine, MareaderApp};
 
 use crate::common::press;
 
@@ -161,7 +161,7 @@ fn settings(dir: &std::path::Path) -> Harness<'static, MareaderApp> {
         .build_eframe(move |cc| {
             let mut app = MareaderApp::default();
             app.set_option("set", "read_aloud.engine:\"silent\"").ok();
-            app.attach_voice_models_from(&cc.egui_ctx, dir, TINY);
+            app.attach(&cc.egui_ctx, Machine::voices(dir, TINY));
             app
         });
     h.state_mut()

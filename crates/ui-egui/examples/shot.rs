@@ -7,6 +7,7 @@ use egui_kittest::kittest::Queryable;
 use mareader_cefr::{Part, State};
 use mareader_engine::command::Command;
 use mareader_engine::dict::Download;
+use mareader_engine::host::Machine;
 use mareader_engine::pane::{Arrow, ViewMode};
 use mareader_engine::pane::{Fit, Step, ZoomCommand};
 use mareader_settings::Provider;
@@ -319,9 +320,11 @@ fn main() -> Result<(), String> {
         .wgpu()
         .with_max_steps(64)
         .build_eframe(|cc| {
-            if attach_ai {
-                app.attach_ai(&cc.egui_ctx, ai_root, None);
-            }
+            let machine = Machine {
+                ai: attach_ai.then_some(ai_root),
+                ..Machine::default()
+            };
+            app.attach(&cc.egui_ctx, machine);
             app
         });
     harness.run_steps(4);
