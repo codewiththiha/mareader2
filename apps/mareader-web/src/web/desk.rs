@@ -1,10 +1,9 @@
 //! The machine a browser runs on: a clipboard, and no files at all.
 
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
 
 use eframe::egui::Context;
-use mareader_engine::host::{Host, Shared};
+use mareader_engine::host::Host;
 
 /// The page's own table: what a browser can answer, and what it cannot.
 pub struct Table {
@@ -13,8 +12,8 @@ pub struct Table {
 
 impl Table {
     /// The machine for a page drawn in `ctx`.
-    pub fn new(ctx: Context) -> Shared {
-        Arc::new(Self { ctx })
+    pub fn new(ctx: Context) -> Self {
+        Self { ctx }
     }
 }
 

@@ -3,20 +3,30 @@
 use egui::{Key, Modifiers, OutputCommand};
 use egui_kittest::Harness;
 use egui_kittest::kittest::Queryable;
+use mareader_engine::host::Machine;
 use mareader_ui_egui::MareaderApp;
+
+use crate::common::Window;
 
 type H = Harness<'static, MareaderApp>;
 
 fn reader() -> H {
-    let mut app = MareaderApp::default();
-    app.set_option("workers", "0").ok();
-    app.set_option("pdf", "sample:40").ok();
-    app.set_option("sidebar", "thumbnails").ok();
+    // Built in the harness's context, so a copy lands where the suite looks.
     let mut h = Harness::builder()
         .with_size(egui::vec2(1000.0, 700.0))
         .with_step_dt(1.0 / 60.0)
         .with_max_steps(200)
-        .build_eframe(|_| app);
+        .build_eframe(|cc| {
+            let mut app = MareaderApp::on(
+                &cc.egui_ctx,
+                Window::host(&cc.egui_ctx),
+                Machine::default(),
+            );
+            app.set_option("workers", "0").ok();
+            app.set_option("pdf", "sample:40").ok();
+            app.set_option("sidebar", "thumbnails").ok();
+            app
+        });
     h.run_steps(3);
     h.run();
     h

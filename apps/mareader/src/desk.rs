@@ -5,10 +5,9 @@
 //! `system.rs`, which runs them off this thread.
 
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
 
 use egui::Context;
-use mareader_engine::host::{Host, Shared};
+use mareader_engine::host::Host;
 
 /// The window's name, and so the folder this platform keeps its files in.
 pub const APP_ID: &str = "mareader";
@@ -30,12 +29,12 @@ pub struct Desk {
 
 impl Desk {
     /// The machine for a window drawn in `ctx`.
-    pub fn new(ctx: Context) -> Shared {
-        Arc::new(Self {
+    pub fn new(ctx: Context) -> Self {
+        Self {
             ctx,
             state: state_dir(),
             cache: cache_dir(),
-        })
+        }
     }
 }
 

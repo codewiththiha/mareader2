@@ -4,6 +4,7 @@
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::hash::{BuildHasher, RandomState};
 use std::path::PathBuf;
+use std::sync::Arc;
 
 use mareader_library::{BookId, DeviceId, Library, ShelfId, disk::Folder};
 use mareader_workspace::PaneId;
@@ -67,6 +68,8 @@ pub struct State {
     pub runs: Runs,
     /// Disk work: the jobs sent and the news come back.
     pub io: Io,
+    /// Asks for a frame when disk work lands; kept, so the mode can change.
+    pub wake: Waker,
     /// Folder walks, and the work waiting on them.
     pub folders: Folders,
     /// The search's field, its listing, and the card a choice lit.
@@ -100,6 +103,7 @@ impl Default for State {
             held: BTreeSet::new(),
             runs: Runs::default(),
             io: Io::default(),
+            wake: Arc::new(|| {}),
             folders: Folders::default(),
             search: Search::default(),
             cache: None,
@@ -147,11 +151,28 @@ impl State {
 
     /// Reads the library kept in `root`, and saves to it from now on.
     pub fn attach(&mut self, root: PathBuf, wake: Waker) {
-        let folder = Folder::new(root);
-        let (inline, device) = (self.inline, self.model.device());
-        self.io = match inline {
+        self.wake = wake;
+        self.load(Folder::new(root));
+    }
+
+    /// Disk work on the frame instead of a worker, asked for at any time.
+    ///
+    /// A library already reading its folder builds its worker again and reads
+    /// it once more, so the mode a client asked for is the mode it gets
+    /// whichever way round the two calls come.
+    pub fn set_inline(&mut self, inline: bool) {
+        self.inline = inline;
+        if let Some(folder) = self.folder.clone() {
+            self.load(folder);
+        }
+    }
+
+    /// The library's own read of `folder`, on the worker its mode asks for.
+    fn load(&mut self, folder: Folder) {
+        let device = self.model.device();
+        self.io = match self.inline {
             true => Io::default(),
-            false => Io::thread(wake),
+            false => Io::thread(self.wake.clone()),
         };
         self.io.send(Job::Load(folder.clone(), device));
         self.folder = Some(folder);

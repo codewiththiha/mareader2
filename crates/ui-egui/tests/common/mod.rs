@@ -1,10 +1,12 @@
 //! Drivers shared by UI integration suites.
 
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use egui_kittest::Harness;
 use egui_kittest::kittest::Queryable as _;
 use mareader_engine::command::Command;
+use mareader_engine::host::{Fake, Host, Shared};
 use mareader_engine::library::Action;
 use mareader_pdf::TextLayer;
 use mareader_ui_egui::MareaderApp;
@@ -52,6 +54,48 @@ fn built(
     h.run_steps(3);
     h.run();
     h
+}
+
+/// A host with a window's clipboard, as `apps/mareader`'s `Desk` has one.
+///
+/// A suite reads what the app copied from the harness's own output, so the
+/// engine's fake — which records and reaches no window — is not enough where
+/// a menu copies text. Build the app inside `build_eframe` to get one.
+pub(crate) struct Window {
+    ctx: egui::Context,
+    fake: Fake,
+}
+
+impl Window {
+    /// The machine for an app built in `ctx`.
+    pub(crate) fn host(ctx: &egui::Context) -> Shared {
+        Arc::new(Self {
+            ctx: ctx.clone(),
+            fake: Fake::default(),
+        })
+    }
+}
+
+impl Host for Window {
+    fn state_dir(&self) -> Option<PathBuf> {
+        self.fake.state_dir()
+    }
+
+    fn cache_dir(&self) -> Option<PathBuf> {
+        self.fake.cache_dir()
+    }
+
+    fn set_clipboard(&self, text: String) {
+        self.ctx.copy_text(text);
+    }
+
+    fn reveal(&self, path: &Path) -> bool {
+        self.fake.reveal(path)
+    }
+
+    fn open_external(&self, path: &Path) -> bool {
+        self.fake.open_external(path)
+    }
 }
 
 pub(crate) fn reader(options: &[(&str, &str)]) -> Harness<'static, MareaderApp> {

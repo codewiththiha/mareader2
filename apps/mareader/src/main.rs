@@ -3,10 +3,11 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 use std::path::PathBuf;
+use std::sync::Arc;
 
 use mareader_engine::command::Command;
 use mareader_engine::documents::OpenRequest;
-use mareader_engine::host::Machine;
+use mareader_engine::host::{Machine, Shared};
 use mareader_ui_egui::MareaderApp;
 use mareader_ui_egui::ui_command::Sent;
 
@@ -140,7 +141,7 @@ fn main() -> eframe::Result {
         options,
         Box::new(|cc| {
             // The machine arrives here, and the app is built on it.
-            let host = Desk::new(cc.egui_ctx.clone());
+            let host: Shared = Arc::new(Desk::new(cc.egui_ctx.clone()));
             let machine = Machine {
                 ai_helper: dev_helper(),
                 ..Machine::under(&*host)

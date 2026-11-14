@@ -88,9 +88,9 @@ impl LibraryState {
         true
     }
 
-    /// Disk work runs on the frame; set before [`Self::attach`].
+    /// Disk work runs on the frame, whenever the mode is asked for.
     pub fn set_inline(&mut self, inline: bool) {
-        self.inline = inline;
+        self.state.set_inline(inline);
         self.covers.set_inline(inline);
     }
 
