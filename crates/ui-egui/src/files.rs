@@ -4,7 +4,8 @@
 //! [`Dialogs`] is answered by `apps/mareader` over `rfd` on a helper thread, by
 //! [`Browser`] where a page has no paths to show, and by [`Quiet`] in a test,
 //! which refuses, so the toast that says so is what a reader gets. Law 6 keeps
-//! the engine out of all three: what comes back is a command with a path in it.
+//! the engine out of all three: what comes back is a command with a path in it,
+//! and what crosses to the shell is a `Waker`, never a window.
 
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -14,9 +15,11 @@ use egui::{Context, DroppedFileHandle};
 use mareader_engine::command::Command;
 use mareader_engine::documents::{OpenRequest, Placement};
 use mareader_engine::export::Format;
+use mareader_engine::session::Waker;
 use mareader_engine::toast::Toast;
 use mareader_workspace::PaneId;
 
+use crate::repaint::wake;
 use crate::ui_command::{Commands, Sent, UiCommand};
 
 /// What the open dialog admits.
@@ -159,10 +162,10 @@ impl Files {
         out.append(&mut inbox);
     }
 
-    fn deliver(&self, ctx: &Context, command: Sent) {
+    fn deliver(&self, waker: &Waker, command: Sent) {
         let mut inbox = self.inbox.lock().unwrap_or_else(PoisonError::into_inner);
         inbox.push(command);
-        ctx.request_repaint();
+        waker();
     }
 
     /// Shows the system open dialog; the pick lands as `placement` says.
@@ -170,7 +173,7 @@ impl Files {
         if self.picking.swap(true, Ordering::AcqRel) {
             return;
         }
-        let (files, ctx) = (self.clone(), ctx.clone());
+        let (files, waker) = (self.clone(), wake(ctx));
         let done = move |picked: Picked| {
             files.picking.store(false, Ordering::Release);
             let request = match picked {
@@ -180,7 +183,7 @@ impl Files {
             // Cancelling is silent, as in mareader.
             if let Some(request) = request {
                 files.deliver(
-                    &ctx,
+                    &waker,
                     Sent::Engine(Command::Open(OpenRequest {
                         placement,
                         ..request
@@ -249,7 +252,7 @@ impl Files {
         if self.picking.swap(true, Ordering::AcqRel) {
             return;
         }
-        let (files, waker) = (self.clone(), ctx.clone());
+        let (files, waker) = (self.clone(), wake(ctx));
         let done = move |picked: Picked| {
             files.picking.store(false, Ordering::Release);
             let paths = match picked {
@@ -266,7 +269,8 @@ impl Files {
                 true => "Folders and relinks need the desktop app.",
                 false => "The file dialog couldn't open.",
             };
-            self.deliver(ctx, Sent::Ui(UiCommand::Notify(Toast::error(why))));
+            let toast = Toast::error(why);
+            self.deliver(&wake(ctx), Sent::Ui(UiCommand::Notify(toast)));
         }
     }
 
@@ -293,7 +297,7 @@ impl Files {
             return;
         }
         let ask = Ask::Save { title, name, kind };
-        let (files, cx) = (self.clone(), ctx.clone());
+        let (files, waker) = (self.clone(), wake(ctx));
         let done = move |picked: Picked| {
             files.picking.store(false, Ordering::Release);
             // Cancelling is silent.
@@ -306,12 +310,12 @@ impl Files {
                 Ok(()) => Toast::info(format!("Exported to {name}")),
                 Err(e) => Toast::error(format!("Couldn't export to {name}: {e}")),
             };
-            files.deliver(&cx, Sent::Ui(UiCommand::Notify(toast)));
+            files.deliver(&waker, Sent::Ui(UiCommand::Notify(toast)));
         };
         if !self.dialogs.ask(ask, Box::new(done)) {
             self.picking.store(false, Ordering::Release);
             let toast = Toast::error("Exporting needs the desktop app.");
-            self.deliver(ctx, Sent::Ui(UiCommand::Notify(toast)));
+            self.deliver(&wake(ctx), Sent::Ui(UiCommand::Notify(toast)));
         }
     }
 
@@ -341,7 +345,7 @@ fn read_drop(
     place: impl FnOnce(OpenRequest) -> OpenRequest,
 ) {
     let request = place(OpenRequest::path(file.path().to_path_buf()));
-    files.deliver(ctx, Sent::Engine(Command::Open(request)));
+    files.deliver(&wake(ctx), Sent::Engine(Command::Open(request)));
 }
 
 /// Browsers hide paths: files arrive as bytes, read asynchronously.
@@ -352,7 +356,7 @@ fn read_drop(
     file: &DroppedFileHandle,
     place: impl FnOnce(OpenRequest) -> OpenRequest + 'static,
 ) {
-    let (files, ctx, file) = (files.clone(), ctx.clone(), Arc::clone(file));
+    let (files, waker, file) = (files.clone(), wake(ctx), Arc::clone(file));
     wasm_bindgen_futures::spawn_local(async move {
         let name = file.path().to_string_lossy().into_owned();
         let command = match file.bytes_async().await {
@@ -361,6 +365,6 @@ fn read_drop(
                 "Couldn't read {name}: {e}"
             )))),
         };
-        files.deliver(&ctx, command);
+        files.deliver(&waker, command);
     });
 }
