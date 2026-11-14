@@ -1,4 +1,4 @@
-//! The engine's host, answered by the controllers this crate still holds.
+//! The engine's view, answered by the controllers this crate still holds.
 
 use mareader_engine::documents::OpenRequest;
 use std::path::PathBuf;
@@ -7,11 +7,11 @@ use egui::Context;
 use mareader_appearance::{Appearance, Rgb};
 use mareader_engine::dict::{Action as DictAction, Download, Window};
 use mareader_engine::export::Format;
-use mareader_engine::host::{EdgeTab, Host};
 use mareader_engine::page_ai::Action as PageAiAction;
 use mareader_engine::pane::{Arrow, ZoomCommand};
 use mareader_engine::session::Session;
 use mareader_engine::study::Action as StudyAction;
+use mareader_engine::view::{EdgeTab, View};
 use mareader_library::{BookId, Pen};
 use mareader_settings::{ReadAloudSettings, WordList};
 use mareader_speech::{Item, Model, Spot};
@@ -28,7 +28,7 @@ pub(super) struct Front<'a> {
     pub ctx: &'a Context,
 }
 
-impl Host for Front<'_> {
+impl View for Front<'_> {
     fn session(&mut self) -> &mut Session {
         &mut self.app.session
     }

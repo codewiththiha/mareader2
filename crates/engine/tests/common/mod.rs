@@ -12,7 +12,6 @@ use mareader_appearance::{Appearance, Rgb};
 use mareader_engine::dict::{Action as DictAction, Download, Window};
 use mareader_engine::documents::{OpenRequest, Placement};
 use mareader_engine::export::{Entry, Format, file_name};
-use mareader_engine::host::{EdgeTab, Host};
 use mareader_engine::library::Action as LibraryAction;
 use mareader_engine::page_ai::Action as PageAiAction;
 use mareader_engine::pane::{Arrow, ViewMode, ZoomCommand};
@@ -22,6 +21,7 @@ use mareader_engine::session::Session;
 use mareader_engine::settings::Tab;
 use mareader_engine::study::Action as StudyAction;
 use mareader_engine::toast::Toast;
+use mareader_engine::view::{EdgeTab, View};
 use mareader_library::{BookId, Pen};
 use mareader_session::{Budget, Document, Event as Opened};
 use mareader_settings::{ReadAloudSettings, Settings, WordList};
@@ -72,7 +72,7 @@ impl Headless {
     }
 }
 
-impl Host for Headless {
+impl View for Headless {
     fn session(&mut self) -> &mut Session {
         &mut self.session
     }

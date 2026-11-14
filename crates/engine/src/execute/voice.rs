@@ -5,58 +5,58 @@ use mareader_speech::Item;
 use super::{note, set};
 use crate::command::Command;
 use crate::dict::Download;
-use crate::host::Host;
 use crate::read_aloud::ReadFrom;
 use crate::toast::Toast;
+use crate::view::View;
 
-pub(super) fn run(host: &mut dyn Host, intent: Command, now: f64) {
+pub(super) fn run(view: &mut dyn View, intent: Command, now: f64) {
     match intent {
         Command::PlaceReadMarker { pane, spot } => {
-            host.place_read_marker(pane, spot, now);
-            host.session().wake();
+            view.place_read_marker(pane, spot, now);
+            view.session().wake();
         }
         Command::ReadAloud { pane, from } => {
             // Reading from elsewhere sends a waiting pin off.
-            host.dismiss_read_markers(now);
-            host.read_aloud(pane, from);
+            view.dismiss_read_markers(now);
+            view.read_aloud(pane, from);
         }
         Command::ToggleReadAloud => {
-            host.dismiss_read_markers(now);
-            if !host.toggle_read_aloud() {
-                let active = host.session().active();
-                host.read_aloud(active, ReadFrom::default());
+            view.dismiss_read_markers(now);
+            if !view.toggle_read_aloud() {
+                let active = view.session().active();
+                view.read_aloud(active, ReadFrom::default());
             }
         }
-        Command::StopReadAloud => host.stop_read_aloud(),
-        Command::RevealVoice(model, language) => host.reveal_voice(model, language),
-        Command::VoiceModel(item, action) => model(host, item, action),
-        other => say(host, other),
+        Command::StopReadAloud => view.stop_read_aloud(),
+        Command::RevealVoice(model, language) => view.reveal_voice(model, language),
+        Command::VoiceModel(item, action) => model(view, item, action),
+        other => say(view, other),
     }
 }
 
-fn say(host: &mut dyn Host, intent: Command) {
+fn say(view: &mut dyn View, intent: Command) {
     match intent {
-        Command::TryVoice => host.try_voice(),
-        Command::TryVoiceOf(voice) => host.try_voice_of(&voice),
-        Command::StopVoiceTry => host.stop_voice_try(),
-        Command::SayWord(word) => heard(host, &word, None),
-        Command::SayWordWith { word, voice } => heard(host, &word, Some(&voice)),
-        Command::StopSaying => host.stop_saying(),
+        Command::TryVoice => view.try_voice(),
+        Command::TryVoiceOf(voice) => view.try_voice_of(&voice),
+        Command::StopVoiceTry => view.stop_voice_try(),
+        Command::SayWord(word) => heard(view, &word, None),
+        Command::SayWordWith { word, voice } => heard(view, &word, Some(&voice)),
+        Command::StopSaying => view.stop_saying(),
         _ => {}
     }
 }
 
-fn heard(host: &mut dyn Host, word: &str, voice: Option<&str>) {
-    if let Err(why) = host.say_word(word, voice) {
-        note(host, Toast::error(why));
+fn heard(view: &mut dyn View, word: &str, voice: Option<&str>) {
+    if let Err(why) = view.say_word(word, voice) {
+        note(view, Toast::error(why));
     }
 }
 
 /// A download may change the voice picked, so the settings follow it.
-fn model(host: &mut dyn Host, item: Item, action: Download) {
-    let mut settings = host.session().settings().read_aloud.clone();
-    match host.voice_model(item, action, &mut settings) {
-        Ok(()) => set(host, "read_aloud", serde_json::to_string(&settings)),
-        Err(why) => note(host, Toast::error(why)),
+fn model(view: &mut dyn View, item: Item, action: Download) {
+    let mut settings = view.session().settings().read_aloud.clone();
+    match view.voice_model(item, action, &mut settings) {
+        Ok(()) => set(view, "read_aloud", serde_json::to_string(&settings)),
+        Err(why) => note(view, Toast::error(why)),
     }
 }

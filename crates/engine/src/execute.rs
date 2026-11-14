@@ -1,8 +1,8 @@
-//! The reducer: every command, carried out against the session and its host.
+//! The reducer: every command, carried out against the session and its view.
 //!
 //! `Session::execute` is the one place an command takes effect. What the
 //! session owns it changes here; what a controller owns it asks of the
-//! [`Host`]. Time arrives as `now`, in seconds, from whoever keeps a clock.
+//! [`View`]. Time arrives as `now`, in seconds, from whoever keeps a clock.
 
 mod library;
 mod panes;
@@ -11,21 +11,21 @@ mod voice;
 
 use crate::command::Command;
 use crate::event::Event;
-use crate::host::Host;
 use crate::session::Session;
 use crate::toast::Toast;
+use crate::view::View;
 
 impl Session {
     /// Carries out `command`, unless the page in the window has no use for it.
-    pub fn execute(host: &mut dyn Host, intent: Command, now: f64) {
-        if host.session().route().takes(&intent) {
-            dispatch(host, intent, now);
+    pub fn execute(view: &mut dyn View, intent: Command, now: f64) {
+        if view.session().route().takes(&intent) {
+            dispatch(view, intent, now);
         }
     }
 }
 
 /// Exhaustive, so a new command cannot build until it is given a home.
-fn dispatch(host: &mut dyn Host, intent: Command, now: f64) {
+fn dispatch(view: &mut dyn View, intent: Command, now: f64) {
     match intent {
         Command::Split(_)
         | Command::FocusPane(_)
@@ -43,7 +43,7 @@ fn dispatch(host: &mut dyn Host, intent: Command, now: f64) {
         | Command::FirstPage
         | Command::LastPage
         | Command::GoTo { .. }
-        | Command::Turn { .. } => panes::run(host, intent, now),
+        | Command::Turn { .. } => panes::run(view, intent, now),
         Command::SetSidebarOverlay(_)
         | Command::SetTitlebarPinned(_)
         | Command::SetSettings(_)
@@ -55,10 +55,10 @@ fn dispatch(host: &mut dyn Host, intent: Command, now: f64) {
         | Command::DeletePreset(_)
         | Command::SetDictionary(_)
         | Command::SetLibraryView(_) => {
-            host.session().apply(intent);
+            view.session().apply(intent);
         }
-        Command::SetAppearance(look) => host.set_appearance(look),
-        Command::OpenSettings(tab) => host.open_settings(tab),
+        Command::SetAppearance(look) => view.set_appearance(look),
+        Command::OpenSettings(tab) => view.open_settings(tab),
         Command::WordList { .. }
         | Command::WordListWindow { .. }
         | Command::Study(_)
@@ -70,10 +70,10 @@ fn dispatch(host: &mut dyn Host, intent: Command, now: f64) {
         | Command::SelectText { .. }
         | Command::Dict(_)
         | Command::Vocab(_)
-        | Command::Pronunciation(_) => study::run(host, intent),
-        Command::PageAi(action) => host.page_ai(action),
+        | Command::Pronunciation(_) => study::run(view, intent),
+        Command::PageAi(action) => view.page_ai(action),
         #[cfg(not(target_arch = "wasm32"))]
-        Command::Ai(job) => host.ai(job),
+        Command::Ai(job) => view.ai(job),
         Command::PlaceReadMarker { .. }
         | Command::ReadAloud { .. }
         | Command::ToggleReadAloud
@@ -85,22 +85,22 @@ fn dispatch(host: &mut dyn Host, intent: Command, now: f64) {
         | Command::StopVoiceTry
         | Command::SayWord(_)
         | Command::SayWordWith { .. }
-        | Command::StopSaying => voice::run(host, intent, now),
+        | Command::StopSaying => voice::run(view, intent, now),
         Command::OpenBook(_)
         | Command::PlaceBook { .. }
         | Command::Library(_)
-        | Command::ForgetPositions { .. } => library::run(host, intent),
+        | Command::ForgetPositions { .. } => library::run(view, intent),
     }
 }
 
-fn note(host: &mut dyn Host, toast: Toast) {
-    host.session().emit(Event::Toast(toast));
+fn note(view: &mut dyn View, toast: Toast) {
+    view.session().emit(Event::Toast(toast));
 }
 
 /// One setting written by its path; a value that will not serialize is not.
-fn set(host: &mut dyn Host, path: &str, json: serde_json::Result<String>) {
+fn set(view: &mut dyn View, path: &str, json: serde_json::Result<String>) {
     if let Ok(value) = json {
-        host.session().apply(Command::SetField {
+        view.session().apply(Command::SetField {
             path: path.into(),
             value,
         });

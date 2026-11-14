@@ -3,43 +3,43 @@
 use super::note;
 use crate::command::Command;
 use crate::dict::Action as DictAction;
-use crate::host::Host;
 use crate::toast::Toast;
+use crate::view::View;
 
-pub(super) fn run(host: &mut dyn Host, intent: Command) {
+pub(super) fn run(view: &mut dyn View, intent: Command) {
     match intent {
         Command::WordList { pane, pages } => {
-            let list = host.session().settings().study.words.instant().clone();
-            host.word_list(pane, pages, list);
+            let list = view.session().settings().study.words.instant().clone();
+            view.word_list(pane, pages, list);
         }
         Command::WordListWindow { pane, pages } => {
-            let list = host.session().settings().study.words.last.clone();
-            host.word_window(pane, pages, list);
+            let list = view.session().settings().study.words.last.clone();
+            view.word_window(pane, pages, list);
         }
-        Command::Study(action) => host.study(action),
-        Command::Explain(pane) => host.explain(pane),
-        Command::LookUp(pane) => host.look_up(pane),
-        Command::Highlight { pane, pen, color } => host.highlight(pane, pen, color),
-        Command::Note(pane) => host.note(pane),
+        Command::Study(action) => view.study(action),
+        Command::Explain(pane) => view.explain(pane),
+        Command::LookUp(pane) => view.look_up(pane),
+        Command::Highlight { pane, pen, color } => view.highlight(pane, pen, color),
+        Command::Note(pane) => view.note(pane),
         Command::Bookmark(pane) => {
-            let pane = pane.unwrap_or(host.session().active());
-            host.bookmark(pane);
+            let pane = pane.unwrap_or(view.session().active());
+            view.bookmark(pane);
         }
-        Command::SelectText { pane, page, text } => host.select(pane, page, &text),
-        other => words(host, other),
+        Command::SelectText { pane, page, text } => view.select(pane, page, &text),
+        other => words(view, other),
     }
 }
 
 /// The dictionaries, the word levels and how words sound.
-fn words(host: &mut dyn Host, intent: Command) {
+fn words(view: &mut dyn View, intent: Command) {
     match intent {
-        Command::Dict(DictAction::Window(window)) => host.dict_window(window),
-        Command::Dict(DictAction::Pursue(word)) => host.pursue(&word),
-        Command::Dict(action) => host.dict(action),
-        Command::Vocab(action) => host.vocab(action),
+        Command::Dict(DictAction::Window(window)) => view.dict_window(window),
+        Command::Dict(DictAction::Pursue(word)) => view.pursue(&word),
+        Command::Dict(action) => view.dict(action),
+        Command::Vocab(action) => view.vocab(action),
         Command::Pronunciation(action) => {
-            if let Err(why) = host.pronunciation(action) {
-                note(host, Toast::error(why));
+            if let Err(why) = view.pronunciation(action) {
+                note(view, Toast::error(why));
             }
         }
         _ => {}
