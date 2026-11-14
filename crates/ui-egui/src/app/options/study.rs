@@ -13,7 +13,6 @@ pub(super) fn set(app: &mut MareaderApp, key: &str, value: &str) -> Option<Resul
         "dict_page" => Some(app.option_dict_page(key, value)),
         "explain" => Some(app.option_explain(key, value)),
         "provider" => Some(app.option_provider(key, value)),
-        "meaning" => Some(app.option_meaning(key, value)),
         "selection" => Some(app.option_selection(key, value)),
         "pick" => Some(app.option_pick(key, value)),
         "bookmark" => Some(app.option_bookmark(key, value)),
@@ -111,13 +110,6 @@ impl MareaderApp {
         ai.tasks.explain.preset = Some(id);
         self.set_field("ai", ai)?;
 
-        Ok(())
-    }
-
-    // The meaning's language by tag, e.g. `my`.
-    fn option_meaning(&mut self, _key: &str, value: &str) -> Result<(), String> {
-        mareader_settings::language_name(value).ok_or("meaning: a tag, e.g. my")?;
-        self.set_field("ai.tasks.explain.language", Some(value.to_owned()))?;
         Ok(())
     }
 

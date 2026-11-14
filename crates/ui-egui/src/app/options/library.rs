@@ -7,19 +7,11 @@ pub(super) fn set(app: &mut MareaderApp, key: &str, value: &str) -> Option<Resul
         "library" => Some(app.option_library(key, value)),
         "select" => Some(app.option_select(key, value)),
         "remove" => Some(app.option_remove(key, value)),
-        "import" => Some(app.option_import(key, value)),
-        "folder" => Some(app.option_folder(key, value)),
-        "layout" => Some(app.option_layout(key, value)),
-        "columns" => Some(app.option_columns(key, value)),
-        "cover" => Some(app.option_cover(key, value)),
-        "sort" => Some(app.option_sort(key, value)),
         "books" => Some(app.option_books(key, value)),
         "shelves" => Some(app.option_shelves(key, value)),
         "copies" => Some(app.option_copies(key, value)),
         "organize" => Some(app.option_organize(key, value)),
         "shelf" => Some(app.option_shelf(key, value)),
-        "search" => Some(app.option_search(key, value)),
-        "home" => Some(app.option_home(key, value)),
         "runs" => Some(app.option_runs(key, value)),
         _ => None,
     }
@@ -87,68 +79,6 @@ impl MareaderApp {
         Ok(())
     }
 
-    // The import sheet for a folder, as Add ▸ Folder… asks.
-    fn option_import(&mut self, _key: &str, value: &str) -> Result<(), String> {
-        let ask = mareader_engine::library::Action::AskFolder(std::path::PathBuf::from(value));
-        self.queue(Sent::Engine(Command::Library(ask)));
-
-        Ok(())
-    }
-
-    // A folder read in place, as the sheet can add one.
-    fn option_folder(&mut self, _key: &str, value: &str) -> Result<(), String> {
-        let root = std::path::PathBuf::from(value);
-        // Watched, every file counted, so its books show as found.
-        let opts = mareader_library::Options {
-            watch: true,
-            min_size: 0,
-            ..mareader_library::Options::default()
-        };
-        let import = mareader_engine::library::Action::ImportFolder { root, opts };
-        self.queue(Sent::Engine(Command::Library(import)));
-
-        Ok(())
-    }
-
-    fn option_layout(&mut self, _key: &str, value: &str) -> Result<(), String> {
-        let some = match value {
-            "list" => mareader_library::Layout::List,
-            _ => mareader_library::Layout::Grid,
-        };
-        self.set_field("library.layout", some)?;
-        Ok(())
-    }
-
-    fn option_columns(&mut self, _key: &str, value: &str) -> Result<(), String> {
-        self.set_field("library.columns", value.parse::<usize>().ok())?;
-        Ok(())
-    }
-
-    fn option_cover(&mut self, _key: &str, value: &str) -> Result<(), String> {
-        let some = match value {
-            "crop" => mareader_library::CoverFit::Crop,
-            _ => mareader_library::CoverFit::Fit,
-        };
-        self.set_field("library.cover", some)?;
-        Ok(())
-    }
-
-    fn option_sort(&mut self, _key: &str, value: &str) -> Result<(), String> {
-        let (key, way) = value.split_once(':').unwrap_or((value, ""));
-        let key = mareader_library::SortKey::ALL
-            .into_iter()
-            .find(|k| format!("{k:?}").eq_ignore_ascii_case(&key.replace('_', "")))
-            .ok_or("sort: arranged, last_read, title, author or added")?;
-        self.set_field("library.sort", key)?;
-        let some = match way {
-            "asc" => true,
-            "desc" => false,
-            _ => key.natural_ascending(),
-        };
-        self.set_field("library.ascending", some)?;
-        Ok(())
-    }
-
     fn option_books(&mut self, _key: &str, value: &str) -> Result<(), String> {
         self.ui
             .library
@@ -185,25 +115,6 @@ impl MareaderApp {
         let found = self.ui.library.open_shelf(value);
         found.then_some(()).ok_or("shelf: no shelf by that path")?;
 
-        Ok(())
-    }
-
-    // Typed into the library's search field.
-    fn option_search(&mut self, _key: &str, value: &str) -> Result<(), String> {
-        let text = mareader_engine::library::SearchAction::Text(value.to_owned());
-        self.queue(Sent::Engine(Command::Library(
-            mareader_engine::library::Action::Search(text),
-        )));
-
-        Ok(())
-    }
-
-    fn option_home(&mut self, _key: &str, value: &str) -> Result<(), String> {
-        let some = match value {
-            "unshelved" => mareader_library::Home::Unshelved,
-            _ => mareader_library::Home::Everything,
-        };
-        self.set_field("library.home", some)?;
         Ok(())
     }
 

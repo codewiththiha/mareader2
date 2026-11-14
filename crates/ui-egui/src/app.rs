@@ -21,15 +21,9 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
 use egui::{Context, Rect};
-use mareader_appearance::{
-    Appearance, BaseMode, FilmGrain, NoiseMode, PaneLooks, Rgb, Routing, TextureMode,
-    builtin_presets,
-};
+use mareader_appearance::{Appearance, FilmGrain, PaneLooks, Rgb, Routing};
 use mareader_session::Anchor;
-use mareader_settings::{
-    AppearanceMenuStyle, Bar, BookDesign, ColumnAlign, DictionaryOpens, FontChoice, LibraryClick,
-    MotionSettings, PaperArea, Settings, TextSettings,
-};
+use mareader_settings::{Bar, BookDesign, DictionaryOpens, MotionSettings, Settings, TextSettings};
 use mareader_workspace::{Bounds, LiftTarget, MAX_PANES, PaneId, Side, SplitAxis};
 
 use crate::backdrop::Backdrop;
