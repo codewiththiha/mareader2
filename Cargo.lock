@@ -3654,6 +3654,7 @@ dependencies = [
  "mareader-speech",
  "mareader-study",
  "mareader-workspace",
+ "serde",
  "serde_json",
  "sys-locale",
  "tempfile",

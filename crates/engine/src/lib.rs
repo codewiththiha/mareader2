@@ -42,6 +42,7 @@ pub mod repaint;
 pub mod reveal;
 pub mod route;
 pub mod sample;
+pub mod save;
 /// Which settings apply to the focused pane's document.
 pub mod scope;
 pub mod scripts;

@@ -15,7 +15,6 @@ mod setup;
 mod study;
 mod ui_state;
 
-use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
@@ -66,6 +65,7 @@ use mareader_engine::pane::ViewMode;
 use mareader_engine::pane_texts::PaneTexts;
 use mareader_engine::read_aloud::ReadFrom;
 use mareader_engine::route::Route;
+pub use mareader_engine::save::LastDocument;
 use mareader_engine::scope::{Scope, Shown};
 use mareader_engine::session::Session;
 use mareader_engine::settings::Tab;
@@ -76,23 +76,6 @@ use ui_state::UiState;
 pub const SETTINGS_KEY: &str = "settings";
 /// Kept apart from settings: it says what was read, not how to read.
 pub const LAST_DOCUMENT_KEY: &str = "last_document";
-
-/// What reopens at launch: the file read at exit, on its page.
-#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-pub struct LastDocument {
-    pub path: PathBuf,
-    pub page: usize,
-    /// A book's block and offset, which outlast a change of type.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub place: Option<(usize, usize)>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub spine: Option<mareader_library::SpinePosition>,
-    #[serde(default)]
-    pub pages: usize,
-    /// The library book it was read as, so a twin reopens as itself.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub book: Option<mareader_library::BookId>,
-}
 
 /// Settings reach disk this long after a change, at most.
 pub const SAVE_EVERY: Duration = Duration::from_millis(500);
