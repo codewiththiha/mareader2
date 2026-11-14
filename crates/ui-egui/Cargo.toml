@@ -36,10 +36,8 @@ egui_extras = { workspace = true }
 eframe = { workspace = true, features = ["default_fonts", "wgpu", "accesskit", "persistence"] }
 serde = { workspace = true }
 serde_json = { workspace = true }
-rfd = { workspace = true }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
-pollster = "0.4"
 # AI answers and API keys; a browser has neither threads nor a keychain.
 mareader-assist = { workspace = true }
 # A book's scripts; the browser build shows their pages as written.
@@ -47,6 +45,9 @@ mareader-script = { workspace = true }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 wasm-bindgen-futures = "0.4"
+# A page picks its own files: no desktop shell to ask. A desktop's dialogs
+# belong to the app, so `rfd` and `pollster` live there (L7).
+rfd = { workspace = true }
 
 [dev-dependencies]
 egui_kittest = { workspace = true, features = ["eframe", "wgpu"] }

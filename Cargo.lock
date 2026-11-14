@@ -3570,7 +3570,9 @@ dependencies = [
  "objc2 0.6.5",
  "objc2-app-kit 0.3.2",
  "objc2-foundation 0.3.2",
+ "pollster 0.4.0",
  "raw-window-handle",
+ "rfd",
 ]
 
 [[package]]
@@ -3868,7 +3870,6 @@ dependencies = [
  "mareader-study",
  "mareader-workspace",
  "parquet",
- "pollster 0.4.0",
  "rfd",
  "serde",
  "serde_json",

@@ -12,10 +12,12 @@ use mareader_ui_egui::MareaderApp;
 use mareader_ui_egui::ui_command::Sent;
 
 use desk::Desk;
+use dialogs::Shell;
 use inbox::Inbox;
 use single_instance::Claim;
 
 mod desk;
+mod dialogs;
 mod inbox;
 mod open_files;
 mod reduced_motion;
@@ -146,7 +148,8 @@ fn main() -> eframe::Result {
                 ai_helper: dev_helper(),
                 ..Machine::under(&*host)
             };
-            let mut app = MareaderApp::new(cc, host, machine);
+            // The machine's dialogs: the front end asks, this app runs them.
+            let mut app = MareaderApp::new(cc, host, machine).with_dialogs(Arc::new(Shell));
             inbox.wake_with(cc.egui_ctx.clone());
             // A file asked for at launch, else what was read last time.
             if !open_latest(&mut app, inbox.take().paths) {

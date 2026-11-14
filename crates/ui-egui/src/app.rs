@@ -29,7 +29,7 @@ use crate::backdrop::Backdrop;
 use crate::bookmarks;
 use crate::crossfade::Crossfade;
 use crate::documents::Documents;
-use crate::files::Files;
+use crate::files::{Files, Runner};
 use crate::find_bar::FindBar;
 use crate::floating_label::{self, LabelChrome};
 use crate::gpu::{Glass, Gpu, GrainCallback, Quad, crawl_offset};
@@ -274,6 +274,12 @@ impl MareaderApp {
             app.ui.toasts.push(Toast::error(REPAIRED));
         }
         app
+    }
+
+    /// Answers its dialogs with `dialogs`, as a launch's shell does.
+    pub fn with_dialogs(mut self, dialogs: Runner) -> Self {
+        self.ui.files.set_dialogs(dialogs);
+        self
     }
 }
 
