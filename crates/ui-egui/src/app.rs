@@ -7,7 +7,6 @@ mod frame;
 mod glosses;
 mod library;
 mod navigation;
-mod options;
 mod page_ai;
 mod panes;
 mod read_aloud;

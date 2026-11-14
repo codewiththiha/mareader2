@@ -285,3 +285,51 @@ impl MareaderApp {
         self.ui.documents.title(self.active()).unwrap_or("Mareader")
     }
 }
+
+impl MareaderApp {
+    /// Headless knobs for `examples/shot.rs` and tests.
+    ///
+    /// The engine parses the keys that set what it holds, so a shot, a query
+    /// string and a command line all meet the same answer. What is left is each
+    /// family's own: its widgets, and the fixtures that fill them.
+    pub fn set_option(&mut self, key: &str, value: &str) -> Result<(), String> {
+        self.reconcile_texts();
+        if let Some(parsed) = mareader_engine::options::parse(key, value) {
+            return self.carry(parsed?);
+        }
+        for family in [
+            Family(super::appearance::own_key),
+            Family(super::library::own_key),
+            Family(super::study::own_key),
+            Family(super::page_ai::own_key),
+            Family(super::read_aloud::own_key),
+            Family(super::panes::own_key),
+        ] {
+            if let Some(result) = (family.0)(self, key, value) {
+                return result;
+            }
+        }
+        Err(format!("unknown option {key}"))
+    }
+
+    /// The engine's answer, handed on by the door each key asks for.
+    ///
+    /// A setting write lands at once, so the next key in the same string reads
+    /// it; an ask or an open waits behind whatever is already queued.
+    fn carry(&mut self, commands: Vec<Command>) -> Result<(), String> {
+        for command in commands {
+            if matches!(command, Command::SetField { .. }) {
+                let done = self.session.apply(command);
+                if let Some(why) = done.refused {
+                    return Err(why);
+                }
+            } else {
+                self.queue(Sent::Engine(command));
+            }
+        }
+        Ok(())
+    }
+}
+
+/// One family's own keys, so the door can ask them in turn.
+struct Family(fn(&mut MareaderApp, &str, &str) -> Option<Result<(), String>>);
