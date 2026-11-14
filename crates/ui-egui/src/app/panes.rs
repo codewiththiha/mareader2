@@ -242,7 +242,6 @@ pub(super) fn own_key(app: &mut MareaderApp, key: &str, value: &str) -> Option<R
         "sidebar" => Some(app.option_sidebar(key, value)),
         "find" => Some(app.option_find(key, value)),
         "open" => Some(app.option_open(key, value)),
-        "panes" => Some(app.option_panes(key, value)),
         _ => None,
     }
 }
@@ -365,25 +364,19 @@ impl MareaderApp {
         Ok(())
     }
 
-    fn option_panes(&mut self, _key: &str, value: &str) -> Result<(), String> {
-        let n: usize = value.parse().map_err(|_| "panes: 1 to 4")?;
-        let want = n.min(mareader_workspace::MAX_PANES);
-        // A shot has no window to ask, so the room is a fixture.
+    /// The split a headless key carries out: the last pane, in a shot's room.
+    ///
+    /// The keys arrive before there is a window to ask, so the room is the
+    /// shot's fixture, and the focus stays where the key found it.
+    pub(super) fn split_last(&mut self, axis: SplitAxis) -> Result<(), String> {
+        let pane = self.tree().panes().last().copied().unwrap_or(self.active());
+        let edge = match axis {
+            SplitAxis::Horizontal => Edge::Right,
+            SplitAxis::Vertical => Edge::Bottom,
+        };
         let area = Bounds::new(0.0, 0.0, 1600.0, 1000.0);
-        while self.tree().len() < want {
-            let last = self.tree().panes().last().copied().unwrap_or(self.active());
-            let edge = if self.tree().len() % 2 == 1 {
-                mareader_workspace::Edge::Right
-            } else {
-                mareader_workspace::Edge::Bottom
-            };
-            let made = self.session.split_at(last, edge, area);
-            if made.is_none() {
-                return Err("panes: no room for another".to_owned());
-            }
-        }
-
-        Ok(())
+        let made = self.session.split_at(pane, edge, area);
+        made.map_or(Err("panes: no room for another".to_owned()), |_| Ok(()))
     }
 }
 

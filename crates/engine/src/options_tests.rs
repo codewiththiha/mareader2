@@ -12,7 +12,7 @@ use mareader_session::Source;
 use mareader_settings::{
     AppearanceMenuStyle, Bar, FloatingLabelStyle, LibraryClick, Provider, Settings,
 };
-use mareader_workspace::{Bounds, Edge};
+use mareader_workspace::{Bounds, Edge, SplitAxis};
 
 /// A session on a host with no machine, so its settings are the defaults.
 fn bare() -> Session {
@@ -138,8 +138,6 @@ fn a_key_the_front_end_keeps_is_not_here() {
         "dictionaries",
         "explain",
         "selection",
-        // This one splits the tree in the room the window has.
-        "panes",
     ];
     for key in kept {
         assert!(parse(key, "true", &bare()).is_none(), "{key} moved");
@@ -340,6 +338,23 @@ fn a_focus_key_counts_panes_as_a_shot_does() -> Result<(), String> {
     let count = "focus: a pane number";
     let found = parsed_in(&session, "focus", "x").err();
     assert_eq!(found.as_deref(), Some(count));
+    Ok(())
+}
+
+#[test]
+fn a_panes_key_answers_one_split_per_pane_it_adds() -> Result<(), String> {
+    let made = parsed("panes", "3")?;
+    let mut axes = Vec::new();
+    for command in &made {
+        if let Command::Split(axis) = command {
+            axes.push(*axis);
+        }
+    }
+    assert_eq!(axes, vec![SplitAxis::Horizontal, SplitAxis::Vertical]);
+    assert!(parsed("panes", "1")?.is_empty());
+    let hint = "panes: 1 to 4";
+    let found = parsed("panes", "x").err();
+    assert_eq!(found.as_deref(), Some(hint));
     Ok(())
 }
 

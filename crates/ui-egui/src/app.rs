@@ -23,7 +23,7 @@ use egui::{Context, Rect};
 use mareader_appearance::{Appearance, FilmGrain, PaneLooks, Rgb, Routing};
 use mareader_session::Anchor;
 use mareader_settings::{BookDesign, DictionaryOpens, MotionSettings, Settings, TextSettings};
-use mareader_workspace::{Bounds, LiftTarget, MAX_PANES, PaneId};
+use mareader_workspace::{Bounds, Edge, LiftTarget, MAX_PANES, PaneId, SplitAxis};
 
 use crate::backdrop::Backdrop;
 use crate::bookmarks;
