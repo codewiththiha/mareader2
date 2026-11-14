@@ -42,7 +42,11 @@ fn pick(ask: Ask) -> Picked {
             let dialog = dialog(title, Some(filter.0), Some(filter.1), None);
             pollster::block_on(dialog.pick_file()).map(|file| vec![file])
         }
-        Ask::Books { title, filter, from } => {
+        Ask::Books {
+            title,
+            filter,
+            from,
+        } => {
             let dialog = dialog(title, Some(filter.0), Some(filter.1), from);
             pollster::block_on(dialog.pick_files())
         }

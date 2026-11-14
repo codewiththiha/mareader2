@@ -157,7 +157,10 @@ mod tests {
         let doc = Arc::new(book.map_err(|e| e.to_string())?);
         let clip = doc.media(CLIP).ok_or("the book names no clip")?;
 
-        assert!(play(&machine, Arc::clone(&doc), CLIP.to_owned()), "a thread");
+        assert!(
+            play(&machine, Arc::clone(&doc), CLIP.to_owned()),
+            "a thread"
+        );
         assert!(waited(|| !host.opened().is_empty()), "the copy arrived");
 
         let opened = host.opened().first().cloned().ok_or("nothing opened")?;
