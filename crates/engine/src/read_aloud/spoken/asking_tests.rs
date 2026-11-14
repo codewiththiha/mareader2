@@ -14,6 +14,7 @@ use mareader_settings::Skip;
 use mareader_speech::SILENT;
 
 use super::*;
+use crate::read_aloud::parts::Kind;
 use crate::read_aloud::place::Panes;
 use crate::read_aloud::player::Act;
 
@@ -65,7 +66,7 @@ impl Read {
     }
 
     /// The part reading is in and can leave, as the player shows it.
-    fn in_part(&self) -> Option<parts::Kind> {
+    fn in_part(&self) -> Option<Kind> {
         self.spoken.view(&hint).escape
     }
 
@@ -141,7 +142,7 @@ fn asked() -> Skip {
 #[test]
 fn a_table_holds_reading_to_ask_and_is_read_on_yes() -> Result<(), &'static str> {
     let mut read = reading(asked())?;
-    let table = Some(parts::Kind::Table);
+    let table = Some(Kind::Table);
 
     assert!(read.frames(|r| r.spoken.is_asking()), "the table asks");
     let view = read.spoken.view(&hint);
@@ -162,7 +163,7 @@ fn a_table_holds_reading_to_ask_and_is_read_on_yes() -> Result<(), &'static str>
 #[test]
 fn a_table_holds_reading_to_ask_and_is_passed_on_no() -> Result<(), &'static str> {
     let mut read = reading(asked())?;
-    let table = Some(parts::Kind::Table);
+    let table = Some(Kind::Table);
 
     assert!(read.frames(|r| r.spoken.is_asking()), "the table asks");
     assert_eq!(read.in_part(), None, "nothing to leave while asking");
