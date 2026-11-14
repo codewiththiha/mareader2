@@ -6,12 +6,12 @@ use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime};
 
 use egui_kittest::Harness;
-use mareader_engine::command::Command;
 use mareader_engine::documents::OpenRequest;
 use mareader_engine::library::{Action, SearchAction};
+use mareader_engine::{command::Command, host::Machine};
+use mareader_ui_egui::MareaderApp;
 use mareader_ui_egui::pages::{CAP_BYTES, REST_BYTES};
 use mareader_ui_egui::ui_command::{Sent, UiCommand};
-use mareader_ui_egui::{Machine, MareaderApp};
 use mareader_workspace::{PaneId, SplitAxis};
 
 type App = Harness<'static, MareaderApp>;

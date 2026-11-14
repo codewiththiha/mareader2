@@ -58,7 +58,7 @@ use mareader_engine::pane::ViewMode;
 use mareader_engine::pane_texts::PaneTexts;
 use mareader_engine::read_aloud::ReadFrom;
 use mareader_engine::route::Route;
-pub use mareader_engine::save::{LastDocument, Loaded};
+use mareader_engine::save::{LastDocument, Loaded};
 use mareader_engine::scope::{Scope, Shown};
 use mareader_engine::session::Session;
 use mareader_engine::settings::Tab;

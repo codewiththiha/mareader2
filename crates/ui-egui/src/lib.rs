@@ -71,7 +71,6 @@ pub mod word_list;
 pub mod zoom;
 
 pub use app::MareaderApp;
-pub use mareader_engine::host::Machine;
 
 #[cfg(test)]
 mod testing {
