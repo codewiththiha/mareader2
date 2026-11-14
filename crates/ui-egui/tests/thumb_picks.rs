@@ -17,11 +17,8 @@ fn reader() -> H {
         .with_step_dt(1.0 / 60.0)
         .with_max_steps(200)
         .build_eframe(|cc| {
-            let mut app = MareaderApp::on(
-                &cc.egui_ctx,
-                Window::host(&cc.egui_ctx),
-                Machine::default(),
-            );
+            let mut app =
+                MareaderApp::on(&cc.egui_ctx, Window::host(&cc.egui_ctx), Machine::default());
             app.set_option("workers", "0").ok();
             app.set_option("pdf", "sample:40").ok();
             app.set_option("sidebar", "thumbnails").ok();
