@@ -100,9 +100,7 @@ impl Save {
         }
         self.wrote = now;
         self.dirty = false;
-        let Some(dir) = self.dir.clone() else {
-            return None;
-        };
+        let dir = self.dir.clone()?;
         self.failed = store(&dir, settings, self.last.as_ref()).err();
         // A refused write is still owed, so the next frame tries again.
         self.dirty = self.failed.is_some();
