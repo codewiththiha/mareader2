@@ -90,16 +90,19 @@ fn choices_cut_in_half_load_as_defaults_and_say_so() -> Result<(), String> {
 #[test]
 fn one_section_gone_leaves_the_rest_of_the_choices() -> Result<(), String> {
     let dir = dir()?;
-    let mut save = owing(dir.path());
-    save.write(0.0, &choices(), None);
-    // A newer build's section, and one that will not parse.
-    put(
-        &dir.path().join(SETTINGS_FILE),
-        "{\"text\": {\"font_size\": 21.0}, \"tomorrow\": {\"how\": ",
-    )?;
+    // Real settings, with one section replaced by something of the wrong shape.
+    let mut root = serde_json::to_value(&choices()).map_err(|e| e.to_string())?;
+    let map = root.as_object_mut().ok_or("choices serialize to an object")?;
+    map.insert("paper".into(), serde_json::json!("not a section"));
+    let json = serde_json::to_string(&root).map_err(|e| e.to_string())?;
+    put(&dir.path().join(SETTINGS_FILE), &json)?;
     let loaded = load(Some(dir.path()));
-    assert_eq!(loaded.settings.text.font_size, 21.0);
-    assert!(!loaded.notes.is_empty(), "{:?}", loaded.notes);
+    assert_eq!(loaded.settings.text.font_size, 21.0, "the rest survives");
+    assert!(
+        loaded.notes.iter().any(|n| n.contains("paper")),
+        "{:?}",
+        loaded.notes
+    );
     Ok(())
 }
 
