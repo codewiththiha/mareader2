@@ -3,7 +3,6 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 use std::path::PathBuf;
-use std::time::Duration;
 
 use mareader_engine::command::Command;
 use mareader_engine::documents::OpenRequest;
@@ -60,12 +59,8 @@ impl eframe::App for Desktop {
         }
     }
 
-    fn auto_save_interval(&self) -> Duration {
-        self.app.auto_save_interval()
-    }
-
-    fn save(&mut self, storage: &mut dyn eframe::Storage) {
-        self.app.save(storage);
+    fn on_exit(&mut self) {
+        self.app.flush();
     }
 }
 
@@ -121,7 +116,7 @@ fn main() -> eframe::Result {
         .map(PathBuf::from)
         .collect();
     let inbox = Inbox::default();
-    if let Some(dir) = eframe::storage_dir("mareader")
+    if let Some(dir) = mareader_ui_egui::import::state_dir()
         && single_instance::claim(&dir, &files, &inbox) == Claim::Forwarded
     {
         return Ok(());
@@ -141,7 +136,7 @@ fn main() -> eframe::Result {
         options,
         Box::new(|cc| {
             let mut app = MareaderApp::from_creation(cc);
-            if let Some(dir) = eframe::storage_dir("mareader") {
+            if let Some(dir) = mareader_ui_egui::import::state_dir() {
                 app.attach_library(&cc.egui_ctx, dir.join("library"));
                 app.attach_ai(&cc.egui_ctx, dir.join("ai"), dev_helper());
                 app.attach_dictionaries(&cc.egui_ctx, dir.join("dictionaries"));

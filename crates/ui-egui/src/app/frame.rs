@@ -49,15 +49,54 @@ impl eframe::App for MareaderApp {
     }
 
     /// Writes happen on eframe's persist thread, and only when changed.
+    #[cfg(target_arch = "wasm32")]
     fn auto_save_interval(&self) -> Duration {
         SAVE_EVERY
     }
 
-    fn save(&mut self, storage: &mut dyn Storage) {
+    /// A browser has no files, so its store stays its store.
+    #[cfg(target_arch = "wasm32")]
+    fn save(&mut self, storage: &mut crate::import::Store<'_>) {
+        crate::import::keep_browser(self, storage);
+    }
+
+    /// Writes what is owed before the window goes.
+    fn on_exit(&mut self) {
+        self.flush();
+    }
+}
+
+impl MareaderApp {
+    /// Where the engine's two files live; a browser has nowhere to put them.
+    pub fn save_to(&mut self, dir: Option<PathBuf>) {
+        self.session.save_to(dir);
+    }
+
+    /// Writes the engine's files when due, and books the frame that pays.
+    fn keep(&mut self, ctx: &Context, now: f64) {
+        // Only a launch with somewhere to write needs to know what was read.
+        let last = if self.session.persists() {
+            self.last_document()
+        } else {
+            None
+        };
+        if let Some(wait) = self.session.keep(now, last) {
+            ctx.request_repaint_after(Duration::from_secs_f64(wait));
+        }
+        if let Some(why) = self.session.take_failure() {
+            self.ui.toasts.push(Toast::error(why));
+        }
+    }
+
+    /// A change outside a command owes a write.
+    fn touch(&mut self) {
+        self.session.touch();
+    }
+
+    /// Writes everything owed: the library's rows and the engine's files.
+    pub fn flush(&mut self) {
         self.ui.library.flush();
-        storage.set_string(SETTINGS_KEY, mareader_settings::to_json(self.settings()));
-        // Nothing open saves `null`: the next launch starts empty.
-        let last = serde_json::to_string(&self.last_document());
-        storage.set_string(LAST_DOCUMENT_KEY, last.unwrap_or_else(|_| "null".into()));
+        let last = self.last_document();
+        self.session.settle(last);
     }
 }

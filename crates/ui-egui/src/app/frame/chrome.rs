@@ -233,8 +233,9 @@ impl MareaderApp {
                 self.apply(ctx, command);
             }
             self.reconcile_looks(ctx);
-            // Book a save; eframe autosaves only on a frame.
+            // A change owes a write; book the frame that carries it.
             if *self.settings() != before.settings {
+                self.touch();
                 ctx.request_repaint_after(SAVE_EVERY + Duration::from_millis(50));
             }
             if !outside && self.may_fade(ctx) && self.leapt(&before) {

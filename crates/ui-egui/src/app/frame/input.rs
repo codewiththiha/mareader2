@@ -68,6 +68,7 @@ impl MareaderApp {
         if let Some(wait) = self.ui.library.save(ctx.input(|i| i.time)) {
             ctx.request_repaint_after(Duration::from_secs_f64(wait));
         }
+        self.keep(ctx, ctx.input(|i| i.time));
         let route = self.route();
         // The library keeps its bar: it has no other way out.
         self.ui.titlebar.chromeless = self.ui.chromeless && route == Route::Reader;

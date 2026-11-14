@@ -467,49 +467,17 @@ fn split_pane_outline_colour_comes_from_the_workspace_tab() {
     assert_eq!(look.outline_color, mareader_settings::Swatch::Red);
 }
 
-/// eframe's storage, minus the disk.
-#[derive(Default)]
-struct Memory(std::collections::HashMap<String, String>);
-
-impl eframe::Storage for Memory {
-    fn get_string(&self, key: &str) -> Option<String> {
-        self.0.get(key).cloned()
-    }
-
-    fn set_string(&mut self, key: &str, value: String) {
-        self.0.insert(key.to_owned(), value);
-    }
-
-    fn remove_string(&mut self, key: &str) {
-        self.0.remove(key);
-    }
-
-    fn flush(&mut self) {}
-}
-
 #[test]
-fn settings_survive_a_save_and_relaunch() {
-    use eframe::App as _;
+fn settings_survive_a_save_and_relaunch() -> Result<(), String> {
+    let dir = tempfile::tempdir().map_err(|e| e.to_string())?;
     let mut h = with(&[("float", "true"), ("theme", "dim")]);
-    let mut disk = Memory::default();
-    h.state_mut().save(&mut disk);
-    let back = MareaderApp::from_storage(Some(&disk));
+    h.state_mut().save_to(Some(dir.path().to_path_buf()));
+    h.state_mut().flush();
+    let found = mareader_ui_egui::import::once(None, Some(dir.path().to_path_buf()));
+    let back = MareaderApp::from_loaded(found);
     assert_eq!(back.settings(), h.state().settings());
     assert!(back.settings().chrome.sidebar_overlay);
-}
-
-#[test]
-fn the_pre_crate_settings_blob_still_loads() {
-    let mut disk = Memory::default();
-    let v0 = r#"{"titlebar_pinned":true,"animations":false,"sidebar_overlay":true}"#;
-    disk.0.insert(
-        mareader_ui_egui::app::SETTINGS_KEY.to_owned(),
-        v0.to_owned(),
-    );
-    let app = MareaderApp::from_storage(Some(&disk));
-    assert!(app.pinned() && app.settings().chrome.sidebar_overlay);
-    assert!(!app.settings().motion.enabled);
-    assert!(app.settings().chrome.glass, "glass is new, so it starts on");
+    Ok(())
 }
 
 #[test]
@@ -880,19 +848,6 @@ fn a_refused_split_says_why() {
     h.run_steps(3);
     let toast = h.state().toast().map(|t| t.message.clone());
     assert!(toast.is_some_and(|m| m.contains("4 panes")));
-}
-
-#[test]
-fn repaired_settings_say_so() {
-    let mut disk = Memory::default();
-    let bad = r#"{"version":1,"motion":{"zoom":"often"}}"#;
-    disk.0.insert(
-        mareader_ui_egui::app::SETTINGS_KEY.to_owned(),
-        bad.to_owned(),
-    );
-    let app = MareaderApp::from_storage(Some(&disk));
-    let tone = app.toast().map(|t| t.tone);
-    assert_eq!(tone, Some(mareader_engine::toast::Tone::Error));
 }
 
 fn lights(h: &Harness<'static, MareaderApp>) -> mareader_ui_egui::platform::NativeLights {

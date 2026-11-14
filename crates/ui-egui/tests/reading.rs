@@ -1,13 +1,11 @@
 //! Opening and scrolling PDFs, headless, with jobs run between frames.
 
-use eframe::{App as _, Storage as _};
 use egui::accesskit::Role;
 use egui_kittest::Harness;
 use egui_kittest::kittest::Queryable as _;
 use mareader_engine::command::Command;
 use mareader_engine::documents::{OpenRequest, Placement};
 use mareader_ui_egui::MareaderApp;
-use mareader_ui_egui::app::LAST_DOCUMENT_KEY;
 use mareader_ui_egui::ui_command::{Sent, UiCommand};
 
 use crate::common::reader_200 as reader;
@@ -471,23 +469,23 @@ fn a_resize_refits_and_keeps_the_page() {
     assert_eq!(current(&h), page);
 }
 
-#[derive(Default)]
-struct Memory(std::collections::HashMap<String, String>);
+/// A directory that goes when the test does.
+fn tempdir() -> tempfile::TempDir {
+    tempfile::tempdir().expect("a temporary folder")
+}
 
-impl eframe::Storage for Memory {
-    fn get_string(&self, key: &str) -> Option<String> {
-        self.0.get(key).cloned()
-    }
+/// The next launch, from what the engine wrote in `dir`.
+fn relaunched(dir: &std::path::Path) -> MareaderApp {
+    let loaded = mareader_ui_egui::import::once(None, Some(dir.to_path_buf()));
+    let mut app = MareaderApp::from_loaded(loaded);
+    app.save_to(Some(dir.to_path_buf()));
+    app
+}
 
-    fn set_string(&mut self, key: &str, value: String) {
-        self.0.insert(key.to_owned(), value);
-    }
-
-    fn remove_string(&mut self, key: &str) {
-        self.0.remove(key);
-    }
-
-    fn flush(&mut self) {}
+/// What the engine wrote about the document read at exit.
+fn session_file(dir: &std::path::Path) -> Result<String, String> {
+    let path = dir.join(mareader_engine::save::SESSION_FILE);
+    std::fs::read_to_string(path).map_err(|e| e.to_string())
 }
 
 /// A sample PDF on disk, deleted when dropped.
@@ -653,29 +651,26 @@ fn a_book_keeps_its_own_design_over_the_setting() -> Result<(), String> {
 #[test]
 fn the_book_read_at_exit_reopens_on_its_page() -> Result<(), String> {
     let file = File::sample(30, "resume")?;
+    let dir = tempdir();
     let mut app = MareaderApp::default();
+    app.save_to(Some(dir.path().to_path_buf()));
     let request = OpenRequest {
         page: 12,
         ..OpenRequest::path(file.0.clone())
     };
     app.queue(Sent::Engine(Command::Open(request)));
     let mut h = launched(app);
-    let mut disk = Memory::default();
-    h.state_mut().save(&mut disk);
-    // The next launch, from what was saved.
-    let mut again = MareaderApp::from_storage(Some(&disk));
-    assert!(
-        again.resume(),
-        "saved {:?}",
-        disk.get_string(LAST_DOCUMENT_KEY)
-    );
+    h.state_mut().flush();
+    // The next launch, from the two files the engine wrote.
+    let mut again = relaunched(dir.path());
+    assert!(again.resume(), "wrote {:?}", session_file(dir.path()));
     let h = launched(again);
     assert_eq!(h.state().title(), "Read Last Time");
     let pane = h.state().active_pane();
     assert_eq!(h.state().documents().current(pane), Some(12));
     // A file gone since then leaves the window empty, without a fuss.
     drop(file);
-    let mut moved = MareaderApp::from_storage(Some(&disk));
+    let mut moved = relaunched(dir.path());
     assert!(!moved.resume());
     Ok(())
 }
@@ -683,7 +678,9 @@ fn the_book_read_at_exit_reopens_on_its_page() -> Result<(), String> {
 #[test]
 fn a_book_read_at_exit_reopens_at_its_place_in_new_type() -> Result<(), String> {
     let file = File::book(6, "resume-book")?;
+    let dir = tempdir();
     let mut app = MareaderApp::default();
+    app.save_to(Some(dir.path().to_path_buf()));
     let request = OpenRequest {
         page: 8,
         ..OpenRequest::path(file.0.clone())
@@ -695,12 +692,11 @@ fn a_book_read_at_exit_reopens_at_its_place_in_new_type() -> Result<(), String> 
     let reading = h.state().documents().reading(pane);
     let place = reading.and_then(|r| r.document.anchor(8));
     assert!(place.is_some(), "a book's page has a place");
-    let mut disk = Memory::default();
-    h.state_mut().save(&mut disk);
-    let saved = disk.get_string(LAST_DOCUMENT_KEY).unwrap_or_default();
+    h.state_mut().flush();
+    let saved = session_file(dir.path())?;
     assert!(saved.contains("\"place\""), "{saved}");
     // Next launch in bigger type: the page differs, the place doesn't.
-    let mut again = MareaderApp::from_storage(Some(&disk));
+    let mut again = relaunched(dir.path());
     again.settings_mut().text.font_size = 28.0;
     assert!(again.resume());
     let h = launched(again);
@@ -716,17 +712,19 @@ fn a_book_read_at_exit_reopens_at_its_place_in_new_type() -> Result<(), String> 
 }
 
 #[test]
-fn a_dropped_book_or_an_empty_window_leaves_nothing_to_reopen() {
+fn a_dropped_book_or_an_empty_window_leaves_nothing_to_reopen() -> Result<(), String> {
+    let dir = tempdir();
     let mut h = reader(&[]);
-    let mut disk = Memory::default();
-    h.state_mut().save(&mut disk);
-    assert_eq!(disk.get_string(LAST_DOCUMENT_KEY).as_deref(), Some("null"));
+    h.state_mut().save_to(Some(dir.path().to_path_buf()));
+    h.state_mut().flush();
+    assert_eq!(session_file(dir.path())?, "null");
     // Bytes, such as a browser's drop, have no file to come back to.
     h.state_mut().queue(Sent::Engine(Command::Open(sample(3))));
     h.run();
     assert_eq!(h.state().last_document(), None);
-    let mut app = MareaderApp::from_storage(Some(&disk));
+    let mut app = relaunched(dir.path());
     assert!(!app.resume());
+    Ok(())
 }
 
 #[test]

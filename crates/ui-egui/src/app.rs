@@ -20,7 +20,6 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
-use eframe::Storage;
 use egui::{Context, Rect};
 use mareader_appearance::{
     Appearance, BaseMode, FilmGrain, NoiseMode, PaneLooks, Rgb, Routing, TextureMode,
@@ -66,7 +65,7 @@ use mareader_engine::pane::ViewMode;
 use mareader_engine::pane_texts::PaneTexts;
 use mareader_engine::read_aloud::ReadFrom;
 use mareader_engine::route::Route;
-pub use mareader_engine::save::LastDocument;
+pub use mareader_engine::save::{LastDocument, Loaded};
 use mareader_engine::scope::{Scope, Shown};
 use mareader_engine::session::Session;
 use mareader_engine::settings::Tab;
@@ -74,12 +73,12 @@ use mareader_engine::study::Action as StudyAction;
 use mareader_engine::toast::Toast;
 use ui_state::UiState;
 
-pub const SETTINGS_KEY: &str = "settings";
-/// Kept apart from settings: it says what was read, not how to read.
-pub const LAST_DOCUMENT_KEY: &str = "last_document";
-
-/// Settings reach disk this long after a change, at most.
+/// Settings reach disk this long after a change, at most: the engine's own
+/// `save::EVERY`, which a frame is booked just after.
 pub const SAVE_EVERY: Duration = Duration::from_millis(500);
+
+/// What a launch says when some choices came back as defaults.
+const REPAIRED: &str = "Some settings couldn't be read and were reset to defaults.";
 
 /// A generated sample for lookup screenshots, not a provider response.
 struct AssistantSample;
@@ -231,30 +230,26 @@ impl MareaderApp {
     }
 
     pub fn from_creation(cc: &eframe::CreationContext<'_>) -> Self {
-        Self::from_storage(cc.storage)
-    }
-
-    /// Unreadable settings repair section by section; the notes go to stderr.
-    pub fn from_storage(storage: Option<&dyn Storage>) -> Self {
-        let mut app = Self::settings_from(storage);
-        let last = storage.and_then(|s| s.get_string(LAST_DOCUMENT_KEY));
-        app.ui.last = last.and_then(|json| serde_json::from_str(&json).ok());
+        let dir = crate::import::state_dir();
+        let loaded = crate::import::once(cc.storage, dir.clone());
+        let mut app = Self::from_loaded(loaded);
+        app.save_to(dir);
         app
     }
 
-    fn settings_from(storage: Option<&dyn Storage>) -> Self {
-        let Some(json) = storage.and_then(|s| s.get_string(SETTINGS_KEY)) else {
-            return Self::default();
-        };
-        let loaded = mareader_settings::load(&json);
+    /// An app from what a launch found: its choices, what to reopen, a repair.
+    ///
+    /// Unreadable settings arrive repaired section by section, and the notes
+    /// that say so go to stderr and to one toast.
+    pub fn from_loaded(loaded: Loaded) -> Self {
         for note in &loaded.notes {
             eprintln!("mareader: {note}");
         }
         let repaired = !loaded.notes.is_empty();
         let mut app = Self::with_settings(loaded.settings);
+        app.ui.last = loaded.last;
         if repaired {
-            let note = "Some settings couldn't be read and were reset to defaults.";
-            app.ui.toasts.push(Toast::error(note));
+            app.ui.toasts.push(Toast::error(REPAIRED));
         }
         app
     }
