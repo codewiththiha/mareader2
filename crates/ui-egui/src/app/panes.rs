@@ -238,7 +238,6 @@ pub(super) fn own_key(app: &mut MareaderApp, key: &str, value: &str) -> Option<R
         "platform" => Some(app.option_platform(key, value)),
         "toast" => Some(app.option_toast(key, value)),
         "toasts" => Some(app.option_toasts(key, value)),
-        "pinned" => Some(app.option_pinned(key, value)),
         "workers" => Some(app.option_workers(key, value)),
         "sidebar" => Some(app.option_sidebar(key, value)),
         "find" => Some(app.option_find(key, value)),
@@ -263,15 +262,6 @@ impl MareaderApp {
 
     fn option_toasts(&mut self, _key: &str, value: &str) -> Result<(), String> {
         self.ui.toasts.set_open(value == "open");
-        Ok(())
-    }
-
-    fn option_pinned(&mut self, _key: &str, value: &str) -> Result<(), String> {
-        let on = value == "true";
-        for bar in Bar::ALL {
-            self.settings_mut().chrome.pin(bar, on);
-        }
-
         Ok(())
     }
 
@@ -390,17 +380,20 @@ impl MareaderApp {
 
     fn option_panes(&mut self, _key: &str, value: &str) -> Result<(), String> {
         let n: usize = value.parse().map_err(|_| "panes: 1 to 4")?;
+        let want = n.min(mareader_workspace::MAX_PANES);
+        // A shot has no window to ask, so the room is a fixture.
         let area = Bounds::new(0.0, 0.0, 1600.0, 1000.0);
-        while self.tree().len() < n.min(mareader_workspace::MAX_PANES) {
+        while self.tree().len() < want {
             let last = self.tree().panes().last().copied().unwrap_or(self.active());
-            let axis = if self.tree().len() % 2 == 1 {
-                SplitAxis::Horizontal
+            let edge = if self.tree().len() % 2 == 1 {
+                mareader_workspace::Edge::Right
             } else {
-                SplitAxis::Vertical
+                mareader_workspace::Edge::Bottom
             };
-            self.tree_mut()
-                .split(last, axis, Side::After, area)
-                .map_err(|e| e.to_string())?;
+            let made = self.session.split_at(last, edge, area);
+            if made.is_none() {
+                return Err("panes: no room for another".to_owned());
+            }
         }
 
         Ok(())

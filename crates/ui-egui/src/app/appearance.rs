@@ -403,8 +403,12 @@ impl MareaderApp {
     fn option_save_preset(&mut self, _key: &str, value: &str) -> Result<(), String> {
         // `Name` or `Name/Section`, saving the look set so far.
         let (name, group) = value.split_once('/').unwrap_or((value, ""));
-        let look = self.settings_mut().appearance;
-        self.settings_mut().save_preset(name, group, look);
+        let save = Command::SavePreset {
+            name: name.to_owned(),
+            group: group.to_owned(),
+            look: self.settings().appearance,
+        };
+        self.queue(Sent::Engine(save));
 
         Ok(())
     }
@@ -420,7 +424,7 @@ impl MareaderApp {
     }
 
     fn option_label(&mut self, _key: &str, value: &str) -> Result<(), String> {
-        let mut l = self.settings_mut().layout.clone();
+        let mut l = self.settings().layout.clone();
         l.floating_label = value != "false";
         l.floating_label_persist = value == "persist";
         if value == "chapter" {

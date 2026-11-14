@@ -6,7 +6,7 @@
 
 use mareader_appearance::{BaseMode, NoiseMode, TextureMode, builtin_presets};
 use mareader_settings::{
-    AppearanceMenuStyle, BookDesign, ColumnAlign, Corners, FontChoice, PaperArea,
+    AppearanceMenuStyle, Bar, BookDesign, ColumnAlign, Corners, FontChoice, PaperArea,
 };
 
 use super::{field, flag, named, number};
@@ -39,6 +39,7 @@ pub(super) fn set(key: &str, value: &str) -> Option<Result<Vec<Command>, String>
         "animations" => field("motion.enabled", flag(value)),
         "float" => field("chrome.sidebar_overlay", flag(value)),
         "glass" => field("chrome.glass", flag(value)),
+        "pinned" => pinned(value),
         // `gap` is the space between pages, so the setting is its opposite.
         "gap" => field("layout.no_gap", value == "false"),
         "justify" => field("text.justify", flag(value)),
@@ -178,4 +179,23 @@ fn corners(value: &str) -> Result<Vec<Command>, String> {
         _ => Corners::Square,
     };
     field("workspace.look.corners", some)
+}
+
+/// Every bar's pin at once: a shot asks for one look, not for three.
+fn pinned(value: &str) -> Result<Vec<Command>, String> {
+    let on = flag(value);
+    let mut all = Vec::new();
+    for bar in Bar::ALL {
+        all.extend(field(bar_path(bar), on)?);
+    }
+    Ok(all)
+}
+
+/// The setting a bar's pin lives in.
+fn bar_path(bar: Bar) -> &'static str {
+    match bar {
+        Bar::Reader => "chrome.titlebar_pinned",
+        Bar::Library => "chrome.library_titlebar_pinned",
+        Bar::Dictionary => "chrome.dictionary_titlebar_pinned",
+    }
 }

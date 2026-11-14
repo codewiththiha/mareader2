@@ -9,7 +9,7 @@ use crate::session::Session;
 use mareader_appearance::{BaseMode, NoiseMode};
 use mareader_library::{CoverFit, Home, Layout, SortKey};
 use mareader_session::Source;
-use mareader_settings::{AppearanceMenuStyle, LibraryClick, Settings};
+use mareader_settings::{AppearanceMenuStyle, Bar, LibraryClick, Settings};
 
 /// A session on a host with no machine, so its settings are the defaults.
 fn bare() -> Session {
@@ -252,6 +252,22 @@ fn a_search_reaches_the_library_field() -> Result<(), String> {
         return Err("search did not ask the library".into());
     };
     assert_eq!(text, "dune");
+    Ok(())
+}
+
+#[test]
+fn a_pin_key_writes_every_bar_at_once() -> Result<(), String> {
+    let session = written("pinned", "true")?;
+    for bar in Bar::ALL {
+        assert!(session.settings().chrome.pinned(bar), "{bar:?} is free");
+    }
+    let session = written("pinned", "false")?;
+    for bar in Bar::ALL {
+        let pinned = session.settings().chrome.pinned(bar);
+        assert!(!pinned, "{bar:?} stays pinned");
+    }
+    // One write per bar, so a bar added to `Bar::ALL` cannot be missed.
+    assert_eq!(parsed("pinned", "true")?.len(), Bar::ALL.len());
     Ok(())
 }
 

@@ -117,6 +117,14 @@ impl Session {
     /// Writes what is owed at once: the window is going.
     pub fn settle(&mut self, last: Option<LastDocument>) {
         self.save.note(last);
+        self.flush();
+    }
+
+    /// Both files at once, with the document last noted.
+    ///
+    /// What eframe's persist hook asks for, and what a test can: the cadence
+    /// is skipped, and a session with nowhere to write writes nothing.
+    pub fn flush(&mut self) {
         self.save.flush(&self.settings);
     }
 

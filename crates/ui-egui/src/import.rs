@@ -93,5 +93,16 @@ pub fn keep_browser(app: &crate::MareaderApp, storage: &mut Store<'_>) {
     storage.set_string(LAST_DOCUMENT_KEY, json);
 }
 
+/// A browser's store kept, since a browser has no files of its own.
+#[cfg(target_arch = "wasm32")]
+pub fn keep(app: &crate::MareaderApp, storage: &mut Store<'_>) {
+    keep_browser(app, storage);
+}
+
+/// Anywhere with a state directory, the engine's two files are the whole of
+/// what persists, and eframe's store is left alone after its one read.
+#[cfg(not(target_arch = "wasm32"))]
+pub fn keep(_app: &crate::MareaderApp, _storage: &mut Store<'_>) {}
+
 #[cfg(test)]
 mod tests;

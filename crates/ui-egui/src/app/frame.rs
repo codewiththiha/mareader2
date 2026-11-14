@@ -53,10 +53,10 @@ impl eframe::App for MareaderApp {
         SAVE_EVERY
     }
 
-    /// A browser has no files, so its store stays its store.
-    #[cfg(target_arch = "wasm32")]
+    /// The engine saves itself, and a browser keeps its store beside it.
     fn save(&mut self, storage: &mut crate::import::Store<'_>) {
-        crate::import::keep_browser(self, storage);
+        self.session.flush();
+        crate::import::keep(self, storage);
     }
 
     /// Writes what is owed before the window goes.
