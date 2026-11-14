@@ -122,8 +122,8 @@ impl Session {
 
     /// Both files at once, with the document last noted.
     ///
-    /// What eframe's persist hook asks for, and what a test can: the cadence
-    /// is skipped, and a session with nowhere to write writes nothing.
+    /// What a front end's persist hook asks for, and what a test can: the
+    /// cadence is skipped, and a session with nowhere to write writes nothing.
     pub fn flush(&mut self) {
         self.save.flush(&self.settings);
     }
