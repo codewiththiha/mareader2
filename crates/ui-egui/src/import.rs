@@ -12,24 +12,10 @@ use eframe::Storage;
 use mareader_engine::save::{self, Loaded};
 use mareader_settings::Settings;
 
-/// The window's name, and so the directory its files live in.
-pub const APP_ID: &str = "mareader";
 /// The key an older build's choices were written under.
 pub const SETTINGS_KEY: &str = "settings";
 /// Kept apart from settings: it says what was read, not how to read.
 pub const LAST_DOCUMENT_KEY: &str = "last_document";
-
-/// Where the engine's files live here; a browser has nowhere.
-pub fn state_dir() -> Option<PathBuf> {
-    #[cfg(not(target_arch = "wasm32"))]
-    {
-        eframe::storage_dir(APP_ID)
-    }
-    #[cfg(target_arch = "wasm32")]
-    {
-        None
-    }
-}
 
 /// The store a browser keeps, named here so nothing else has to name it.
 pub type Store<'a> = dyn Storage + 'a;

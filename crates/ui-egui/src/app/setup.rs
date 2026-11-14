@@ -49,7 +49,7 @@ impl MareaderApp {
 
     /// Voice models and the pronunciation pack, sharing files in `dir`.
     #[cfg(not(target_arch = "wasm32"))]
-    pub(super) fn attach_voices(
+    pub(super) fn wire_voices(
         &mut self,
         dir: PathBuf,
         catalogue: &'static [mareader_speech::Model],
@@ -75,7 +75,7 @@ impl MareaderApp {
         }
         if let Some(dir) = machine.voices.clone() {
             let offered = machine.offered.unwrap_or(mareader_speech::MODELS);
-            if let Err(why) = self.attach_voices(dir, offered, waker.clone()) {
+            if let Err(why) = self.wire_voices(dir, offered, waker.clone()) {
                 self.refused("Voice models are off", why);
             }
         }

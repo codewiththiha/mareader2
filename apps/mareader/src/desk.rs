@@ -10,6 +10,17 @@ use std::sync::Arc;
 use egui::Context;
 use mareader_engine::host::{Host, Shared};
 
+/// The window's name, and so the folder this platform keeps its files in.
+pub const APP_ID: &str = "mareader";
+
+/// Where the engine's own two files live here, before any window exists.
+///
+/// A second launch asks this before it builds anything, so a book opened
+/// from a file manager can be forwarded to the window already running.
+pub fn state_dir() -> Option<PathBuf> {
+    eframe::storage_dir(APP_ID)
+}
+
 /// The platform's folders, and the window that draws into them.
 pub struct Desk {
     ctx: Context,
@@ -22,7 +33,7 @@ impl Desk {
     pub fn new(ctx: Context) -> Shared {
         Arc::new(Self {
             ctx,
-            state: mareader_ui_egui::import::state_dir(),
+            state: state_dir(),
             cache: cache_dir(),
         })
     }

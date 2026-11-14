@@ -46,10 +46,10 @@ the right place.
 | L2 | `settings` | planned M1 | the persisted schema and defaults |
 | L3 | `session` | planned M2 | open documents shared by panes, the tile cache, the job scheduler |
 | L3 | `assist` | **exists** | AI tasks and their prompts, the providers behind one `Backend` seam, API keys (`docs/assist.md`); desktop only, the one exception to rule 3, listed in `xtask/src/wasm.rs` `EXEMPT` with its reason |
-| L5 | `engine` | **exists** | the app without a window: what outlives a frame or reaches disk, moved out of the front end a slice at a time; no toolkit may be named here |
+| L5 | `engine` | **exists** | the app without a window: what outlives a frame or reaches disk, moved out of the front end a slice at a time; `Host` is the five things it asks a machine for, and `View` is what it still asks a front end for; no toolkit may be named here |
 | L6 | `ui-egui` | **exists** | one front end in egui: theme, icons, title bar, panes, every view and popover |
-| L7 | `apps/mareader` | **exists** | the window, `main`, and eventually the `Host` the engine reaches the machine through |
-| L7 | `apps/mareader-web` | **exists** | the browser preview: the same app through eframe's `WebRunner` |
+| L7 | `apps/mareader` | **exists** | the window, `main`, and `desk.rs`: the `Host` the engine reaches this machine through, with `system.rs` for its file manager and opener |
+| L7 | `apps/mareader-web` | **exists** | the browser preview: the same app through eframe's `WebRunner`, and a `Host` with a clipboard and no files |
 | L7 | `apps/mareader-cli` | planned | the second client; may not link a toolkit |
 | — | `xtask` | **exists** | gates |
 

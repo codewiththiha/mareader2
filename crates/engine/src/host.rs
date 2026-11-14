@@ -179,3 +179,6 @@ impl Machine {
         }
     }
 }
+
+#[cfg(test)]
+mod host_tests;

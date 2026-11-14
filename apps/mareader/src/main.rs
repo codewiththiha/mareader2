@@ -120,7 +120,7 @@ fn main() -> eframe::Result {
         .map(PathBuf::from)
         .collect();
     let inbox = Inbox::default();
-    if let Some(dir) = mareader_ui_egui::import::state_dir()
+    if let Some(dir) = desk::state_dir()
         && single_instance::claim(&dir, &files, &inbox) == Claim::Forwarded
     {
         return Ok(());

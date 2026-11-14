@@ -170,7 +170,7 @@ impl MareaderApp {
     #[cfg(not(target_arch = "wasm32"))]
     fn option_voice_models(&mut self, _key: &str, value: &str) -> Result<(), String> {
         let (dir, models) = (PathBuf::from(value), mareader_speech::MODELS);
-        self.attach_voices(dir, models, Arc::new(|| {}))?;
+        self.wire_voices(dir, models, Arc::new(|| {}))?;
 
         Ok(())
     }

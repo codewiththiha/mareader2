@@ -300,10 +300,7 @@ impl MareaderApp {
 }
 
 /// The find bar's hit in this pane, and no other pane's.
-fn pane_found(
-    lit: &Option<(PaneId, crate::search::Lit)>,
-    pane: PaneId,
-) -> Option<crate::search::Lit> {
+fn pane_found(lit: &Option<(PaneId, Lit)>, pane: PaneId) -> Option<Lit> {
     lit.as_ref()
         .filter(|(p, _)| *p == pane)
         .map(|(_, l)| l.clone())
