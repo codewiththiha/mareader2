@@ -151,6 +151,8 @@ fn mark_intents() -> Vec<Command> {
         Command::Study(StudyAction::Close),
         Command::Dict(DictAction::CloseCard),
         Command::Vocab(Download::Start),
+        #[cfg(not(target_arch = "wasm32"))]
+        Command::AttachVocab(std::path::PathBuf::from("words")),
         Command::Pronunciation(Download::Start),
     ]
 }

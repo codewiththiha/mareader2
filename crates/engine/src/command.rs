@@ -38,6 +38,9 @@ pub enum Command {
     Ai(mareader_settings::Job),
     /// An arrow key over the active document: a turn, or the scroll's.
     Arrow(Arrow),
+    /// The word levels' dataset, at the folder a shot or the settings name.
+    #[cfg(not(target_arch = "wasm32"))]
+    AttachVocab(PathBuf),
     /// Shift+A: the active pane's auto-scroll on or off.
     AutoScroll,
     /// Bookmarks the pane's page, or takes its bookmark back; none is

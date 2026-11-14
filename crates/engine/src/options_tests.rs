@@ -192,6 +192,21 @@ fn a_shelf_key_counts_what_the_batch_seeded() -> Result<(), String> {
     Ok(())
 }
 
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn the_word_levels_key_asks_for_its_folder() -> Result<(), String> {
+    let mut found = parsed("cefr", "/tmp/words")?.into_iter();
+    let root = std::path::PathBuf::from("/tmp/words");
+    assert_eq!(found.next(), Some(Command::AttachVocab(root)));
+    let dial = match found.next() {
+        Some(Command::SetField { path, value }) => (path, value),
+        other => return Err(format!("{other:?} is no dial")),
+    };
+    assert_eq!(dial, ("study.cefr.enabled".to_owned(), "true".to_owned()));
+    assert_eq!(found.next(), None);
+    Ok(())
+}
+
 #[test]
 fn the_open_key_is_shared_by_its_values() -> Result<(), String> {
     let found = parsed("open", "search")?;

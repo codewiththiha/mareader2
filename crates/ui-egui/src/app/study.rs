@@ -277,8 +277,6 @@ pub(super) fn own_key(app: &mut MareaderApp, key: &str, value: &str) -> Option<R
         #[cfg(not(target_arch = "wasm32"))]
         "dictionaries" => Some(app.option_dictionaries(key, value)),
         #[cfg(not(target_arch = "wasm32"))]
-        "cefr" => Some(app.option_cefr(key, value)),
-        #[cfg(not(target_arch = "wasm32"))]
         "ai_dir" => Some(app.option_ai_dir(key, value)),
         "dict_window" => Some(app.option_dict_window(key, value)),
         "dict_fold" => Some(app.option_dict_fold(key, value)),
@@ -302,17 +300,6 @@ impl MareaderApp {
         let inline = self.ui.study.inline();
         self.ui.dict.attach(PathBuf::from(value), Arc::new(|| {}))?;
         self.ui.dict.set_inline(inline);
-        Ok(())
-    }
-
-    #[cfg(not(target_arch = "wasm32"))]
-    fn option_cefr(&mut self, _key: &str, value: &str) -> Result<(), String> {
-        let inline = self.ui.study.inline();
-        self.ui
-            .vocab
-            .attach(PathBuf::from(value), Arc::new(|| {}))?;
-        self.ui.vocab.set_inline(inline);
-        self.set_field("study.cefr.enabled", true)?;
         Ok(())
     }
 

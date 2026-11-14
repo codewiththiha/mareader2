@@ -190,6 +190,15 @@ impl View for Front<'_> {
         self.app.ui.vocab.act(action);
     }
 
+    /// The word levels' dataset: read on this thread, as a shot needs.
+    #[cfg(not(target_arch = "wasm32"))]
+    fn attach_vocab(&mut self, root: PathBuf) -> Result<(), String> {
+        let inline = self.app.ui.study.inline();
+        self.app.ui.vocab.attach(root, std::sync::Arc::new(|| {}))?;
+        self.app.ui.vocab.set_inline(inline);
+        Ok(())
+    }
+
     fn pronunciation(&mut self, action: Download) -> Result<(), String> {
         self.app.ui.sounds.act(action)
     }

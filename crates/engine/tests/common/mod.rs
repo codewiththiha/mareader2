@@ -236,6 +236,11 @@ impl View for Headless {
 
     fn vocab(&mut self, _: Download) {}
 
+    #[cfg(not(target_arch = "wasm32"))]
+    fn attach_vocab(&mut self, _: PathBuf) -> Result<(), String> {
+        Err("No word levels here.".into())
+    }
+
     fn pronunciation(&mut self, _: Download) -> Result<(), String> {
         Err("No pronunciation pack here.".into())
     }

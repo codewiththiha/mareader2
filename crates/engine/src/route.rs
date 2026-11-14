@@ -68,7 +68,7 @@ impl Route {
             I::SetAppearance(_) | I::SavePreset { .. } | I::DeletePreset(_) => false,
             I::SetTitlebarPinned(_) | I::SetSidebarOverlay(_) => false,
             #[cfg(not(target_arch = "wasm32"))]
-            I::Ai(_) => false,
+            I::Ai(_) | I::AttachVocab(_) => false,
         }
     }
 }

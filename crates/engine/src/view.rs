@@ -90,6 +90,8 @@ pub trait View {
     fn pursue(&mut self, word: &str);
     fn dict(&mut self, action: DictAction);
     fn vocab(&mut self, action: Download);
+    #[cfg(not(target_arch = "wasm32"))]
+    fn attach_vocab(&mut self, root: PathBuf) -> Result<(), String>;
     fn pronunciation(&mut self, action: Download) -> Result<(), String>;
 
     fn page_ai(&mut self, action: PageAiAction);

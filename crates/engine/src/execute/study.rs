@@ -37,6 +37,12 @@ fn words(view: &mut dyn View, intent: Command) {
         Command::Dict(DictAction::Pursue(word)) => view.pursue(&word),
         Command::Dict(action) => view.dict(action),
         Command::Vocab(action) => view.vocab(action),
+        #[cfg(not(target_arch = "wasm32"))]
+        Command::AttachVocab(root) => {
+            if let Err(why) = view.attach_vocab(root) {
+                note(view, Toast::error(why));
+            }
+        }
         Command::Pronunciation(action) => {
             if let Err(why) = view.pronunciation(action) {
                 note(view, Toast::error(why));

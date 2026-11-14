@@ -26,6 +26,11 @@ pub const SPECS: &[CommandSpec] = &[
         id: "page.arrow",
         summary: "An arrow key over the active document: a turn, or the scroll's.",
     },
+    #[cfg(not(target_arch = "wasm32"))]
+    CommandSpec {
+        id: "vocab.attach",
+        summary: "The word levels' dataset, at the folder a shot or the settings name.",
+    },
     CommandSpec {
         id: "page.autoscroll",
         summary: "Shift+A: the active pane's auto-scroll on or off.",
@@ -275,6 +280,8 @@ impl Command {
             #[cfg(not(target_arch = "wasm32"))]
             Command::Ai(..) => "ai.job",
             Command::Arrow(..) => "page.arrow",
+            #[cfg(not(target_arch = "wasm32"))]
+            Command::AttachVocab(..) => "vocab.attach",
             Command::AutoScroll => "page.autoscroll",
             Command::Bookmark(..) => "mark.bookmark",
             Command::ClosePane(..) => "pane.close",

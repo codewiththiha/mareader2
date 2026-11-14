@@ -76,6 +76,8 @@ fn dispatch(view: &mut dyn View, intent: Command, now: f64) {
         Command::PageAi(action) => view.page_ai(action),
         #[cfg(not(target_arch = "wasm32"))]
         Command::Ai(job) => view.ai(job),
+        #[cfg(not(target_arch = "wasm32"))]
+        Command::AttachVocab(_) => study::run(view, intent),
         Command::PlaceReadMarker { .. }
         | Command::ReadAloud { .. }
         | Command::ToggleReadAloud
