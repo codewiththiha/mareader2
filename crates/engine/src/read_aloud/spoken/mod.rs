@@ -351,3 +351,8 @@ impl Drop for Spoken {
 
 #[cfg(test)]
 mod tests;
+
+/// A table asked about, and what each of its two answers does.
+#[cfg(test)]
+#[path = "asking_tests.rs"]
+mod asking;

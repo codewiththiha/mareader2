@@ -127,7 +127,47 @@ fn prune(folder: &Path) {
 
 #[cfg(test)]
 mod tests {
-    use super::{name, subtitle_name};
+    use std::sync::Arc;
+
+    use mareader_reflow::Typography;
+    use mareader_session::Document;
+
+    use super::{name, play, subtitle_name};
+    use crate::host::{Fake, Shared};
+    use crate::testing::waited;
+
+    /// The epub crate's media book: a clip with a poster, and a song.
+    const MEDIA: &[u8] = include_bytes!("../../epub/tests/books/media.epub");
+    /// The video that book names, as its own trigger plays it.
+    const CLIP: &str = "/OEBPS/clip.mp4";
+
+    /// A directory that goes when the test does.
+    fn dir() -> Result<tempfile::TempDir, String> {
+        tempfile::tempdir().map_err(|e| e.to_string())
+    }
+
+    /// This job's answer is the host's, not an event: a thread copies the clip
+    /// out and hands the copy over, so the test waits on the host instead.
+    #[test]
+    fn a_clip_leaves_on_its_thread_and_reaches_the_host() -> Result<(), String> {
+        let dir = dir()?;
+        let host = Arc::new(Fake::under(dir.path()));
+        let machine: Shared = host.clone();
+        let book = Document::open(Arc::new(MEDIA.to_vec()), &Typography::default());
+        let doc = Arc::new(book.map_err(|e| e.to_string())?);
+        let clip = doc.media(CLIP).ok_or("the book names no clip")?;
+
+        assert!(play(&machine, Arc::clone(&doc), CLIP.to_owned()), "a thread");
+        assert!(waited(|| !host.opened().is_empty()), "the copy arrived");
+
+        let opened = host.opened().first().cloned().ok_or("nothing opened")?;
+        let cache = dir.path().join("cache").join("mareader-media");
+        assert_eq!(opened.parent(), Some(cache.as_path()), "{opened:?}");
+        assert_eq!(opened.extension().and_then(|e| e.to_str()), Some("mp4"));
+        let bytes = std::fs::read(&opened).map_err(|e| e.to_string())?;
+        assert_eq!(bytes, clip.data, "the copy is the clip's own bytes");
+        Ok(())
+    }
 
     #[test]
     fn copies_are_named_by_clip_and_type() {
