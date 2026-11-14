@@ -1,8 +1,9 @@
 //! `cargo xtask trapped`: no toolkit-free file hides in the front-end crate.
 //!
-//! A file belongs in the engine when it names no toolkit. Until P3 moves them
-//! all, this counts them against a committed number that may only fall
-//! (`docs/architecture.md` § Layers). The allowlisted files are the front
+//! A file belongs in the engine when it names no toolkit, and the gate says so
+//! outright: nothing may be left (`docs/architecture.md` § Layers). It counted
+//! against a committed number while the moves were still ahead; the number is
+//! gone with them. What may stay is allowlisted, and each of those is the front
 //! end's own: its root, its glyph table and its dial labels.
 //!
 //! Only `src/` counts. `tests/` and `examples/` are harnesses: a test binary's
@@ -15,9 +16,6 @@ use std::path::{Path, PathBuf};
 /// Each is presentation with nowhere to go: the crate's root, its glyph table,
 /// and the labels that map a look to one of the front end's icons.
 pub const ALLOWED: &[&str] = &["lib.rs", "icons/pack.rs", "dial_deck/labels.rs"];
-
-/// The committed count; only P3 deletes this file and makes the gate absolute.
-pub const COUNT_FILE: &str = "tools/trapped_count.txt";
 
 /// Every word that means a toolkit crate is in play.
 const TOOLKIT: &[&str] = &[
@@ -81,29 +79,18 @@ fn source_dir() -> PathBuf {
 pub fn run(_: &[String]) -> Result<(), String> {
     let found = free_files(&source_dir());
     let left = trapped(&found, ALLOWED);
-    let limit = committed()?;
     println!(
-        "trapped: {} toolkit-free file(s); the count allows {limit}",
+        "trapped: {} toolkit-free file(s); none may stay",
         left.len()
     );
-    if left.len() > limit {
-        return Err(format!(
-            "{} file(s) name no toolkit and belong below the front end:\n  {}",
-            left.len(),
-            left.join("\n  ")
-        ));
+    if left.is_empty() {
+        return Ok(());
     }
-    Ok(())
-}
-
-/// The committed ceiling; a missing file means the gate has not been armed.
-fn committed() -> Result<usize, String> {
-    let path = crate::root().join(COUNT_FILE);
-    let text = std::fs::read_to_string(&path)
-        .map_err(|_| format!("{COUNT_FILE} is missing; commit the count it gates"))?;
-    text.trim()
-        .parse()
-        .map_err(|_| format!("{COUNT_FILE} does not hold a number"))
+    Err(format!(
+        "{} file(s) name no toolkit and belong below the front end:\n  {}",
+        left.len(),
+        left.join("\n  ")
+    ))
 }
 
 #[cfg(test)]
@@ -140,5 +127,14 @@ mod tests {
     fn nothing_is_trapped_when_the_crate_is_all_views() {
         assert!(trapped(&files(&["lib.rs"]), ALLOWED).is_empty());
         assert!(trapped(&[], ALLOWED).is_empty());
+    }
+
+    /// The allowlist is the whole of what may stay, so it cannot grow quietly.
+    #[test]
+    fn three_files_may_name_no_toolkit() {
+        assert_eq!(ALLOWED, &["lib.rs", "icons/pack.rs", "dial_deck/labels.rs"]);
+        // One more toolkit-free file, and the gate fails on it by name.
+        let left = trapped(&files(&["app/options.rs"]), ALLOWED);
+        assert_eq!(left, files(&["app/options.rs"]));
     }
 }
