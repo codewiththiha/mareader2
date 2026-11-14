@@ -83,6 +83,25 @@ fn the_two_files_travel_as_text_and_read_back() -> Result<(), String> {
     Ok(())
 }
 
+/// A flush with nothing open writes `null` for the last document, so reading
+/// that back is the engine reading its own bytes: nothing reopens and no repair
+/// note is owed. On a page the same two blobs travel through the store.
+#[test]
+fn a_flush_with_nothing_open_travels_as_null_and_says_nothing() -> Result<(), String> {
+    let made = blobs(&choices(), None)?;
+    let mut texts = made.into_iter();
+    let Some((_, settings)) = texts.next() else {
+        return Err("no settings".into());
+    };
+    let session = texts.next().map(|(_, text)| text);
+    assert_eq!(session.as_deref(), Some("null"));
+    let loaded = parse(Some(settings), session);
+    assert_eq!(loaded.settings.text.font_size, 21.0);
+    assert_eq!(loaded.last, None);
+    assert!(loaded.notes.is_empty(), "{:?}", loaded.notes);
+    Ok(())
+}
+
 #[test]
 fn a_temp_file_left_by_an_interrupted_write_is_not_read() -> Result<(), String> {
     let dir = dir()?;

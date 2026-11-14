@@ -143,7 +143,9 @@ pub fn load(dir: Option<&Path>) -> Loaded {
     loaded
 }
 
-/// The two files' text made into a launch, wherever they were kept.
+/// The two files' text made into a launch, wherever they were kept. A session
+/// file holding `null` is a flush that had nothing open: it reopens nothing and
+/// says nothing, because the engine wrote those four bytes itself.
 pub fn parse(settings: Option<String>, session: Option<String>) -> Loaded {
     let mut notes = Vec::new();
     let choices = match settings {
@@ -156,8 +158,8 @@ pub fn parse(settings: Option<String>, session: Option<String>) -> Loaded {
     };
     let last = match session {
         None => None,
-        Some(json) => match serde_json::from_str(&json) {
-            Ok(last) => Some(last),
+        Some(json) => match serde_json::from_str::<Option<LastDocument>>(&json) {
+            Ok(last) => last,
             Err(why) => {
                 notes.push(format!("{SESSION_FILE} could not be read: {why}"));
                 None
