@@ -125,12 +125,16 @@ impl State {
             Action::OrganizeDemo(review) => self.organize_demo(review),
             Action::OrganizePaused(ready) => self.organize_paused_demo(ready),
             Action::RunsDemo => self.runs.demo(),
-            Action::OpenShelf(path) => {
-                if !self.open_shelf(&path) {
-                    out.push(Out::Toast(Toast::info("No shelf by that path.")));
-                }
-            }
+            Action::OpenShelf(path) => self.open_shelf_or_note(path, out),
             _ => {}
+        }
+    }
+
+    /// A fixture's shelf, or a note saying the path names none.
+    fn open_shelf_or_note(&mut self, path: String, out: &mut Vec<Out>) {
+        let found = self.open_shelf(&path);
+        if !found {
+            out.push(Out::Toast(Toast::info("No shelf by that path.")));
         }
     }
 
