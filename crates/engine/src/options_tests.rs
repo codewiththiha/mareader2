@@ -4,7 +4,7 @@ use std::sync::Arc;
 
 use super::*;
 use crate::host::Fake;
-use crate::library::{Action, SearchAction};
+use crate::library::{Action, BookAction, SearchAction, State};
 use crate::session::Session;
 use mareader_appearance::{BaseMode, NoiseMode};
 use mareader_library::{CoverFit, Home, Layout, SortKey};
@@ -116,20 +116,12 @@ fn a_key_the_front_end_keeps_is_not_here() {
         "chromeless",
         "menu",
         "reduced",
-        // These read the books as they stand, or fill a fixture.
-        "select",
-        "remove",
-        "shelf",
-        "books",
-        "shelves",
-        "copies",
-        "runs",
-        "organize",
         // These name the front end's own widgets.
         "platform",
         "sidebar",
         "find",
         "workers",
+        // This one is shared: its popover values stay a front end's.
         "open",
         "toast",
         "toasts",
@@ -143,6 +135,81 @@ fn a_key_the_front_end_keeps_is_not_here() {
         assert!(parse(key, "true", &bare()).is_none(), "{key} moved");
     }
     assert!(parse("no_such_key", "1", &bare()).is_none());
+}
+
+#[test]
+fn the_shelf_keys_answer_library_actions() -> Result<(), String> {
+    let found = parsed("books", "3")?;
+    assert_eq!(found, vec![Command::Library(Action::Seed(3))]);
+    let found = parsed("shelves", "demo")?;
+    assert_eq!(found, vec![Command::Library(Action::SeedShelves)]);
+    let found = parsed("copies", "2")?;
+    assert_eq!(found, vec![Command::Library(Action::SeedCopies(2))]);
+    let found = parsed("shelf", "Fiction")?;
+    let named = Action::OpenShelf("Fiction".to_owned());
+    assert_eq!(found, vec![Command::Library(named)]);
+    let found = parsed("runs", "two")?;
+    assert_eq!(found, vec![Command::Library(Action::RunsDemo)]);
+    let found = parsed("organize", "review")?;
+    assert_eq!(found, vec![Command::Library(Action::OrganizeDemo(true))]);
+    let hint = parsed("organize", "sideways");
+    let want = "organize: running, review, paused or ready";
+    assert_eq!(hint.err().as_deref(), Some(want));
+    let hint = parsed("books", "many");
+    assert_eq!(hint.err().as_deref(), Some("books: a count"));
+    Ok(())
+}
+
+#[test]
+fn the_picking_keys_ask_the_shelf_where_they_land() -> Result<(), String> {
+    // Nothing is read here: a shot seeds the shelf in the same batch.
+    let found = parsed("select", "2")?;
+    assert_eq!(found, vec![Command::Library(Action::PickRecent(2))]);
+    let found = parsed("remove", "2")?;
+    assert_eq!(found, vec![Command::Library(Action::AskRemoveRecent(2))]);
+    let found = parsed("remove", "shelf:Fiction")?;
+    let named = Action::AskRemoveShelf("Fiction".to_owned());
+    assert_eq!(found, vec![Command::Library(named)]);
+    let hint = parsed("remove", "some");
+    let want = "remove: a count or shelf:Name";
+    assert_eq!(hint.err().as_deref(), Some(want));
+    Ok(())
+}
+
+#[test]
+fn a_shelf_key_counts_what_the_batch_seeded() -> Result<(), String> {
+    let mut shelf = State::default();
+    let mut out = Vec::new();
+    shelf.act(Action::Seed(4), 0.0, &mut out);
+    for command in parsed("select", "3")? {
+        let action = match command {
+            Command::Library(action) => action,
+            other => return Err(format!("{other:?} is no library ask")),
+        };
+        shelf.act(action, 0.0, &mut out);
+    }
+    assert_eq!(shelf.picks.books().len(), 3);
+    Ok(())
+}
+
+#[test]
+fn the_open_key_is_shared_by_its_values() -> Result<(), String> {
+    let found = parsed("open", "search")?;
+    let focus = Action::Search(SearchAction::Focus);
+    assert_eq!(found, vec![Command::Library(focus)]);
+    let found = parsed("open", "add")?;
+    assert_eq!(found, vec![Command::Library(Action::ShowAdd)]);
+    let found = parsed("open", "add_folder")?;
+    let folder = Action::AskFolder(std::path::PathBuf::from("/home/reader/Books"));
+    assert_eq!(found, vec![Command::Library(folder)]);
+    let found = parsed("open", "rename")?;
+    assert_eq!(found, vec![Command::Library(Action::AskRenameLast)]);
+    let found = parsed("open", "remove")?;
+    let ask = Action::Book(BookAction::AskRemovePicked);
+    assert_eq!(found, vec![Command::Library(ask)]);
+    // A popover is a front end's, so the door falls through to it.
+    assert!(parse("open", "appearance", &bare()).is_none());
+    Ok(())
 }
 
 #[test]

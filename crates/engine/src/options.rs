@@ -6,8 +6,9 @@
 //! engine's — a setting by its dotted path, as `Command::SetField` — so the
 //! parsing lives here, where a front end, a command line and a test all meet
 //! the same answer. A key that reads what is set so far reads it here, from the
-//! session it arrives with. A front end keeps the keys that name its toolkit,
-//! its widgets, and the room its own window has.
+//! session it arrives with; a key that reads the books asks the library, which
+//! answers when the ask lands. A front end keeps the keys that name its
+//! toolkit, its widgets, and the room its own window has.
 //!
 //! `None` is the answer for a key this module does not own, which is how a
 //! front end's own keys stay reachable: it asks here first and falls through.

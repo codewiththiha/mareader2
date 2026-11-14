@@ -25,6 +25,21 @@ impl State {
                 };
                 self.sheet = Some(asked);
             }
+            BookAction::AskRemovePicked => {
+                let books = self.picks.books();
+                if books.is_empty() {
+                    let note = "Pick the books to take out first.";
+                    out.push(Out::Toast(Toast::info(note)));
+                    return;
+                }
+                let (shelves, links) = (Vec::new(), Vec::new());
+                let asked = Sheet::Removal {
+                    books,
+                    shelves,
+                    links,
+                };
+                self.sheet = Some(asked);
+            }
             BookAction::Remove {
                 books,
                 shelves,

@@ -283,8 +283,8 @@ impl MareaderApp {
     ///
     /// The engine parses the keys that set what it holds, reading the session
     /// they arrive at, so a shot, a query string and a command line all meet
-    /// one answer. What is left is each family's own: its widgets, and the
-    /// fixtures that fill them, or the splits its window has room for.
+    /// one answer. What is left is each family's own: its widgets, its
+    /// popovers, and the splits its window has room for.
     pub fn set_option(&mut self, key: &str, value: &str) -> Result<(), String> {
         self.reconcile_texts();
         let parsed = mareader_engine::options::parse(key, value, &self.session);

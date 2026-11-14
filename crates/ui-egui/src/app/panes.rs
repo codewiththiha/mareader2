@@ -293,6 +293,7 @@ impl MareaderApp {
         Ok(())
     }
 
+    /// The popovers a shot brings up; the engine answers `open`'s own values.
     fn option_open(&mut self, _key: &str, value: &str) -> Result<(), String> {
         match value {
             "appearance" => self.queue(Sent::Ui(UiCommand::ShowAppearance)),
@@ -300,59 +301,6 @@ impl MareaderApp {
             "shortcuts" => self.queue(Sent::Ui(UiCommand::ShowShortcuts)),
             "menu" => self.queue(Sent::Ui(UiCommand::ShowViewMenu)),
             "find" => self.queue(Sent::Ui(UiCommand::ShowFind)),
-            "search" => {
-                let focus = mareader_engine::library::SearchAction::Focus;
-                self.queue(Sent::Engine(Command::Library(
-                    mareader_engine::library::Action::Search(focus),
-                )));
-            }
-            "add" => self.queue(Sent::Engine(Command::Library(
-                mareader_engine::library::Action::ShowAdd,
-            ))),
-            "add_folder" => {
-                let root = std::path::PathBuf::from("/home/reader/Books");
-                self.queue(Sent::Engine(Command::Library(
-                    mareader_engine::library::Action::AskFolder(root),
-                )));
-            }
-            // The removal sheet for what `select` picked.
-            "remove" => {
-                let books = self.ui.queued.iter().find_map(|c| match c {
-                    Sent::Engine(Command::Library(mareader_engine::library::Action::Pick(
-                        mareader_library::picks::PickAction::Only(p),
-                    ))) => Some(p.iter().filter_map(|p| match p {
-                        mareader_library::picks::Pick::Book(id) => Some(*id),
-                        _ => None,
-                    })),
-                    _ => None,
-                });
-                let books: Vec<_> = books.ok_or("open=remove: select books first")?.collect();
-                let (shelves, links) = (Vec::new(), Vec::new());
-                let ask = mareader_engine::library::BookAction::AskRemove {
-                    books,
-                    shelves,
-                    links,
-                };
-                self.queue(Sent::Engine(Command::Library(
-                    mareader_engine::library::Action::Book(ask),
-                )));
-            }
-            "rename" => {
-                let first = self.ui.library.model().recent().first().map(|b| b.id);
-                let first = first.ok_or("open=rename: no book")?;
-                let ask = mareader_engine::library::Action::AskRename(
-                    mareader_engine::library::Named::Book(first),
-                );
-                self.queue(Sent::Engine(Command::Library(ask)));
-            }
-            // The first missing book's find-again sheet.
-            "find_again" => {
-                let lost = self.ui.library.model().books().find(|b| b.missing());
-                let lost = lost.ok_or("open=find_again: no missing book")?.id;
-                self.queue(Sent::Engine(Command::Library(
-                    mareader_engine::library::Action::FindAgain(lost),
-                )));
-            }
             _ => {
                 return Err(
                     "open: appearance, settings, menu, find, folders, find_again, remove \

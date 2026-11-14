@@ -267,6 +267,8 @@ pub enum BookAction {
         shelves: Vec<ShelfId>,
         links: Vec<LinkId>,
     },
+    /// Asks first for whatever the page has picked; nothing picked, no sheet.
+    AskRemovePicked,
     /// `cascade` takes what's inside the shelves; `forget`, marks and places.
     Remove {
         books: Vec<BookId>,
@@ -389,6 +391,8 @@ pub enum Action {
     Reveal(Pick),
     Scope(Scope),
     FindAgain(BookId),
+    /// The find-again sheet for the first book whose file has gone.
+    FindAgainLost,
     /// Shows the file dialog for a lost book.
     PickFile(BookId),
     /// Shows the folder dialog to search for a lost book.
@@ -406,12 +410,20 @@ pub enum Action {
     CloseSheet,
     /// Opens the one rename sheet for a book, a shelf or a link.
     AskRename(Named),
+    /// That sheet for the book read last.
+    AskRenameLast,
     Rename(Named, String),
     /// A book's own design choice; none follows the reader's setting.
     Design(BookId, Option<Design>),
     Shelf(ShelfAction),
     Pick(PickAction),
+    /// Picks the `count` books read last, as the page's bar picks them.
+    PickRecent(usize),
     Book(BookAction),
+    /// The removal sheet for the `count` books read last.
+    AskRemoveRecent(usize),
+    /// That sheet for a shelf by name.
+    AskRemoveShelf(String),
     Search(SearchAction),
     /// Asks the AI to shelve the picked books, else every loose one.
     Organize(Option<Vec<BookId>>),
@@ -431,4 +443,18 @@ pub enum Action {
     /// Lets the plan go; nothing moved.
     DiscardOrganized,
     UndoOrganized(Box<Applied>),
+    /// A fixture's shelf: `count` books, as a shot asks for.
+    Seed(usize),
+    /// A fixture's shelves, with the books filed on them.
+    SeedShelves,
+    /// A fixture's twins: `count` copies of one book.
+    SeedCopies(usize),
+    /// A fixture's made-up AI run; `review` shows the plan it came to.
+    OrganizeDemo(bool),
+    /// A fixture's paused AI run; `ready` has it finished.
+    OrganizePaused(bool),
+    /// Two fixture imports under way, their cards shown at once.
+    RunsDemo,
+    /// Goes to a shelf by its names from the top, as "Fiction/Classics".
+    OpenShelf(String),
 }
