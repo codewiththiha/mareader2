@@ -13,7 +13,7 @@ use super::{field, flag, named, number};
 use crate::command::Command;
 
 /// The looks' keys; `None` for a key that is not one of them.
-pub(super) fn set(key: &str, value: &str) -> Option<Result<Command, String>> {
+pub(super) fn set(key: &str, value: &str) -> Option<Result<Vec<Command>, String>> {
     let parsed = match key {
         "set" => by_path(value),
         "theme" => theme(value),
@@ -55,30 +55,30 @@ pub(super) fn set(key: &str, value: &str) -> Option<Result<Command, String>> {
 }
 
 /// Any setting by its dotted path: `layout.page_indicator:false`.
-fn by_path(value: &str) -> Result<Command, String> {
+fn by_path(value: &str) -> Result<Vec<Command>, String> {
     let (path, json) = value.split_once(':').ok_or("set: path:json")?;
-    Ok(Command::SetField {
+    Ok(vec![Command::SetField {
         path: path.into(),
         value: json.into(),
-    })
+    }])
 }
 
 /// A number written to `path`, with the key's own hint when it is not one.
-fn measure(value: &str, path: &str, hint: &str) -> Result<Command, String> {
+fn measure(value: &str, path: &str, hint: &str) -> Result<Vec<Command>, String> {
     number::<f32>(value, hint).and_then(|n| field(path, n))
 }
 
-fn scale(value: &str) -> Result<Command, String> {
+fn scale(value: &str) -> Result<Vec<Command>, String> {
     let hint = "texture_scale: 25 to 400";
     number::<u16>(value, hint).and_then(|n| field("appearance.texture_scale", n))
 }
 
-fn intensity(value: &str) -> Result<Command, String> {
+fn intensity(value: &str) -> Result<Vec<Command>, String> {
     let hint = "grain_intensity: 0 to 100";
     number::<u8>(value, hint).and_then(|n| field("appearance.noise_intensity", n))
 }
 
-fn theme(value: &str) -> Result<Command, String> {
+fn theme(value: &str) -> Result<Vec<Command>, String> {
     let hint = "theme: light, dark, dim or black";
     let base = BaseMode::ALL
         .into_iter()
@@ -87,7 +87,7 @@ fn theme(value: &str) -> Result<Command, String> {
     field("appearance.base", base)
 }
 
-fn preset(value: &str) -> Result<Command, String> {
+fn preset(value: &str) -> Result<Vec<Command>, String> {
     let hint = "preset: sepia, green, night, parchment, cinema";
     let found = builtin_presets()
         .into_iter()
@@ -96,7 +96,7 @@ fn preset(value: &str) -> Result<Command, String> {
     field("appearance", found.appearance)
 }
 
-fn texture(value: &str) -> Result<Command, String> {
+fn texture(value: &str) -> Result<Vec<Command>, String> {
     let hint = "texture: none, paper, lined, grid, dotted, cross";
     let mode = TextureMode::ALL
         .into_iter()
@@ -105,7 +105,7 @@ fn texture(value: &str) -> Result<Command, String> {
     field("appearance.texture", mode)
 }
 
-fn grain(value: &str) -> Result<Command, String> {
+fn grain(value: &str) -> Result<Vec<Command>, String> {
     let hint = "grain: off, static or animated";
     named(
         value,
@@ -119,7 +119,7 @@ fn grain(value: &str) -> Result<Command, String> {
     .and_then(|m| field("appearance.noise", m))
 }
 
-fn menu_style(value: &str) -> Result<Command, String> {
+fn menu_style(value: &str) -> Result<Vec<Command>, String> {
     let hint = "appearance_menu: classic or dial_deck";
     named(
         value,
@@ -133,7 +133,7 @@ fn menu_style(value: &str) -> Result<Command, String> {
     .and_then(|s| field("chrome.appearance_menu", s))
 }
 
-fn blend_area(value: &str) -> Result<Command, String> {
+fn blend_area(value: &str) -> Result<Vec<Command>, String> {
     let hint = "blend_area: whole or edges";
     named(
         value,
@@ -143,7 +143,7 @@ fn blend_area(value: &str) -> Result<Command, String> {
     .and_then(|a| field("paper.area", a))
 }
 
-fn design(value: &str) -> Result<Command, String> {
+fn design(value: &str) -> Result<Vec<Command>, String> {
     let hint = "design: auto, on or off";
     named(
         value,
@@ -157,7 +157,7 @@ fn design(value: &str) -> Result<Command, String> {
     .and_then(|d| field("text.book_design", d))
 }
 
-fn column(value: &str) -> Result<Command, String> {
+fn column(value: &str) -> Result<Vec<Command>, String> {
     let hint = "column: left, center or right";
     named(
         value,
@@ -172,7 +172,7 @@ fn column(value: &str) -> Result<Command, String> {
 }
 
 /// Anything not `rounded` is square, as the front end read it.
-fn corners(value: &str) -> Result<Command, String> {
+fn corners(value: &str) -> Result<Vec<Command>, String> {
     let some = match value {
         "rounded" => Corners::Rounded,
         _ => Corners::Square,

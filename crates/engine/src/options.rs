@@ -12,21 +12,30 @@
 //! front end's own keys stay reachable: it asks here first and falls through.
 
 mod appearance;
+mod library;
+mod panes;
+mod study;
 
 use crate::command::Command;
 
-/// The command a key asks for; `None` when the key is a front end's own.
-pub fn parse(key: &str, value: &str) -> Option<Result<Command, String>> {
+/// The commands a key asks for, in order; `None` when it is a front end's own.
+///
+/// A batch, because one key can ask for two writes: `sort=title:desc` sets the
+/// key and the way it runs, and the settings hold them apart.
+pub fn parse(key: &str, value: &str) -> Option<Result<Vec<Command>, String>> {
     appearance::set(key, value)
+        .or_else(|| library::set(key, value))
+        .or_else(|| panes::set(key, value))
+        .or_else(|| study::set(key, value))
 }
 
 /// A setting written by its dotted path, as the session's `put` takes it.
-pub(super) fn field<T: serde::Serialize>(path: &str, value: T) -> Result<Command, String> {
+pub(super) fn field<T: serde::Serialize>(path: &str, value: T) -> Result<Vec<Command>, String> {
     let value = serde_json::to_string(&value).map_err(|e| e.to_string())?;
-    Ok(Command::SetField {
+    Ok(vec![Command::SetField {
         path: path.into(),
         value,
-    })
+    }])
 }
 
 /// `true`, and only `true`, is on.
