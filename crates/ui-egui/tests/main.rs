@@ -16,6 +16,7 @@ mod keys;
 mod library;
 mod modes;
 mod navigation;
+mod option_keys;
 mod organize;
 mod page_ai;
 mod page_groups;

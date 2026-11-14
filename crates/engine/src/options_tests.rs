@@ -120,7 +120,6 @@ fn a_key_the_front_end_keeps_is_not_here() {
         "sidebar",
         "find",
         "workers",
-        "pinned",
         "focus",
         "panes",
         "open",
